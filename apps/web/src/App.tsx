@@ -2,6 +2,11 @@ import { Navigate, Route, Routes } from "react-router-dom";
 
 import { AppShell } from "./components/AppShell";
 import { CoursesPage } from "./pages/CoursesPage";
+import {
+  ConfirmPlanPage,
+  ConfirmProfilePage,
+  SelectSourcesPage,
+} from "./pages/SetupContinuationPages";
 import { ClarifyPage, DescribeGoalPage } from "./pages/SetupPages";
 
 function PlaceholderPage({ title }: { title: string }) {
@@ -22,6 +27,9 @@ export function App() {
       <Route path="/courses" element={<CoursesPage />} />
       <Route path="/courses/new" element={<DescribeGoalPage />} />
       <Route path="/courses/new/clarify" element={<ClarifyPage />} />
+      <Route path="/courses/new/sources" element={<SelectSourcesPage />} />
+      <Route path="/courses/new/profile" element={<ConfirmProfilePage />} />
+      <Route path="/courses/new/plan" element={<ConfirmPlanPage />} />
       <Route path="/library" element={<PlaceholderPage title="资源库" />} />
       <Route path="/history" element={<PlaceholderPage title="学习记录" />} />
       <Route path="/notifications" element={<PlaceholderPage title="通知" />} />

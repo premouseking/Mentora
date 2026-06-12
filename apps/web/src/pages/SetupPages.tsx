@@ -63,6 +63,7 @@ const levelOptions = [
 ];
 
 export function ClarifyPage() {
+  const navigate = useNavigate();
   const storedGoal = sessionStorage.getItem("mentora-course-goal");
   const goal = storedGoal || "两周后完成计算机组成原理考试复习";
   const [level, setLevel] = useState("basic");
@@ -127,7 +128,14 @@ export function ClarifyPage() {
             <CircleHelp size={16} />
             我还想补充说明
           </button>
-          <button className="button primary" type="button">
+          <button
+            className="button primary"
+            onClick={() => {
+              sessionStorage.setItem("mentora-course-level", selectedLevel.title);
+              navigate("/courses/new/sources");
+            }}
+            type="button"
+          >
             下一步：添加资料
           </button>
         </div>
