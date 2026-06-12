@@ -1,4 +1,4 @@
-# SmartStudy 端到端可落地实施方案
+# Mentora 端到端可落地实施方案
 
 > 状态：主技术方案，供后续模块设计、ADR、排期和实现使用。  
 > 更新日期：2026-06-11  
@@ -6,7 +6,7 @@
 
 ## 1. 项目最终要做成什么
 
-SmartStudy 是一个“以课程为单位的 AI 学习工作台”，不是通用聊天机器人，也
+Mentora 是一个“以课程为单位的 AI 学习工作台”，不是通用聊天机器人，也
 不是单纯的文档知识库。
 
 用户首先维护自己的长期资源库，再为每门课程选择当前允许使用的资料。用户为一门
@@ -429,9 +429,12 @@ CourseProfile
 第一版采用模块化单体，避免过早拆分微服务。
 
 ```text
-React + TypeScript Web
+Electron Main
+  -> 本地文件、上传、认证、通知、窗口和更新
+  -> Authenticated API / SSE Bridge
+  -> Preload typed contextBridge
+  -> React + TypeScript Renderer
   -> Django REST Framework
-  -> SSE 事件流
   -> 应用服务与领域模块
   -> PostgreSQL + pgvector
   -> Redis
@@ -440,10 +443,13 @@ React + TypeScript Web
   -> 外部模型、搜索、解析和转写服务
 ```
 
-### 3.1 前端
+桌面端完整设计见 `docs/architecture/desktop-client-architecture.md`。
 
-- React 19 + TypeScript；
-- Vite；
+### 3.1 Electron 客户端
+
+- Windows 10/11 x64 首发；
+- Electron 主进程作为薄桌面宿主，不内置 Django、数据库、队列或 AI Runtime；
+- React 19 + TypeScript + Vite 作为 renderer；
 - React Router；
 - TanStack Query 管理服务端状态；
 - Zustand 仅保存功能内临时交互状态；
@@ -452,6 +458,22 @@ React + TypeScript Web
 - TipTap 仅在需要富文本笔记时引入；
 - KaTeX 渲染公式；
 - ECharts 展示掌握度与学习趋势。
+
+进程边界：
+
+- Main：窗口、Deep Link、令牌、API/SSE、文件、上传、通知和更新；
+- Preload：通过 `contextBridge` 暴露有类型、白名单化的桌面能力；
+- Renderer：只负责 UI，不允许 Node.js、任意文件访问和长期令牌；
+- Cloud：继续拥有课程、资料、计划、评测和学习状态的唯一事实。
+
+安全基线：
+
+```text
+nodeIntegration: false
+contextIsolation: true
+sandbox: true
+webSecurity: true
+```
 
 ### 3.2 后端
 
@@ -472,10 +494,15 @@ React + TypeScript Web
 
 ### 3.3 通信
 
-- 普通命令：REST；
-- 模型回答、解析进度、工作流进度：可恢复 SSE；
-- 上传：预签名 URL，前端直传对象存储；
+- Renderer 只调用 preload 暴露的 typed Desktop API；
+- 普通命令：Main Process 认证后转发 REST；
+- 模型回答、解析进度、工作流进度：Main Process 桥接可恢复 SSE；
+- 上传：Main Process 从临时 `file_token` 对应路径按流读取并直传预签名 URL；
+- 登录：系统浏览器 + PKCE + `mentora://auth/callback`；
 - 实时语音或多人协作确定立项后再增加 WebSocket。
+
+API Bridge 只接受 Mentora 相对 API path，不能成为任意 URL 开放代理。大文件不能
+编码为 base64 穿过 IPC。
 
 ## 4. 资料接入统一架构
 
@@ -538,7 +565,7 @@ LibraryItem
 
 1. API 创建上传会话；
 2. 返回对象存储预签名 URL；
-3. 前端分片上传大文件；
+3. Electron Main Process 从用户选择的 `file_token` 分片上传大文件；
 4. 上传完成后提交 SHA-256、大小和客户端 MIME；
 5. 服务端使用 libmagic 或 Apache Tika 再识别真实类型；
 6. ClamAV 扫描；
@@ -1379,7 +1406,7 @@ FSRS 只负责“已学内容何时复习”的记忆调度，不负责判断学
 推荐文案使用“可能有帮助”，不把网络内容自动当作课程事实。用户采纳后，该资源
 才进入课程资料范围，并创建版本化抓取快照。
 
-## 12. 前端信息架构
+## 12. 桌面客户端信息架构
 
 ### 12.1 全局页面
 
@@ -1423,6 +1450,16 @@ FSRS 只负责“已学内容何时复习”的记忆调度，不负责判断学
 - Word：跳转标题和段落；
 - 视频：跳转时间点并显示字幕；
 - 网页：显示抓取快照和原链接。
+
+### 12.4 桌面外壳
+
+- 单实例运行，第二实例将 Deep Link 转发给主实例；
+- 系统浏览器登录后回到原课程工作台；
+- 系统通知可定位解析任务、学习计划或复习任务；
+- 外部链接默认用系统浏览器打开；
+- 文件选择和下载位置使用系统对话框；
+- 更新下载完成后显示“重启并安装”，不在退出时静默安装；
+- 有进行中上传时关闭窗口需要明确确认。
 
 ## 13. 后端模块与核心数据
 
@@ -1670,9 +1707,21 @@ Docker Compose：
 - 可选 Tika；
 - 可选本地 OCR/ASR Worker。
 
+桌面开发：
+
+- `apps/web` 暂作为 renderer，由 Vite 启动；
+- `apps/desktop` 编译 Electron Main 和 Preload；
+- Electron 开发态等待 Vite 和 API 健康检查后再创建窗口；
+- 打包态加载本地 renderer 产物；
+- 本地后端仍通过 Docker Compose 或独立 Python 进程启动，不嵌入 Electron。
+
 ### 18.2 生产初期
 
-- Web 静态资源部署到 CDN；
+- Windows NSIS 安装包；
+- Electron renderer 静态资源随安装包发布；
+- `electron-updater` 使用对象存储/CDN generic feed；
+- 安装包、blockmap 上传完成后最后发布 `latest.yml`；
+- 正式外发前启用 Windows 代码签名；
 - Django 使用 Gunicorn/Uvicorn；
 - API 和 Worker 分开部署；
 - PostgreSQL 托管实例；
@@ -1699,6 +1748,9 @@ Docker Compose：
 范围：
 
 - 用户资源库；
+- Windows Electron 桌面壳、单实例和安全 preload；
+- 主进程 API/SSE Bridge；
+- 系统浏览器登录和 `mentora://auth/callback`；
 - 文本层完整的 PDF 上传和不可变版本；
 - 课程创建并从资源库选择 PDF；
 - 完整快照式 `CourseKnowledgeScopeRevision`；
@@ -1709,11 +1761,14 @@ Docker Compose：
 - PostgreSQL + pgvector 混合检索；
 - 带引用问答；
 - PDF 原文页码与坐标跳转；
-- 任务进度。
+- 任务进度；
+- Electron unpacked 和 NSIS Smoke Test。
 
 验收：
 
 - 用户能上传一份真实文本 PDF，并从一门课程中选择它；
+- renderer 无法直接访问 Node.js、令牌和任意本地路径；
+- 大 PDF 由主进程流式上传，不能完整复制为 IPC base64；
 - 解析结果可查看；
 - 回答必须引用原文；
 - 引用能够跳转；
@@ -1834,6 +1889,9 @@ Docker Compose：
 | 问题 | 当前决策 |
 | --- | --- |
 | 系统形态 | 模块化单体 |
+| 客户端形态 | Electron 薄桌面客户端，Windows 首发 |
+| 桌面构建 | electron-builder + NSIS |
+| 桌面更新 | electron-updater + generic feed，用户确认安装 |
 | 后端 | Django + DRF |
 | 异步任务 | Celery + Redis |
 | 主数据库 | PostgreSQL |
@@ -1841,8 +1899,9 @@ Docker Compose：
 | 对象存储 | MinIO 开发，S3/COS 生产 |
 | 资料组织 | 用户级资源库 + 不可变 SourceVersion |
 | 课程资料 | 版本化 CourseKnowledgeScopeRevision |
-| 前端 | React + TypeScript + Vite |
-| 实时输出 | SSE |
+| Renderer | React + TypeScript + Vite |
+| 桌面安全 | contextIsolation + sandbox + typed preload |
+| 实时输出 | Main Process 桥接可恢复 SSE |
 | PDF | PyMuPDF 快速路径，MinerU 高质量路径，PaddleOCR OCR |
 | Office | Docling/python-docx/python-pptx/openpyxl |
 | 旧 Office | LibreOffice headless 转换 |
@@ -1875,18 +1934,23 @@ Docker Compose：
 - 不让单道低可信题直接大幅改变掌握度；
 - 不在第一版实现正式考试、IRT 或全量人工审题；
 - 不默认下载和保存网络视频；
+- 不在 renderer 开启 Node.js 或暴露任意 IPC；
+- 不在客户端内置 Django、Celery、数据库、OCR 或本地模型运行时；
+- 不在首期实现离线检索、离线 AI、托盘常驻和后台上传；
+- 不复制 Lightest 的终端、SSH、Git、Computer Use 和远程 Agent 体系；
 - 不在没有明确瓶颈时拆微服务或引入独立向量数据库。
 
 ## 22. 下一步工程工作
 
 在正式恢复实现前，应依次完成：
 
-1. 冻结课程配置版本、用户资源库与课程知识作用域、资料证据生命周期和测评证据
-   四份 ADR；
-2. 将 M0 拆成 API、数据表和任务状态 ADR；
-3. 冻结 `ParsedBundle`、`EvidenceUnit` 和结构化引用 Schema；
-4. 先准备文本 PDF 解析基准集和课程问答检索金标集；
-5. 实现 M0：上传文本 PDF 到资源库 -> 解析 -> 课程选择 -> 作用域过滤检索 ->
+1. 冻结桌面进程边界、课程配置版本、用户资源库与课程知识作用域、资料证据生命周期和
+   测评证据 ADR；
+2. 将 M0 拆成 Electron IPC、认证、上传、API/SSE、数据表和任务状态 ADR；
+3. 冻结 Desktop API、`ParsedBundle`、`EvidenceUnit` 和结构化引用 Schema；
+4. 先完成 Electron 安全壳、登录和流式上传 Spike；
+5. 准备文本 PDF 解析基准集和课程问答检索金标集；
+6. 实现 M0：桌面选择并上传文本 PDF -> 解析 -> 课程选择 -> 作用域过滤检索 ->
    引用问答 -> PDF 定位；
-6. M0 达标后依次推进扫描 PDF、Office、主题配置联动；
-7. 视频、完整计划和掌握度在前述基础设施稳定后进入后续阶段。
+7. M0 达标后依次推进扫描 PDF、Office、主题配置联动；
+8. 视频、完整计划和掌握度在前述基础设施稳定后进入后续阶段。

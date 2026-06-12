@@ -1,7 +1,7 @@
 from django.apps import AppConfig
 
 
-class AgentRuntimeConfig(AppConfig):
+class LearningConfig(AppConfig):
     default_auto_field = "django.db.models.BigAutoField"
-    name = "smartstudy.agent_runtime"
+    name = "mentora.learning"
 

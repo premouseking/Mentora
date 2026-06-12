@@ -16,3 +16,4 @@ coverage/
 media/
 staticfiles/
 docs/research/
+.superpowers/

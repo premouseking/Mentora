@@ -14,11 +14,11 @@ INSTALLED_APPS = [
     "django.contrib.messages",
     "django.contrib.staticfiles",
     "rest_framework",
-    "smartstudy.courses",
-    "smartstudy.knowledge",
-    "smartstudy.learning",
-    "smartstudy.assessment",
-    "smartstudy.agent_runtime",
+    "mentora.courses",
+    "mentora.knowledge",
+    "mentora.learning",
+    "mentora.assessment",
+    "mentora.agent_runtime",
 ]
 
 MIDDLEWARE = [
@@ -51,9 +51,9 @@ TEMPLATES = [
 DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.postgresql",
-        "NAME": os.getenv("POSTGRES_DB", "smartstudy"),
-        "USER": os.getenv("POSTGRES_USER", "smartstudy"),
-        "PASSWORD": os.getenv("POSTGRES_PASSWORD", "smartstudy"),
+        "NAME": os.getenv("POSTGRES_DB", "mentora"),
+        "USER": os.getenv("POSTGRES_USER", "mentora"),
+        "PASSWORD": os.getenv("POSTGRES_PASSWORD", "mentora"),
         "HOST": os.getenv("POSTGRES_HOST", "127.0.0.1"),
         "PORT": os.getenv("POSTGRES_PORT", "5432"),
         "CONN_MAX_AGE": 0,
@@ -64,9 +64,9 @@ DATABASES = {
 CELERY_BROKER_URL = os.getenv("REDIS_URL", "redis://127.0.0.1:6379/0")
 CELERY_RESULT_BACKEND = CELERY_BROKER_URL
 CELERY_TASK_ROUTES = {
-    "smartstudy.knowledge.tasks.*": {"queue": "heavy"},
-    "smartstudy.agent_runtime.tasks.*": {"queue": "agent"},
-    "smartstudy.learning.tasks.*": {"queue": "learning"},
+    "mentora.knowledge.tasks.*": {"queue": "heavy"},
+    "mentora.agent_runtime.tasks.*": {"queue": "agent"},
+    "mentora.learning.tasks.*": {"queue": "learning"},
 }
 
 LANGUAGE_CODE = "zh-hans"

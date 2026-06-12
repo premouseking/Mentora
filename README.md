@@ -1,6 +1,6 @@
-# SmartStudy
+# Mentora
 
-SmartStudy is an AI-assisted course workspace for personalized learning.
+Mentora is an Electron desktop course workspace for personalized learning.
 Sources live in a reusable user library. Each course references an explicit,
 versioned knowledge scope and owns its learning intents, plans, learning
 events, assessments, and actionable learning map.
@@ -9,7 +9,8 @@ events, assessments, and actionable learning map.
 
 ```text
 apps/
-  web/          React/Vite user interface
+  desktop/      Target Electron main/preload host (to be implemented)
+  web/          Current React/Vite renderer
   api/          Django REST API, SSE, Celery, and domain workflows
 docs/
   architecture/ Architecture and module boundary documents
@@ -24,10 +25,13 @@ infra/
 3. Follow `apps/api/README.md` to start the API and workers.
 4. Run `pnpm install`, then `pnpm dev:web`.
 
-The initial skeleton exposes:
+The current pre-Electron skeleton exposes:
 
 - Web UI: `http://localhost:5173`
 - API health check: `http://localhost:8000/api/health/`
+
+The target product runs the React UI inside Electron. The Django API remains a
+separately deployed cloud service; it is not bundled into the desktop app.
 
 See [end-to-end-implementation-plan.md](docs/architecture/end-to-end-implementation-plan.md)
 for the product architecture and implementation roadmap.
@@ -51,3 +55,8 @@ and [ADR-0003](docs/architecture/adr/0003-adaptive-ai-question-validation.md).
 Course-profile review, editable learning-plan cards, and atomic course startup
 are specified in
 [ADR-0004](docs/architecture/adr/0004-profile-plan-confirmation.md).
+
+The Electron process boundary, secure IPC, authentication, file upload, and
+desktop release strategy are specified in
+[desktop-client-architecture.md](docs/architecture/desktop-client-architecture.md)
+and [ADR-0005](docs/architecture/adr/0005-electron-desktop-client.md).

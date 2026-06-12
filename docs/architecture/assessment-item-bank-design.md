@@ -5,7 +5,7 @@
 
 ## 1. 结论
 
-SmartStudy 使用统一题目资产模型承载：
+Mentora 使用统一题目资产模型承载：
 
 - 平台官方题库；
 - 用户手工创建的题目；
@@ -727,7 +727,7 @@ MasteryEvidenceWeight
 ## 15. 导入导出和 QTI
 
 1EdTech QTI 3 将题目、测试、结果和元数据作为可交换对象，并支持丰富题型与无障碍
-语义。SmartStudy 的内部模型保持领域友好的 JSON 和关系表，后续增加 QTI 适配层：
+语义。Mentora 的内部模型保持领域友好的 JSON 和关系表，后续增加 QTI 适配层：
 
 ```text
 QTI package

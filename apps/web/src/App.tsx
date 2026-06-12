@@ -14,7 +14,7 @@ export function App() {
     <main className="app-shell">
       <header className="topbar">
         <div>
-          <p className="eyebrow">SmartStudy</p>
+          <p className="eyebrow">Mentora</p>
           <h1>我的课程</h1>
         </div>
         <button className="button secondary" type="button">

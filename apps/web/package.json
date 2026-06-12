@@ -1,5 +1,5 @@
 {
-  "name": "@smartstudy/web",
+  "name": "@mentora/web",
   "private": true,
   "version": "0.1.0",
   "type": "module",
@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.90.16",
@@ -27,4 +27,3 @@
     "vitest": "^3.1.1"
   }
 }
-

@@ -2,15 +2,15 @@ services:
   postgres:
     image: pgvector/pgvector:pg16
     environment:
-      POSTGRES_DB: ${POSTGRES_DB:-smartstudy}
-      POSTGRES_USER: ${POSTGRES_USER:-smartstudy}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-smartstudy}
+      POSTGRES_DB: ${POSTGRES_DB:-mentora}
+      POSTGRES_USER: ${POSTGRES_USER:-mentora}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-mentora}
     ports:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-smartstudy}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-mentora}"]
       interval: 5s
       timeout: 3s
       retries: 20
@@ -32,8 +32,8 @@ services:
     image: minio/minio:latest
     command: server /data --console-address ":9001"
     environment:
-      MINIO_ROOT_USER: ${OBJECT_STORAGE_ACCESS_KEY:-smartstudy}
-      MINIO_ROOT_PASSWORD: ${OBJECT_STORAGE_SECRET_KEY:-smartstudy-secret}
+      MINIO_ROOT_USER: ${OBJECT_STORAGE_ACCESS_KEY:-mentora}
+      MINIO_ROOT_PASSWORD: ${OBJECT_STORAGE_SECRET_KEY:-mentora-secret}
     ports:
       - "9000:9000"
       - "9001:9001"

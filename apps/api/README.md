@@ -1,4 +1,4 @@
-# SmartStudy API
+# Mentora API
 
 ## Setup
 

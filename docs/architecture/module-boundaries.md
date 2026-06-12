@@ -1,4 +1,4 @@
-# SmartStudy 模块边界
+# Mentora 模块边界
 
 > 状态：与《端到端可落地实现方案》同步。正式实现前仍需用 ADR 冻结关键 Schema。
 
@@ -79,6 +79,7 @@ recommendations
 ## 3. 基础设施模块
 
 ```text
+desktop_host       Electron 窗口、认证、文件、上传、API/SSE、通知和更新
 workflow_runtime   显式持久状态机、检查点、租约、重试和取消
 runtime_events     Outbox、持久事件和可恢复 SSE 投影
 model_gateway      模型路由、结构化输出、Fallback 和调用记录
@@ -88,6 +89,11 @@ artifact_store     大型解析产物、快照和生成资源引用
 
 边界约束：
 
+- `desktop_host` 只提供本地系统能力和云端传输，不拥有课程、资料或学习事实；
+- renderer 只能通过 typed preload 调用 `desktop_host`，不能访问 Node.js 或任意 IPC；
+- `desktop_host` 的 API Bridge 只接受 Mentora API allowlist，不能代理任意 URL；
+- 本地文件通过短期 `file_token` 授权，大文件由主进程流式上传；
+- 令牌保存在主进程并使用 `safeStorage`，renderer 不保存长期令牌；
 - `workflow_runtime` 推进流程，不拥有课程、资料或学习事实；
 - 状态迁移与 Outbox 必须在同一数据库事务提交；
 - `runtime_events` 只投影已提交事件，不能替代领域状态；
@@ -95,12 +101,12 @@ artifact_store     大型解析产物、快照和生成资源引用
 - `artifact_store` 保存内容，不判断内容是否有效或应当参与计划；
 - Agent checkpoint 只保存推理运行态，不能成为学生状态或课程状态的唯一来源。
 
-## 4. 前端功能边界
+## 4. 桌面客户端功能边界
 
-前端按用户流程组织，不把每个小按钮拆成独立产品入口：
+renderer 按用户流程组织，不把每个小按钮拆成独立产品入口：
 
 ```text
-src/features/
+apps/web/src/features/        当前 renderer
   courses/              课程入口与课程工作台
   course-profile/       澄清问题卡、画像草稿、字段依据和画像确认
   learning-plan/        阶段/单元/任务卡片、路径编辑、影响校验和最终启动
@@ -115,6 +121,16 @@ src/features/
   workflow-progress/    解析、生成和更新进度
 ```
 
+目标桌面目录：
+
+```text
+apps/desktop/src/
+  main/
+    ipc/
+  preload/
+  shared/
+```
+
 约束：
 
 - 服务端状态优先由 React Query 管理；
@@ -126,6 +142,8 @@ src/features/
 - 路径卡片不能静默修改画像字段，相关操作必须跳转到画像草稿；
 - 资源库操作不直接改变课程；课程资料修改先形成作用域草稿；
 - 大流程页面可组合提问、测试等小流程，小流程不能反向控制整套课程状态机。
+- 文件选择、上传、系统通知、Deep Link 和更新不能在 renderer 自行实现；
+- 当前 `apps/web` 先作为 Electron renderer，桌面主链路稳定后再决定是否重命名。
 
 ## 5. 后台队列边界
 
@@ -155,7 +173,9 @@ ops            清理、对账和失活任务恢复
 M0 只实现：
 
 ```text
-文本 PDF 上传到资源库
+Electron 安全壳与系统浏览器登录
+  -> 选择文本 PDF
+  -> Main Process 流式上传到资源库
   -> 创建不可变 SourceVersion
   -> PyMuPDF 解析
   -> EvidenceUnit
@@ -166,5 +186,5 @@ M0 只实现：
 ```
 
 M0 不引入 Channels、WebSocket 或 LangGraph。进度与流式回答使用 SSE，流程使用
-Celery 加显式持久状态机。扫描 PDF、Office、主题配置和学习闭环按主方案中的
-M1、M2、M3 依次扩展。
+Celery 加显式持久状态机。Electron 不内置后端或离线数据库。扫描 PDF、Office、
+主题配置和学习闭环按主方案中的 M1、M2、M3 依次扩展。

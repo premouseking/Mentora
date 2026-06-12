@@ -5,5 +5,5 @@ def test_health_endpoint() -> None:
     response = Client().get("/api/health/")
 
     assert response.status_code == 200
-    assert response.json() == {"status": "ok", "service": "smartstudy-api"}
+    assert response.json() == {"status": "ok", "service": "mentora-api"}
 
