@@ -1,0 +1,2 @@
+"""SmartStudy domain package."""
+

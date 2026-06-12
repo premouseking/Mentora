@@ -1,0 +1,155 @@
+:root {
+  color: #1d2622;
+  background: #f4f6f3;
+  font-family: Inter, "Microsoft YaHei", sans-serif;
+  font-synthesis: none;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+}
+
+button {
+  font: inherit;
+}
+
+.app-shell {
+  width: min(1120px, calc(100% - 40px));
+  margin: 0 auto;
+  padding: 48px 0;
+}
+
+.topbar {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 24px;
+  border-bottom: 1px solid #d7ddd8;
+  padding-bottom: 24px;
+}
+
+.eyebrow {
+  margin: 0 0 6px;
+  color: #3f6b52;
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+h1,
+h2,
+p {
+  margin-top: 0;
+}
+
+h1 {
+  margin-bottom: 0;
+  font-size: 32px;
+}
+
+.course-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 16px;
+  padding-top: 24px;
+}
+
+.course-card {
+  border: 1px solid #d7ddd8;
+  border-radius: 8px;
+  background: #fff;
+  padding: 22px;
+}
+
+.course-heading {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.course-heading h2 {
+  margin-bottom: 5px;
+  font-size: 19px;
+}
+
+.course-heading p,
+.next-task {
+  color: #66716b;
+  font-size: 14px;
+}
+
+.progress-track {
+  height: 6px;
+  margin: 22px 0 14px;
+  overflow: hidden;
+  border-radius: 3px;
+  background: #e7ebe8;
+}
+
+.progress-track span {
+  display: block;
+  height: 100%;
+  background: #297b4d;
+}
+
+.button {
+  display: inline-flex;
+  min-height: 40px;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border-radius: 6px;
+  padding: 0 16px;
+  cursor: pointer;
+}
+
+.button.primary {
+  width: 100%;
+  border: 1px solid #1f6840;
+  background: #297b4d;
+  color: #fff;
+}
+
+.button.secondary {
+  border: 1px solid #bec9c1;
+  background: #fff;
+  color: #26352c;
+}
+
+.quick-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.quick-actions button {
+  display: inline-flex;
+  min-height: 38px;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  border: 0;
+  background: transparent;
+  color: #4e5e55;
+  cursor: pointer;
+}
+
+@media (max-width: 640px) {
+  .app-shell {
+    width: min(100% - 24px, 1120px);
+    padding-top: 28px;
+  }
+
+  .topbar {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
+
