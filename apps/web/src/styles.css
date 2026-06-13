@@ -4057,20 +4057,6 @@ p {
   overflow: hidden;
 }
 
-.fe-header {
-  display: flex;
-  height: 36px;
-  flex: 0 0 auto;
-  align-items: center;
-  padding: 0 14px;
-  border-bottom: 1px solid var(--border);
-  color: #3d4a45;
-  font-size: 11px;
-  font-weight: 650;
-  letter-spacing: 0.03em;
-  text-transform: uppercase;
-}
-
 /* Split sections */
 
 .fe-section {
@@ -4119,11 +4105,35 @@ p {
   background: #c9d2ce;
 }
 
-/* AI section title with popout button */
+/* Sub section title (non-primary sections) with border-top */
 
-.fe-section-title.ai {
+.fe-section-title.sub {
   border-top: 1px solid var(--border);
   padding-top: 4px;
+}
+
+/* Mistake item styles */
+
+.fe-mistake-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 1px;
+}
+
+.fe-mistake-badge {
+  display: inline-block;
+  padding: 0 4px;
+  border: 1px solid;
+  border-radius: 3px;
+  font-size: 9px;
+  font-weight: 600;
+  line-height: 1.5;
+}
+
+.fe-mistake-count {
+  font-size: 10px;
+  color: var(--muted);
 }
 
 /* Resize handle */
@@ -4143,30 +4153,18 @@ p {
   background: #c5d1cc;
 }
 
-/* AI panel on right side */
+/* Detached side panel (right side, column of sections) */
 
-.ai-panel-side {
+.detached-side-panel {
   display: flex;
   flex: 0 0 auto;
   flex-direction: column;
   background: #f9fbfa;
+  border-left: 1px solid var(--border);
   overflow: hidden;
 }
 
-.ai-panel-side .ai-panel-header {
-  display: flex;
-  height: 36px;
-  flex: 0 0 auto;
-  align-items: center;
-  gap: 6px;
-  border-bottom: 1px solid var(--border);
-  padding: 0 14px;
-  color: #3d4a45;
-  font-size: 11px;
-  font-weight: 650;
-}
-
-/* Popout button (in file explorer AI section too) */
+/* Popout button (in section titles) */
 
 .fe-ai-popout {
   display: inline-flex;
@@ -4188,31 +4186,7 @@ p {
   color: #3d4a45;
 }
 
-.ai-panel-side .fe-ai-popout {
-  display: inline-flex;
-  width: 22px;
-  height: 22px;
-  align-items: center;
-  justify-content: center;
-  margin-left: auto;
-  border: 0;
-  border-radius: 4px;
-  background: transparent;
-  color: #7d8984;
-  cursor: pointer;
-  transition: background 120ms, color 120ms;
-}
 
-.ai-panel-side .fe-ai-popout:hover {
-  background: #e8edeb;
-  color: #3d4a45;
-}
-
-.ai-panel-side .ai-panel-list {
-  flex: 1;
-  overflow-y: auto;
-  padding: 4px 0;
-}
 
 /* AI list items */
 
@@ -4644,20 +4618,11 @@ p {
   overflow: hidden;
 }
 
-.cw-split-left,
-.cw-split-right {
+.cw-split-pane {
   display: flex;
   flex-direction: column;
   min-width: 0;
   overflow: hidden;
-}
-
-.cw-split-left {
-  flex: 0 0 auto;
-}
-
-.cw-split-right {
-  flex: 1;
 }
 
 .cw-split-title {
@@ -4665,6 +4630,7 @@ p {
   min-height: 34px;
   flex: 0 0 auto;
   align-items: center;
+  justify-content: space-between;
   gap: 6px;
   border-bottom: 1px solid var(--border);
   padding: 0 16px;
@@ -4677,9 +4643,31 @@ p {
   white-space: nowrap;
 }
 
-.cw-split-title.ai {
-  color: var(--green-800);
-  background: #f6faf8;
+.cw-panel-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cw-panel-close {
+  display: inline-flex;
+  width: 22px;
+  height: 22px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  cursor: pointer;
+  color: #889992;
+  transition: background 120ms, color 120ms;
+}
+
+.cw-panel-close:hover {
+  background: #e8edeb;
+  color: #3d4a45;
 }
 
 .cw-split-content {
