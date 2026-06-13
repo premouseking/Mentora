@@ -3,8 +3,10 @@ import { Navigate, Route, Routes } from "react-router-dom";
 import { AppShell } from "./components/AppShell";
 import { CoursesPage } from "./pages/CoursesPage";
 import { CourseWorkspacePage } from "./pages/CourseWorkspacePage";
+import { HistoryPage } from "./pages/HistoryPage";
 import { LearningTaskPage } from "./pages/LearningTaskPage";
 import { LibraryPage } from "./pages/LibraryPage";
+import { ParsingLabPage } from "./pages/ParsingLabPage";
 import { StageSummaryPage } from "./pages/StageSummaryPage";
 import {
   ConfirmPlanPage,
@@ -41,7 +43,8 @@ export function App() {
       <Route path="/courses/new/profile" element={<ConfirmProfilePage />} />
       <Route path="/courses/new/plan" element={<ConfirmPlanPage />} />
       <Route path="/library" element={<LibraryPage />} />
-      <Route path="/history" element={<PlaceholderPage title="学习记录" />} />
+      <Route path="/history" element={<HistoryPage />} />
+      <Route path="/lab/parsing" element={<ParsingLabPage />} />
       <Route path="/notifications" element={<PlaceholderPage title="通知" />} />
       <Route path="/settings" element={<PlaceholderPage title="设置" />} />
       <Route path="*" element={<Navigate replace to="/courses" />} />

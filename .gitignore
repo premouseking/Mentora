@@ -18,3 +18,4 @@ staticfiles/
 docs/research/
 .superpowers/
 .codebuddy/
+.git-credentials

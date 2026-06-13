@@ -13,12 +13,16 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
+    "django.contrib.postgres",
     "rest_framework",
+    "pgvector.django",
     "mentora.courses",
     "mentora.knowledge",
     "mentora.learning",
     "mentora.assessment",
     "mentora.agent_runtime",
+    "mentora.parsing",
+    "mentora.retrieval",
 ]
 
 MIDDLEWARE = [
@@ -65,6 +69,7 @@ CELERY_BROKER_URL = os.getenv("REDIS_URL", "redis://127.0.0.1:6379/0")
 CELERY_RESULT_BACKEND = CELERY_BROKER_URL
 CELERY_TASK_ROUTES = {
     "mentora.knowledge.tasks.*": {"queue": "heavy"},
+    "mentora.parsing.tasks.*": {"queue": "heavy"},
     "mentora.agent_runtime.tasks.*": {"queue": "agent"},
     "mentora.learning.tasks.*": {"queue": "learning"},
 }
@@ -75,3 +80,16 @@ USE_I18N = True
 USE_TZ = True
 STATIC_URL = "static/"
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+
+# ── pgvector ─────────────────────────────────────────────
+
+# pgvector 是 PostgreSQL 扩展，Django 引擎仍使用默认 PostgreSQL 后端。
+# 首次部署时需在 PostgreSQL 中手动执行：
+#   CREATE EXTENSION IF NOT EXISTS vector;
+#   CREATE EXTENSION IF NOT EXISTS pg_trgm;
+# 参考: infra/docker/init/01-extensions.sql
+
+# IVFFlat 索引的 lists 参数（约等于 sqrt(行数)）
+PGVECTOR_IVFFLAT_LISTS = 100
+# 向量搜索的探测数（查询时使用，越大召回越准但越慢）
+PGVECTOR_PROBES = 10
