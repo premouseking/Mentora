@@ -2,6 +2,16 @@
 
 Cursor Agent 自动读取 `.cursor/rules/`。本文件面向人类协作者。
 
+## AI 协作者（Cursor Agent）
+
+Git 写操作（`add`、`commit`、`push`、`merge` 等）**不由 AI 直接执行**，而由 AI：
+
+1. 只读检查仓库（`status`、`diff`、`log` 等）
+2. 起草符合下方格式的 commit message
+3. 给出可复制、文件范围明确的命令序列
+
+开发者在本地终端执行后，再将结果交回 AI 继续后续步骤（push、PR 等）。细则见 `.cursor/rules/git-rules.mdc`；Shell 拦截见 `.cursor/rules/shell-file-safety.mdc` 与 `.cursor/hooks/`。
+
 **语言约定：** 仓库文档（`README.md`、`docs/`、`apps/*/README.md` 等）正文使用简体中文；代码标识符、命令、环境变量名、协议字段等专有名词可保留英文。
 
 ## 开始任务前

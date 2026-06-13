@@ -1,0 +1,45 @@
+---
+description: Shell 危险操作拦截规则
+alwaysApply: true
+---
+
+# Shell Safety
+
+## 目标
+
+- Shell 默认允许**只读**探索、运行状态检查、日志查看、语法校验
+- 任何**可能覆盖、截断、删除、生成、解包、同步、自动修复、安装依赖、生成迁移**的命令，应由 hook 拦截；AI 亦不得绕过 hook 用其他工具达成同等破坏效果
+
+## hook 会自动拦截的命令类别
+
+- **Git 写操作**：`git add` / `commit` / `push` / `pull` / `merge` / `rebase` / `reset` / `checkout` / `restore` / `switch` / `stash`（含 `cherry-pick` 等改写历史或工作区的子命令）
+- **直接文件系统变更**：`rm`、`del`、`rmdir`、`Remove-Item`、`unlink`、`cp`、`mv`、`install`、`rsync`、`truncate`、`patch`、`dd`
+- **间接文件变更链路**：`find -delete`、`find -exec rm/cp/mv/...`、`xargs rm/cp/mv/...`
+- **shell 落盘写入**：`>`、`>>`、`<>`、`>|`、`tee`、`sponge`
+- **就地编辑器**：`sed -i`、`perl -i`、`ruby -i`
+- **解包 / 下载到本地**：`tar`、`unzip`、`7z`、`curl -o/-O`、`wget -O`
+- **自动修复 / 写回源码工具**：`eslint --fix`、`prettier --write`、`ruff --fix`、`black`、`isort`
+- **生成器 / 安装器**：`npm install/add`、`pnpm add/install`、`pip install`（会修改 lock 或 node_modules 时）
+
+## 允许直接使用
+
+- 只读 git：`status`、`diff`、`log`、`show`、`branch -v`、`remote -v`、`stash list`、`tag -l`、`describe`、`blame`、`ls-files`
+- 只读系统：`ps`、`Get-Process`、`env`、`where` / `which`
+- 日志与内容查看：`tail`、`less`、`python -m json.tool`
+- 网络只读：`curl`、`wget --spider`（不落盘时）
+
+## 正确替代方式
+
+| 目标 | 正确工具 |
+| --- | --- |
+| 读文件 | Read |
+| 写/新建文本文件 | Write |
+| 局部替换 | StrReplace |
+| 删除文件 | Delete（仅开发者明确要求时） |
+| 编辑 Notebook | EditNotebook |
+| Git 提交 / 推送 | 输出命令由开发者在本地终端执行（见 `git-rules.mdc`） |
+
+## 限制说明
+
+- Hook 基于**命令文本**静态拦截，无法识别所有外部脚本或容器内写盘行为
+- 真正物理只读须配合权限账户或沙箱，不能单靠正则

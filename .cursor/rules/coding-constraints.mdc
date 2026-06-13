@@ -9,6 +9,8 @@ alwaysApply: true
 
 ## Git 提交
 
+AI **不得**直接执行 `git add` / `commit` / `push` 等写操作；须起草 message 并给出命令，由开发者在本地终端执行。完整协作范式见 `git-rules.mdc`。
+
 ```text
 <type>: <简短中文说明>
 
