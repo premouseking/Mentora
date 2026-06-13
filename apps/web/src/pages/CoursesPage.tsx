@@ -65,13 +65,13 @@ function CourseTable() {
       </div>
       {courses.map((course) => (
         <article className="course-row" key={course.id}>
-          <div className="course-identity">
+          <Link className="course-identity course-entry-link" to={`/courses/${course.id}`}>
             <span className={`course-icon ${course.color}`}>{course.icon}</span>
             <div>
               <h2>{course.name}</h2>
               <p>{course.updatedAt}</p>
             </div>
-          </div>
+          </Link>
           <div className="cell-copy">
             <strong>{course.phase}</strong>
             <span>{course.phaseDetail}</span>

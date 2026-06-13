@@ -39,3 +39,61 @@ export const courses = [
     icon: "数",
   },
 ] as const;
+
+export const coursePhases = [
+  { id: "foundation", name: "基础梳理", share: 25, state: "completed" },
+  { id: "focus", name: "重点突破", share: 35, state: "active" },
+  { id: "application", name: "综合应用", share: 25, state: "upcoming" },
+  { id: "review", name: "检验巩固", share: 15, state: "upcoming" },
+] as const;
+
+export const focusTasks = [
+  {
+    id: "cache-locality",
+    index: "2.1",
+    name: "Cache 基本概念与局部性原理",
+    type: "知识点",
+    state: "completed",
+    estimate: "",
+  },
+  {
+    id: "cache-mapping",
+    index: "2.2",
+    name: "Cache 映射方式与命中率",
+    type: "知识点",
+    state: "current",
+    estimate: "约 18 分钟",
+  },
+  {
+    id: "cache-replacement",
+    index: "2.3",
+    name: "Cache 替换策略",
+    type: "知识点",
+    state: "available",
+    estimate: "约 16 分钟",
+  },
+  {
+    id: "multi-level-cache",
+    index: "2.4",
+    name: "写策略与多级 Cache",
+    type: "知识点",
+    state: "available",
+    estimate: "约 14 分钟",
+  },
+  {
+    id: "cache-lab",
+    index: "2.5",
+    name: "实验：Cache 性能对比",
+    type: "实践",
+    state: "optional",
+    estimate: "约 20 分钟",
+  },
+  {
+    id: "focus-check",
+    index: "2.6",
+    name: "阶段检查：重点突破小测",
+    type: "检查点",
+    state: "checkpoint",
+    estimate: "约 15 分钟",
+  },
+] as const;

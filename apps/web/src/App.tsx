@@ -2,6 +2,8 @@ import { Navigate, Route, Routes } from "react-router-dom";
 
 import { AppShell } from "./components/AppShell";
 import { CoursesPage } from "./pages/CoursesPage";
+import { CourseWorkspacePage } from "./pages/CourseWorkspacePage";
+import { LearningTaskPage } from "./pages/LearningTaskPage";
 import {
   ConfirmPlanPage,
   ConfirmProfilePage,
@@ -25,6 +27,8 @@ export function App() {
     <Routes>
       <Route path="/" element={<Navigate replace to="/courses" />} />
       <Route path="/courses" element={<CoursesPage />} />
+      <Route path="/courses/:courseId" element={<CourseWorkspacePage />} />
+      <Route path="/courses/:courseId/tasks/:taskId" element={<LearningTaskPage />} />
       <Route path="/courses/new" element={<DescribeGoalPage />} />
       <Route path="/courses/new/clarify" element={<ClarifyPage />} />
       <Route path="/courses/new/sources" element={<SelectSourcesPage />} />
