@@ -7,6 +7,13 @@ export const DEV_SERVER_URL = process.env.MENTORA_DEV_SERVER_URL ?? null;
 
 export const isDev = !app.isPackaged;
 
+/** 开发态默认跳过认证门禁；设 MENTORA_DEV_AUTH_BYPASS=0 可验证完整登录流程 */
+export function isDevAuthBypassEnabled(): boolean {
+  return isDev && process.env.MENTORA_DEV_AUTH_BYPASS !== "0";
+}
+
+export const DEV_AUTH_BYPASS_ACCOUNT_ID = "dev-bypass";
+
 export const API_BASE_URL =
   process.env.MENTORA_API_BASE_URL ?? "http://127.0.0.1:8000/api";
 
@@ -31,6 +38,13 @@ export const MAX_API_BODY_BYTES = 1024 * 1024;
 
 export function resolvePreloadPath(): string {
   return path.join(__dirname, "..", "preload", "index.cjs");
+}
+
+export function resolveWindowIconPath(): string | undefined {
+  if (!isDev) return undefined;
+  // Windows 任务栏对 PNG 支持不稳定，开发态也走多尺寸 ICO
+  const fileName = process.platform === "win32" ? "icon.ico" : "icon-dev.png";
+  return path.join(app.getAppPath(), "build", fileName);
 }
 
 export function resolveRendererTarget():

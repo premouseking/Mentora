@@ -759,8 +759,8 @@ AI 澄清
 
 规格与实现计划：
 
-- `docs/superpowers/specs/2026-06-13-stage-summary-plan-adjustment-design.md`
-- `docs/superpowers/plans/2026-06-13-stage-summary-plan-adjustment.md`
+- `docs/design/specs/2026-06-13-stage-summary-plan-adjustment-design.md`
+- `docs/design/plans/2026-06-13-stage-summary-plan-adjustment.md`
 
 已实现：
 

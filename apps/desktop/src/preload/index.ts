@@ -5,6 +5,8 @@ import type {
   ApiRequest,
   ApiResponse,
   AppInfo,
+  AuthCredentials,
+  AuthRegisterRequest,
   AuthStatus,
   DeepLink,
   EventStreamOptions,
@@ -49,7 +51,21 @@ const api: MentoraDesktopApi = {
   auth: {
     getStatus: () =>
       ipcRenderer.invoke(Channels.auth.status) as Promise<AuthStatus>,
-    login: () => ipcRenderer.invoke(Channels.auth.login) as Promise<AuthStatus>,
+    login: (credentials: AuthCredentials) => {
+      requireObject(credentials, "credentials");
+      requireString(credentials.email, "credentials.email");
+      requireString(credentials.password, "credentials.password");
+      return ipcRenderer.invoke(Channels.auth.login, credentials) as Promise<AuthStatus>;
+    },
+    register: (request: AuthRegisterRequest) => {
+      requireObject(request, "request");
+      requireString(request.email, "request.email");
+      requireString(request.password, "request.password");
+      if (request.displayName !== undefined) {
+        requireString(request.displayName, "request.displayName");
+      }
+      return ipcRenderer.invoke(Channels.auth.register, request) as Promise<AuthStatus>;
+    },
     logout: () => ipcRenderer.invoke(Channels.auth.logout) as Promise<void>,
     onChanged: (listener) =>
       subscribe<AuthStatus>(Channels.auth.changed, listener),

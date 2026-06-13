@@ -2,7 +2,6 @@ import { type ReactNode, useEffect, useRef, useState } from "react";
 import {
   Bell,
   BookOpen,
-  Bot,
   Check,
   ChevronLeft,
   FolderClosed,
@@ -15,6 +14,8 @@ import {
 } from "lucide-react";
 import { Link, NavLink } from "react-router-dom";
 
+import { DesktopTitleBar } from "./DesktopTitleBar";
+
 const navItems = [
   { to: "/courses", label: "课程", icon: BookOpen },
   { to: "/library", label: "资源库", icon: FolderClosed },
@@ -25,86 +26,12 @@ const navItems = [
 
 const setupSteps = ["描述目标", "补充信息", "添加资料", "确认需求", "确认方案"];
 
-function MentoraMark() {
-  return (
-    <svg
-      aria-hidden="true"
-      className="mentora-mark"
-      fill="none"
-      viewBox="0 0 24 24"
-    >
-      <path
-        d="M5 18.5V5.5l7 5 7-5v13"
-        stroke="currentColor"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth="2"
-      />
-      <path
-        d="M12 10.5V20.5l2-1.45 2 1.45V8.65"
-        stroke="currentColor"
-        strokeLinejoin="round"
-        strokeWidth="1.55"
-      />
-      <path
-        d="M8 17.5h8"
-        stroke="currentColor"
-        strokeLinecap="round"
-        strokeWidth="1.8"
-      />
-    </svg>
-  );
-}
-
 const MIN_SIDEBAR = 160;
 const MAX_SIDEBAR = 320;
 const MIN_PANEL = 260;
 const MAX_PANEL = 600;
 const SIDEBAR_DEFAULT = 196;
 const PANEL_DEFAULT = 360;
-
-function Brand() {
-  return (
-    <Link className="brand" to="/courses" aria-label="Mentora 课程首页">
-      <span className="brand-mark">
-        <MentoraMark />
-      </span>
-      <span>Mentora</span>
-    </Link>
-  );
-}
-
-function WindowBar({
-  aiOpen,
-  onToggleAi,
-}: {
-  aiOpen?: boolean;
-  onToggleAi?: () => void;
-}) {
-  return (
-    <div className="window-bar">
-      <Brand />
-      <div className="window-bar-right">
-        {onToggleAi && (
-          <button
-            className={`ai-toggle-button${aiOpen ? " active" : ""}`}
-            type="button"
-            onClick={onToggleAi}
-            aria-label={aiOpen ? "关闭 AI 对话" : "打开 AI 对话"}
-            title="AI 对话"
-          >
-            <Bot size={17} />
-          </button>
-        )}
-        <div className="window-controls" aria-hidden="true">
-          <span>−</span>
-          <span>□</span>
-          <span>×</span>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 function AppSidebar({ width }: { width: number }) {
   return (
@@ -311,7 +238,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   return (
     <div className={`desktop-app${aiPanelOpen ? " ai-panel-open" : ""}`}>
-      <WindowBar
+      <DesktopTitleBar
         aiOpen={aiPanelOpen}
         onToggleAi={() => setAiPanelOpen((v) => !v)}
       />
@@ -368,7 +295,7 @@ export function SetupShell({
 }) {
   return (
     <div className="desktop-app setup-app">
-      <WindowBar />
+      <DesktopTitleBar />
       <header className="setup-header">
         <Link className="back-link" to="/courses">
           <ChevronLeft size={18} />

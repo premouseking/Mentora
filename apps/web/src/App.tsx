@@ -1,6 +1,8 @@
 import { Navigate, Route, Routes } from "react-router-dom";
 
+import { AuthGate } from "./components/AuthGate";
 import { AppShell } from "./components/AppShell";
+import { AuthPage } from "./pages/AuthPage";
 import { CoursesPage } from "./pages/CoursesPage";
 import { CourseWorkspacePage } from "./pages/CourseWorkspacePage";
 import { LearningTaskPage } from "./pages/LearningTaskPage";
@@ -26,24 +28,27 @@ function PlaceholderPage({ title }: { title: string }) {
 export function App() {
   return (
     <Routes>
-      <Route path="/" element={<Navigate replace to="/courses" />} />
-      <Route path="/courses" element={<CoursesPage />} />
-      <Route path="/courses/:courseId" element={<CourseWorkspacePage />} />
-      <Route path="/courses/:courseId/tasks/:taskId" element={<LearningTaskPage />} />
-      <Route
-        path="/courses/:courseId/phases/:phaseId/summary"
-        element={<StageSummaryPage />}
-      />
-      <Route path="/courses/new" element={<DescribeGoalPage />} />
-      <Route path="/courses/new/clarify" element={<ClarifyPage />} />
-      <Route path="/courses/new/sources" element={<SelectSourcesPage />} />
-      <Route path="/courses/new/profile" element={<ConfirmProfilePage />} />
-      <Route path="/courses/new/plan" element={<ConfirmPlanPage />} />
-      <Route path="/library" element={<PlaceholderPage title="资源库" />} />
-      <Route path="/history" element={<PlaceholderPage title="学习记录" />} />
-      <Route path="/notifications" element={<PlaceholderPage title="通知" />} />
-      <Route path="/settings" element={<PlaceholderPage title="设置" />} />
-      <Route path="*" element={<Navigate replace to="/courses" />} />
+      <Route path="/login" element={<AuthPage />} />
+      <Route element={<AuthGate />}>
+        <Route path="/" element={<Navigate replace to="/courses" />} />
+        <Route path="/courses" element={<CoursesPage />} />
+        <Route path="/courses/:courseId" element={<CourseWorkspacePage />} />
+        <Route path="/courses/:courseId/tasks/:taskId" element={<LearningTaskPage />} />
+        <Route
+          path="/courses/:courseId/phases/:phaseId/summary"
+          element={<StageSummaryPage />}
+        />
+        <Route path="/courses/new" element={<DescribeGoalPage />} />
+        <Route path="/courses/new/clarify" element={<ClarifyPage />} />
+        <Route path="/courses/new/sources" element={<SelectSourcesPage />} />
+        <Route path="/courses/new/profile" element={<ConfirmProfilePage />} />
+        <Route path="/courses/new/plan" element={<ConfirmPlanPage />} />
+        <Route path="/library" element={<PlaceholderPage title="资源库" />} />
+        <Route path="/history" element={<PlaceholderPage title="学习记录" />} />
+        <Route path="/notifications" element={<PlaceholderPage title="通知" />} />
+        <Route path="/settings" element={<PlaceholderPage title="设置" />} />
+        <Route path="*" element={<Navigate replace to="/courses" />} />
+      </Route>
     </Routes>
   );
 }

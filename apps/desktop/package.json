@@ -5,12 +5,15 @@
   "description": "Mentora Electron thin desktop host (main + preload).",
   "main": "dist/main/index.cjs",
   "scripts": {
-    "dev": "concurrently -k -n bundle,electron \"tsup --watch\" \"wait-on http://localhost:5173 dist/main/index.cjs dist/preload/index.cjs && cross-env MENTORA_DEV_SERVER_URL=http://localhost:5173 electron .\"",
+    "dev": "concurrently -k -n bundle,electron \"tsup --watch\" \"wait-on http://localhost:5173 dist/main/index.cjs dist/preload/index.cjs && cross-env MENTORA_DEV_SERVER_URL=http://localhost:5173 nodemon --delay 300ms --watch dist/main/index.cjs --watch dist/preload/index.cjs -e cjs --exec \\\"electron .\\\"\"",
+    "icons:generate": "node scripts/generate-icons.mjs",
     "build:bundle": "tsup",
     "build:renderer": "pnpm --dir ../web build",
     "build": "pnpm build:renderer && pnpm build:bundle",
     "pack:dir": "pnpm build && electron-builder --dir",
     "dist": "pnpm build && electron-builder",
+    "smoke": "pnpm build:bundle && node scripts/smoke.mjs",
+    "test": "node --test scripts/*.test.mjs",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
@@ -23,6 +26,9 @@
     "cross-env": "^7.0.3",
     "electron": "^33.3.1",
     "electron-builder": "^25.1.8",
+    "nodemon": "^3.1.14",
+    "playwright": "^1.60.0",
+    "sharp": "^0.35.1",
     "tsup": "^8.3.5",
     "typescript": "^5.8.3",
     "wait-on": "^8.0.1"

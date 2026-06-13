@@ -1,0 +1,42 @@
+---
+description: Mentora 编码硬约束（Git、注释、安全、共享契约）
+alwaysApply: true
+---
+
+# 编码硬约束
+
+人类协作者见 [CONTRIBUTING.md](../../CONTRIBUTING.md)。架构冲突优先级见 `docs/project-management/README.md`。
+
+## Git 提交
+
+```text
+<type>: <简短中文说明>
+
+<一段具体的中文改动说明>
+```
+
+标题与正文之间**必须空一行**。优先小而可验证的提交。
+
+类型：`feat` `fix` `refactor` `docs` `test` `style` `perf` `chore` `ci` `revert`
+
+分支：`feat/<task-id>-<description>`、`fix/...`、`docs/...`
+
+## 代码注释
+
+简体中文（用户可见错误文案除外）。写约束与边界，不写复述。
+
+边界模块（IPC、Preload、共享 Schema）文件头用 JSDoc，含 `约定`、`约束`、`@see docs/architecture/...`。
+
+行内注释只解释**为什么**。
+
+## 安全红线
+
+禁止进入代码、Fixture、日志：Token、预签名 URL、私有资料正文、隐藏测评答案、本地绝对路径。
+
+Token 仅存 Main `safeStorage`；API 桥接须 path allowlist；Fixture 仅用可安全分发的资料。
+
+## 共享契约变更
+
+修改 IPC、REST、Event/SSE、Source/Evidence/模型/测评 Schema 时，同一 PR 须含：文档更新、兼容性说明、契约测试、DRI 评审。
+
+禁止隐式改 payload；禁止 Renderer 绕过 Preload 访问后端或对象存储。

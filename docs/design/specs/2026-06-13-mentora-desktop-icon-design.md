@@ -22,16 +22,17 @@ Windows 开发态窗口、任务栏和安装包保持一致。
 
 - `apps/desktop/build/icon.png`：供 electron-builder 使用，至少 256×256；
 - `apps/desktop/build/icon.ico`：包含 Windows 常用多尺寸图层；
-- `apps/desktop/build/icon-dev.png`：供 Electron 开发态 `BrowserWindow` 使用。
+- `apps/desktop/build/icon-dev.png`：供 macOS/Linux 开发态 `BrowserWindow` 使用；
+- `apps/desktop/build/icon.ico`：Windows 开发态与打包共用（多尺寸 ICO）。
 
 生成后的位图必须保持相同轮廓，不为不同格式单独调整构图。
 
 ## Electron 接入
 
 - 在桌面端配置模块中集中解析图标路径；
-- 开发态从项目内 `build/icon-dev.png` 读取；
+- 开发态：Windows 从 `build/icon.ico` 读取，并调用 `app.setAppUserModelId("com.mentora.desktop")`（与 `electron-builder.yml` 的 `appId` 一致），避免任务栏仍显示 Electron 默认图标；macOS/Linux 从 `build/icon-dev.png` 读取；
 - 打包态由 electron-builder 将 `build/icon.ico` 写入可执行文件；
-- `BrowserWindow` 显式设置 `icon`，保证 `pnpm dev:desktop` 不再显示 Electron 默认图标；
+- `BrowserWindow` 通过 `nativeImage.createFromPath` 显式设置 `icon`；路径不可读时写 warn 日志；
 - `electron-builder.yml` 显式声明 Windows 图标，避免依赖隐式文件名查找。
 
 ## 验收标准

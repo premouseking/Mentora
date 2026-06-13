@@ -1,9 +1,5 @@
 # 四人团队工程化执行计划
 
-> **供执行人员使用：** 实施本计划时必须使用
-> `superpowers:subagent-driven-development`（推荐）或
-> `superpowers:executing-plans`，并按任务逐项执行。所有步骤使用复选框跟踪。
-
 **目标：** 让 Mentora 四人团队以明确职责、稳定评审机制和一个可执行的
 阶段目标正式开始工程开发。
 

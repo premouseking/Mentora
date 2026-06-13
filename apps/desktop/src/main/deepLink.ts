@@ -17,7 +17,7 @@ export function parseDeepLink(raw: string): DeepLink | null {
   }
 }
 
-/** Windows 第二实例通过 argv 投递 Deep Link，而非 macOS 的 open-url */
+/** 从启动参数中解析 Deep Link（Windows second-instance / 冷启动） */
 export function findDeepLinkInArgv(argv: string[]): DeepLink | null {
   for (const arg of argv) {
     const link = parseDeepLink(arg);

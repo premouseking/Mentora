@@ -1,26 +1,34 @@
-import { app, safeStorage, shell } from "electron";
-import { randomBytes, createHash } from "node:crypto";
+import { app, safeStorage } from "electron";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { EventEmitter } from "node:events";
 
-import type { AuthStatus, DeepLink } from "../shared/desktopApi";
-import { API_BASE_URL, APP_PROTOCOL } from "./config";
+import type {
+  AuthCredentials,
+  AuthRegisterRequest,
+  AuthStatus,
+} from "../shared/desktopApi";
+import {
+  API_BASE_URL,
+  DEV_AUTH_BYPASS_ACCOUNT_ID,
+  isDevAuthBypassEnabled,
+} from "./config";
 import { createLogger } from "./logger";
 
 const log = createLogger("auth");
 
-interface PendingLogin {
-  state: string;
-  codeVerifier: string;
+interface TokenResponse {
+  access_token: string;
+  refresh_token: string;
+  account_id?: string;
+  display_name?: string;
 }
 
-/** 约束：长效 token 不得进入 renderer 或出现在传给 renderer 的 URL 中（§5.3） */
+/** 约束：长效 token 不得进入 renderer（§5.3） */
 export class AuthManager extends EventEmitter {
   private status: AuthStatus = { state: "signed-out" };
   private accessToken: string | null = null;
   private refreshPromise: Promise<string | null> | null = null;
-  private pendingLogin: PendingLogin | null = null;
 
   private get tokenFile(): string {
     return path.join(app.getPath("userData"), "refresh.bin");
@@ -30,6 +38,14 @@ export class AuthManager extends EventEmitter {
     const refreshToken = await this.readRefreshToken();
     if (refreshToken) {
       this.setStatus({ state: "signed-in" });
+      return;
+    }
+    if (isDevAuthBypassEnabled()) {
+      this.setStatus({
+        state: "signed-in",
+        accountId: DEV_AUTH_BYPASS_ACCOUNT_ID,
+        displayName: "开发用户",
+      });
     }
   }
 
@@ -37,73 +53,35 @@ export class AuthManager extends EventEmitter {
     return this.status;
   }
 
-  async login(): Promise<AuthStatus> {
-    const state = randomBytes(16).toString("hex");
-    const codeVerifier = randomBytes(32).toString("base64url");
-    const codeChallenge = createHash("sha256")
-      .update(codeVerifier)
-      .digest("base64url");
-
-    this.pendingLogin = { state, codeVerifier };
+  async login(credentials: AuthCredentials): Promise<AuthStatus> {
     this.setStatus({ state: "signing-in" });
-
-    const authUrl = new URL(`${API_BASE_URL}/auth/authorize/`);
-    authUrl.searchParams.set("response_type", "code");
-    authUrl.searchParams.set("redirect_uri", `${APP_PROTOCOL}://auth/callback`);
-    authUrl.searchParams.set("state", state);
-    authUrl.searchParams.set("code_challenge", codeChallenge);
-    authUrl.searchParams.set("code_challenge_method", "S256");
-
-    await shell.openExternal(authUrl.toString());
-    return this.status;
+    try {
+      await this.exchangeCredentials("/auth/login/", {
+        email: credentials.email,
+        password: credentials.password,
+      });
+      return this.status;
+    } catch (err) {
+      log.error("Login failed", { message: String(err) });
+      this.setStatus({ state: "signed-out" });
+      throw err;
+    }
   }
 
-  async handleCallback(link: DeepLink): Promise<void> {
-    if (link.domain !== "auth" || link.path !== "callback") return;
-
-    const pending = this.pendingLogin;
-    this.pendingLogin = null;
-
-    if (!pending || link.params.state !== pending.state) {
-      log.warn("Rejected auth callback with mismatched state");
-      this.setStatus({ state: "signed-out" });
-      return;
-    }
-
-    const code = link.params.code;
-    if (!code) {
-      this.setStatus({ state: "signed-out" });
-      return;
-    }
-
+  async register(request: AuthRegisterRequest): Promise<AuthStatus> {
+    this.setStatus({ state: "signing-in" });
     try {
-      const res = await fetch(`${API_BASE_URL}/auth/token/`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          grant_type: "authorization_code",
-          code,
-          code_verifier: pending.codeVerifier,
-          redirect_uri: `${APP_PROTOCOL}://auth/callback`,
-        }),
-      });
-      if (!res.ok) throw new Error(`token exchange failed: ${res.status}`);
-      const data = (await res.json()) as {
-        access_token: string;
-        refresh_token: string;
-        account_id?: string;
-        display_name?: string;
+      const body: Record<string, string> = {
+        email: request.email,
+        password: request.password,
       };
-      this.accessToken = data.access_token;
-      await this.writeRefreshToken(data.refresh_token);
-      this.setStatus({
-        state: "signed-in",
-        accountId: data.account_id,
-        displayName: data.display_name,
-      });
+      if (request.displayName) body.display_name = request.displayName;
+      await this.exchangeCredentials("/auth/register/", body);
+      return this.status;
     } catch (err) {
-      log.error("Login token exchange failed", { message: String(err) });
+      log.error("Register failed", { message: String(err) });
       this.setStatus({ state: "signed-out" });
+      throw err;
     }
   }
 
@@ -137,15 +115,8 @@ export class AuthManager extends EventEmitter {
           }),
         });
         if (!res.ok) throw new Error(`refresh failed: ${res.status}`);
-        const data = (await res.json()) as {
-          access_token: string;
-          refresh_token?: string;
-        };
-        this.accessToken = data.access_token;
-        if (data.refresh_token) await this.writeRefreshToken(data.refresh_token);
-        if (this.status.state !== "signed-in") {
-          this.setStatus({ state: "signed-in" });
-        }
+        const data = (await res.json()) as TokenResponse;
+        await this.applyTokenResponse(data);
         return this.accessToken;
       } catch (err) {
         log.warn("Access token refresh failed", { message: String(err) });
@@ -157,6 +128,41 @@ export class AuthManager extends EventEmitter {
     })();
 
     return this.refreshPromise;
+  }
+
+  private async exchangeCredentials(
+    apiPath: string,
+    body: Record<string, string>,
+  ): Promise<void> {
+    const res = await fetch(`${API_BASE_URL}${apiPath}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      throw new Error(await this.readErrorMessage(res));
+    }
+    const data = (await res.json()) as TokenResponse;
+    await this.applyTokenResponse(data);
+  }
+
+  private async applyTokenResponse(data: TokenResponse): Promise<void> {
+    this.accessToken = data.access_token;
+    await this.writeRefreshToken(data.refresh_token);
+    this.setStatus({
+      state: "signed-in",
+      accountId: data.account_id,
+      displayName: data.display_name,
+    });
+  }
+
+  private async readErrorMessage(res: Response): Promise<string> {
+    try {
+      const body = (await res.json()) as { detail?: string; message?: string };
+      return body.detail ?? body.message ?? `认证失败（${res.status}）`;
+    } catch {
+      return `认证失败（${res.status}）`;
+    }
   }
 
   private setStatus(status: AuthStatus): void {

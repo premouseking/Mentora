@@ -25,6 +25,15 @@ export interface AuthStatus {
   displayName?: string;
 }
 
+export interface AuthCredentials {
+  email: string;
+  password: string;
+}
+
+export interface AuthRegisterRequest extends AuthCredentials {
+  displayName?: string;
+}
+
 /** 约束：仅相对 path；token 由 main 注入（§5.1） */
 export interface ApiRequest {
   path: string;
@@ -104,7 +113,8 @@ export interface MentoraDesktopApi {
   };
   auth: {
     getStatus(): Promise<AuthStatus>;
-    login(): Promise<AuthStatus>;
+    login(credentials: AuthCredentials): Promise<AuthStatus>;
+    register(request: AuthRegisterRequest): Promise<AuthStatus>;
     logout(): Promise<void>;
     onChanged(listener: (status: AuthStatus) => void): Unsubscribe;
   };

@@ -15,6 +15,8 @@ import {
 } from "lucide-react";
 import { Link, useParams } from "react-router-dom";
 
+import { DesktopTitleBar } from "../components/DesktopTitleBar";
+
 const contentSections = [
   { id: "goal", label: "本节目标" },
   { id: "locality", label: "局部性原理" },
@@ -43,14 +45,12 @@ export function LearningTaskPage() {
 
   return (
     <div className="learning-shell">
+      <DesktopTitleBar />
       <header className="learning-topbar">
         <Link to={`/courses/${courseId}`}>
           <ArrowLeft size={18} />
           返回课程主页
         </Link>
-        <div className="learning-window-controls" aria-hidden="true">
-          <span>−</span><span>□</span><span>×</span>
-        </div>
       </header>
 
       <header className="task-titlebar">

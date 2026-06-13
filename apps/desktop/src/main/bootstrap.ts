@@ -1,7 +1,7 @@
-import { app, BrowserWindow } from "electron";
+import { app, BrowserWindow, Menu } from "electron";
 import path from "node:path";
 
-import { APP_PROTOCOL, isDev } from "./config";
+import { APP_PROTOCOL, isDev, isDevAuthBypassEnabled } from "./config";
 import { createLogger } from "./logger";
 import { createMainWindow } from "./window";
 import { AuthManager } from "./auth";
@@ -39,10 +39,6 @@ function focusMainWindow(): void {
 
 function dispatchDeepLink(link: DeepLink): void {
   log.info("Deep link received", { domain: link.domain, path: link.path });
-  if (link.domain === "auth") {
-    void services?.auth.handleCallback(link);
-    return;
-  }
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send(Channels.window.deepLink, link);
   }
@@ -69,6 +65,7 @@ function createServices(): Services {
 }
 
 async function onReady(): Promise<void> {
+  Menu.setApplicationMenu(null);
   services = createServices();
   await services.auth.initialize();
   registerIpc(services);
@@ -89,6 +86,11 @@ async function onReady(): Promise<void> {
 }
 
 export function bootstrap(): void {
+  if (process.platform === "win32") {
+    // 开发态须与 electron-builder appId 一致，否则任务栏仍显示 Electron 默认图标
+    app.setAppUserModelId("com.mentora.desktop");
+  }
+
   const gotLock = app.requestSingleInstanceLock();
   if (!gotLock) {
     app.quit();
@@ -123,5 +125,9 @@ export function bootstrap(): void {
     app.quit();
   });
 
-  if (isDev) log.info("Bootstrapping in development mode");
+  if (isDev) {
+    log.info("Bootstrapping in development mode", {
+      authBypass: isDevAuthBypassEnabled(),
+    });
+  }
 }

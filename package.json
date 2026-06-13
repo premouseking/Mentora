@@ -21,9 +21,10 @@
     "dev:desktop": "concurrently -k -n web,app \"pnpm dev:web\" \"pnpm --dir apps/desktop dev\"",
     "build:desktop": "pnpm --dir apps/desktop build",
     "typecheck:desktop": "pnpm --dir apps/desktop typecheck",
+    "test:desktop": "pnpm --dir apps/desktop test",
+    "smoke:desktop": "pnpm --dir apps/desktop smoke",
     "dist:desktop": "pnpm --dir apps/desktop dist",
     "infra:up": "docker compose -f infra/docker/docker-compose.dev.yml up -d",
     "infra:down": "docker compose -f infra/docker/docker-compose.dev.yml down"
   }
 }
-

@@ -1,14 +1,26 @@
-import { BrowserWindow, session, shell } from "electron";
+import { BrowserWindow, nativeImage, session, shell } from "electron";
 
 import {
   allowedNavigationOrigins,
   isDev,
   resolvePreloadPath,
   resolveRendererTarget,
+  resolveWindowIconPath,
 } from "./config";
 import { createLogger } from "./logger";
 
 const log = createLogger("window");
+
+function resolveWindowIcon(): Electron.NativeImage | undefined {
+  const iconPath = resolveWindowIconPath();
+  if (!iconPath) return undefined;
+  const icon = nativeImage.createFromPath(iconPath);
+  if (icon.isEmpty()) {
+    log.warn("Window icon missing or unreadable", { iconPath });
+    return undefined;
+  }
+  return icon;
+}
 
 /** 开发模式放行 Vite origin/ws 以支持 HMR；生产禁止 `unsafe-eval`（§4） */
 function contentSecurityPolicy(): string {
@@ -71,6 +83,8 @@ export function createMainWindow(): BrowserWindow {
     height: 832,
     minWidth: 960,
     minHeight: 640,
+    frame: false,
+    icon: resolveWindowIcon(),
     show: false,
     backgroundColor: "#0f1115",
     title: "Mentora",

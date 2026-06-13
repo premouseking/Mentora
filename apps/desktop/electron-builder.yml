@@ -16,13 +16,14 @@ extraResources:
   - from: ../web/dist
     to: renderer
 
-# Custom protocol for desktop deep links (mentora://auth/callback, etc.).
+# Custom protocol for desktop deep links (mentora://course/..., etc.).
 protocols:
   - name: Mentora Protocol
     schemes:
       - mentora
 
 win:
+  icon: build/icon.ico
   target:
     - target: nsis
       arch:

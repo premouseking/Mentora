@@ -56,7 +56,7 @@
 - `pnpm-workspace.yaml` 注册 `apps/desktop`
 - 根 `package.json`：`dev:desktop`、`build:desktop`、`dist:desktop`；`pnpm.onlyBuiltDependencies` 放行 electron 二进制下载
 - `apps/desktop`：`tsup` 编译 main/preload 为 CJS；`electron-builder.yml`（Windows NSIS + generic 更新源）
-- 开发态加载 `apps/web` Vite（`http://localhost:5173`）；打包态加载 `../web/dist` → `resources/renderer`
+- 开发态加载 `apps/web` Vite（`http://localhost:5173`，HMR）；`tsup --watch` + `nodemon` 在主/preload 变更时重启 Electron；打包态加载 `../web/dist` → `resources/renderer`
 - `README.md`、`.env.example` 补充桌面开发说明（`MENTORA_API_BASE_URL`）
 
 ### 影响范围
@@ -69,9 +69,8 @@
 ### 尚未完成 / 已知限制
 
 - 登录、上传、SSE 等 IPC 已实现骨架，**尚未与 Django 真实端点联调**
-- 文档 §12 要求的 IPC/SSE/Deep Link 单测与 Playwright Electron E2E **未编写**
+- 文档 §12 要求的完整 IPC/SSE/Deep Link E2E **未编写**；Electron GUI 基线 smoke 已补充
 - Windows 代码签名与生产更新 feed 仍为占位配置（`electron-builder.yml` → `updates.example.com`）
-- `pnpm dev:desktop` 未在本机做 GUI 冒烟（需人工启动验证窗口）
 - ADR-0005 仍为 Proposed；端到端验收通过后再改为 Accepted
 
 ### 验证方式
@@ -94,4 +93,75 @@ feat: 搭建 Electron 桌面客户端框架骨架
 新增 apps/desktop（main/preload/shared），实现 typed IPC 桥、安全窗口基线、
 认证/上传/SSE/更新骨架；注册 workspace 脚本与 electron-builder 配置，
 开发态加载 apps/web renderer。
+```
+
+---
+
+## 2026-06-13：Electron GUI 冒烟验收
+
+关联：
+
+- [Electron GUI Smoke 验收设计](../design/specs/2026-06-13-electron-gui-smoke-design.md)
+- [Electron GUI Smoke 实施计划](../design/plans/2026-06-13-electron-gui-smoke.md)
+
+状态：**已验收**
+
+### 自动验收
+
+- 新增 `pnpm smoke:desktop`，自动编译 main/preload、启动 Vite 并通过 Playwright 启动真实 Electron。
+- 验证主窗口加载、`window.mentoraDesktop` 注入、`app.getInfo()`、Node.js 隔离和窗口控制 IPC。
+- 新增跨平台子进程树清理模块及 Node.js 单元测试。
+- Windows 下通过 `ComSpec` 启动 pnpm，避免 Node.js 24 直接 `spawn pnpm.cmd` 返回 `EINVAL`。
+
+### 本机 GUI 验收
+
+- `pnpm dev:desktop` 成功显示 Mentora 开发窗口。
+- Electron main 完成 bootstrap 和 IPC 注册，renderer 从 `http://localhost:5173` 加载。
+- 窗口可最小化、最大化、还原和关闭。
+- 关闭后，本轮启动的 Electron、Vite、tsup watch 和 concurrently 进程树均已退出。
+- DevTools 自身存在 Chromium protocol/style 控制台告警；renderer smoke 未发现 uncaught page error。
+
+### 尚未覆盖
+
+- 真实登录 Deep Link。
+- PDF 上传与对象存储。
+- SSE 断线恢复。
+- 安装包与自动更新。
+
+---
+
+## 2026-06-13：桌面开发态
+
+关联：
+
+- [Electron GUI Smoke 验收设计](../design/specs/2026-06-13-electron-gui-smoke-design.md)
+- [Mentora 桌面图标设计](../design/specs/2026-06-13-mentora-desktop-icon-design.md)
+
+状态：**部分可用**
+
+### 做了什么
+
+- **开发态 renderer**：保留 Vite dev server（`http://localhost:5173`）+ HMR；Electron 经 `MENTORA_DEV_SERVER_URL` 加载，不再尝试 `file://` + `vite build --watch` 整页重载方案。
+- **开发态 main/preload**：`apps/desktop` 的 `dev` 脚本增加 `nodemon`，监听 `dist/main/index.cjs` 与 `dist/preload/index.cjs`，编译产物变更后自动重启 Electron（对齐 LighTest 的 `dev:electron` 模式）。
+- **路由**：`apps/web` renderer 使用 `HashRouter`，避免打包态 `loadFile` 下 BrowserRouter 子路由刷新白屏。
+- **Windows 开发图标**：开发态 Windows 使用 `build/icon.ico` + `app.setAppUserModelId("com.mentora.desktop")`；`BrowserWindow` 经 `nativeImage.createFromPath` 加载图标。
+
+### 影响范围
+
+- 日常桌面开发仍用 `pnpm dev:desktop`（根脚本 concurrently 启动 Vite 与 desktop dev）。
+- 改 web 页面 → Vite HMR；改 main/preload → tsup 重建 → nodemon 重启 Electron。
+- 文档：`README.md`、`.env.example`、`CONTRIBUTING.md`、图标/GUI smoke 设计规格已同步。
+
+### 尚未完成 / 已知限制
+
+- Windows 代码签名与生产更新 feed 仍为占位配置。
+- 完整 Playwright Electron E2E 仍未建设。
+
+### 验证方式
+
+```bash
+pnpm --dir apps/desktop typecheck
+pnpm --dir apps/desktop build:bundle
+pnpm test:desktop
+pnpm dev:desktop   # 改 web 文案应 HMR；改 main 日志应自动重启；Windows 任务栏应显示 Mentora 图标
 ```
