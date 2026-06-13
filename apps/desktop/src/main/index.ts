@@ -1,9 +1,4 @@
-/**
- * Crash-safe entry point. Per the Lightest experience (desktop §2), main.ts only
- * installs crash protection and starts the bootstrap; all business
- * initialization lives in a diagnosable bootstrap module that is imported only
- * after the process-level handlers are registered.
- */
+/** 进程级崩溃保护后再动态导入 bootstrap，便于隔离启动失败（§2） */
 process.on("uncaughtException", (err) => {
   // eslint-disable-next-line no-console
   console.error("[FATAL] uncaughtException", err);

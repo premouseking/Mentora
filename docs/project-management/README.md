@@ -19,6 +19,7 @@
   Definition of Ready 和 Definition of Done。
 - [阶段交付路线图](delivery-roadmap.md)：六个研发阶段及其进入和退出标准。
 - [第一阶段任务清单](stage-01-backlog.md)：第一个可执行的端到端阶段。
+- [实现变更记录](implementation-log.md)：重要工程改动的摘要与验证方式。
 - [团队工程化执行计划](../superpowers/plans/2026-06-13-four-person-team-engineering.md)：
   启动团队协作机制和第一阶段的执行步骤。
 - [任务模板](templates/task-template.md)：创建工程任务时必须填写的内容。

@@ -9,8 +9,8 @@ events, assessments, and actionable learning map.
 
 ```text
 apps/
-  desktop/      Target Electron main/preload host (to be implemented)
-  web/          Current React/Vite renderer
+  desktop/      Electron main/preload thin host (main + preload + shared IPC)
+  web/          React/Vite renderer (loaded by the desktop host)
   api/          Django REST API, SSE, Celery, and domain workflows
 docs/
   architecture/ Architecture and module boundary documents
@@ -25,13 +25,34 @@ infra/
 3. Follow `apps/api/README.md` to start the API and workers.
 4. Run `pnpm install`, then `pnpm dev:web`.
 
-The current pre-Electron skeleton exposes:
+The current skeleton exposes:
 
 - Web UI: `http://localhost:5173`
 - API health check: `http://localhost:8000/api/health/`
 
 The target product runs the React UI inside Electron. The Django API remains a
 separately deployed cloud service; it is not bundled into the desktop app.
+
+### Desktop (Electron)
+
+The Electron thin host lives in `apps/desktop` (main + preload + shared IPC
+contract). It loads the `apps/web` renderer: the Vite dev server in development
+and the packaged renderer build in production.
+
+```bash
+pnpm dev:desktop        # start the Vite renderer + Electron together
+pnpm build:desktop      # build renderer + compile main/preload bundles
+pnpm dist:desktop       # produce a Windows NSIS installer (electron-builder)
+```
+
+The renderer talks to the desktop only through the typed, allow-listed
+`window.mentoraDesktop` bridge (see `apps/desktop/src/shared/desktopApi.ts`).
+Node.js, the filesystem, and auth tokens are never exposed to the renderer.
+Architecture and security baseline:
+[desktop-client-architecture.md](docs/architecture/desktop-client-architecture.md)
+and [ADR-0005](docs/architecture/adr/0005-electron-desktop-client.md).
+Implementation status and verification notes:
+[implementation-log.md](docs/project-management/implementation-log.md).
 
 See [end-to-end-implementation-plan.md](docs/architecture/end-to-end-implementation-plan.md)
 for the product architecture and implementation roadmap.

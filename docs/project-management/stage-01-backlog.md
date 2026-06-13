@@ -287,7 +287,7 @@ P1-WH-01 状态模型
 
 | 风险 | 负责人 | 处理方式 |
 | --- | --- | --- |
-| Electron Host 尚未实现 | WH | 先使用窄范围 Renderer 上传适配器，同时明确未来 Preload 契约 |
+| Electron Host 骨架已落地，待与上传 API 联调 | WH | `apps/desktop` main/preload 已就绪；P1-LBZ-01 通过 `window.mentoraDesktop` 集成，见 [implementation-log.md](../project-management/implementation-log.md) |
 | 对象存储拖慢本地环境 | WH | 提供确定的 Docker Compose 配置和健康检查 |
 | PDF Fixture 提取结果不稳定 | LH | 固定 Fixture 和 ParserVersion |
 | SSE 占用过多集成时间 | WH | REST 状态查询必须作为恢复路径 |
@@ -297,6 +297,7 @@ P1-WH-01 状态模型
 
 - [ ] 所有关键链路验收项通过。
 - [ ] `pnpm typecheck:web`、`pnpm test:web` 和 `pnpm build:web` 通过。
+- [ ] `pnpm typecheck:desktop` 和 `pnpm build:desktop` 通过（Electron 骨架）。
 - [ ] API 测试和 Ruff 检查通过。
 - [ ] 数据迁移可以在空数据库中成功执行。
 - [ ] 干净 Checkout 可以按照说明启动。

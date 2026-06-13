@@ -12,11 +12,7 @@ interface FileGrant {
 
 const TOKEN_TTL_MS = 30 * 60 * 1000;
 
-/**
- * Issues short-lived, window-bound tokens for user-selected files. The renderer
- * never sees absolute paths and can never ask main to read an arbitrary path
- * (desktop-client-architecture §6.1).
- */
+/** 约束：renderer 不得看到绝对路径，不得请求读取任意路径（§6.1） */
 export class FileTokenStore {
   private readonly grants = new Map<string, FileGrant>();
 

@@ -1,21 +1,25 @@
 import { z } from "zod";
 
 /**
- * Authoritative request schemas validated in the main process before any IPC
- * handler acts. The preload layer performs a lightweight shape check first, but
- * main never trusts renderer input (desktop-client-architecture §3.2, §4).
+ * IPC 请求 payload 权威校验。
+ *
+ * 约束：
+ * - main handler 执行业务前必须 parse；preload 仅做轻量形状检查
+ * - API path 仅相对路径；外部 URL 仅 http(s)
+ *
+ * @see docs/architecture/desktop-client-architecture.md §3.2、§5.1
  */
 
-// API bridge: only relative paths are accepted. Reject anything that looks like
-// an absolute URL or a protocol-relative URL so the bridge can never become an
-// open proxy (desktop-client-architecture §5.1).
 const relativeApiPath = z
   .string()
   .min(1)
   .max(2048)
-  .refine((p) => p.startsWith("/"), "API path must be relative and start with '/'")
-  .refine((p) => !p.startsWith("//"), "Protocol-relative paths are not allowed")
-  .refine((p) => !/^[a-z][a-z0-9+.-]*:/i.test(p), "Absolute URLs are not allowed");
+  .refine((p) => p.startsWith("/"), "API 路径必须为以 '/' 开头的相对路径")
+  .refine((p) => !p.startsWith("//"), "不允许协议相对路径（//...）")
+  .refine(
+    (p) => !/^[a-z][a-z0-9+.-]*:/i.test(p),
+    "不允许绝对 URL",
+  );
 
 export const ApiRequestSchema = z.object({
   path: relativeApiPath,
@@ -43,11 +47,13 @@ export const UploadStartRequestSchema = z.object({
 
 export const UploadIdSchema = z.string().min(1).max(128);
 
-// External links must be explicit http(s); never allow file:, javascript:, etc.
 export const ExternalUrlSchema = z
   .string()
   .url()
-  .refine((u) => /^https?:\/\//i.test(u), "Only http(s) external URLs are allowed");
+  .refine(
+    (u) => /^https?:\/\//i.test(u),
+    "外部链接仅允许 http(s) 协议",
+  );
 
 export const NotificationRequestSchema = z.object({
   title: z.string().min(1).max(256),

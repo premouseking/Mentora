@@ -9,12 +9,7 @@ import { createLogger } from "./logger";
 
 const log = createLogger("updater");
 
-/**
- * Wraps electron-updater. Dev and unpacked builds never check for updates;
- * packaged builds check after a short delay, download in the background, and
- * only install when the user explicitly clicks "restart and install"
- * (desktop-client-architecture §10).
- */
+/** 约束：dev / 未打包不检查更新；安装须用户显式确认（§10） */
 export class UpdaterService {
   private status: UpdaterStatus = { state: "disabled", reason: "not initialized" };
   private window: BrowserWindow | null = null;

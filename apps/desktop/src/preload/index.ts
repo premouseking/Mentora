@@ -19,11 +19,7 @@ import type {
   UploadStartRequest,
 } from "../shared/desktopApi";
 
-/**
- * Subscribes to a broadcast channel and returns an unsubscribe function. The raw
- * IpcRendererEvent is never forwarded to the renderer listener so the renderer
- * cannot reach back into the IPC layer (desktop-client-architecture §3.2).
- */
+/** 约束：不得向 renderer 转发 IpcRendererEvent（§3.2） */
 function subscribe<T>(
   channel: string,
   listener: (payload: T) => void,
@@ -33,18 +29,16 @@ function subscribe<T>(
   return () => ipcRenderer.removeListener(channel, handler);
 }
 
-// Lightweight guards. The main process performs authoritative zod validation;
-// these only catch obvious renderer mistakes early.
 function requireString(value: unknown, name: string): string {
   if (typeof value !== "string" || value.length === 0) {
-    throw new TypeError(`${name} must be a non-empty string`);
+    throw new TypeError(`${name} 必须为非空字符串`);
   }
   return value;
 }
 
 function requireObject(value: unknown, name: string): void {
   if (typeof value !== "object" || value === null) {
-    throw new TypeError(`${name} must be an object`);
+    throw new TypeError(`${name} 必须为对象`);
   }
 }
 

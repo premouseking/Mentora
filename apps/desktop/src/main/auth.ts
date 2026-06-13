@@ -15,12 +15,7 @@ interface PendingLogin {
   codeVerifier: string;
 }
 
-/**
- * Owns desktop authentication: the system-browser + PKCE login flow, encrypted
- * refresh-token persistence via safeStorage, and single-flight access-token
- * refresh. Long-lived tokens never reach the renderer or appear in any URL
- * passed to it (desktop-client-architecture §5.3, ADR-0005).
- */
+/** 约束：长效 token 不得进入 renderer 或出现在传给 renderer 的 URL 中（§5.3） */
 export class AuthManager extends EventEmitter {
   private status: AuthStatus = { state: "signed-out" };
   private accessToken: string | null = null;
@@ -42,7 +37,6 @@ export class AuthManager extends EventEmitter {
     return this.status;
   }
 
-  /** Opens the system browser to start the PKCE login flow. */
   async login(): Promise<AuthStatus> {
     const state = randomBytes(16).toString("hex");
     const codeVerifier = randomBytes(32).toString("base64url");
@@ -64,7 +58,6 @@ export class AuthManager extends EventEmitter {
     return this.status;
   }
 
-  /** Handles the mentora://auth/callback deep link. */
   async handleCallback(link: DeepLink): Promise<void> {
     if (link.domain !== "auth" || link.path !== "callback") return;
 
@@ -120,13 +113,11 @@ export class AuthManager extends EventEmitter {
     this.setStatus({ state: "signed-out" });
   }
 
-  /** Returns a valid access token, refreshing it if needed (single-flight). */
   async getAccessToken(): Promise<string | null> {
     if (this.accessToken) return this.accessToken;
     return this.refreshAccessToken();
   }
 
-  /** Forces a refresh, deduplicating concurrent callers (e.g. parallel 401s). */
   async refreshAccessToken(): Promise<string | null> {
     if (this.refreshPromise) return this.refreshPromise;
 

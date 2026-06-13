@@ -3,6 +3,9 @@
   "private": true,
   "version": "0.1.0",
   "packageManager": "pnpm@10.33.0",
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  },
   "pnpm": {
     "onlyBuiltDependencies": [
       "electron",
@@ -15,6 +18,10 @@
     "build:web": "pnpm --dir apps/web build",
     "typecheck:web": "pnpm --dir apps/web typecheck",
     "test:web": "pnpm --dir apps/web test",
+    "dev:desktop": "concurrently -k -n web,app \"pnpm dev:web\" \"pnpm --dir apps/desktop dev\"",
+    "build:desktop": "pnpm --dir apps/desktop build",
+    "typecheck:desktop": "pnpm --dir apps/desktop typecheck",
+    "dist:desktop": "pnpm --dir apps/desktop dist",
     "infra:up": "docker compose -f infra/docker/docker-compose.dev.yml up -d",
     "infra:down": "docker compose -f infra/docker/docker-compose.dev.yml down"
   }

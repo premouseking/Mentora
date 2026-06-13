@@ -1,8 +1,4 @@
-/**
- * Minimal main-process logger. Logs must never contain access/refresh tokens,
- * raw learning answers, file contents, or pre-signed URLs
- * (desktop-client-architecture §4).
- */
+/** 约束：不得记录 token、学习回答原文、文件正文或预签名 URL（§4） */
 type Level = "debug" | "info" | "warn" | "error";
 
 function emit(level: Level, scope: string, message: string, meta?: unknown) {

@@ -15,12 +15,7 @@ interface ActiveStream {
   owner: WebContents;
 }
 
-/**
- * Bridges server-sent RuntimeEvent streams. IPC only transports bytes; the
- * server remains the source of resumable events. On reconnect the renderer
- * replays via Last-Event-ID; expired replays fall back to a REST snapshot
- * (desktop-client-architecture §5.2).
- */
+/** 约束：IPC 仅传字节；断线续传由 Last-Event-ID 与 REST 快照兜底（§5.2） */
 export class EventStreamBridge {
   private readonly streams = new Map<string, ActiveStream>();
 
@@ -45,7 +40,6 @@ export class EventStreamBridge {
     this.streams.delete(streamId);
   }
 
-  /** Aborts every stream owned by a destroyed/reloaded renderer. */
   abortAllFor(sender: WebContents): void {
     for (const [streamId, stream] of this.streams) {
       if (stream.owner === sender) {

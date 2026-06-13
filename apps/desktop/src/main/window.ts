@@ -10,10 +10,7 @@ import { createLogger } from "./logger";
 
 const log = createLogger("window");
 
-/**
- * Content-Security-Policy applied to the renderer. No `unsafe-eval`; dev adds
- * the Vite websocket/origin so HMR works (desktop-client-architecture §4).
- */
+/** 开发模式放行 Vite origin/ws 以支持 HMR；生产禁止 `unsafe-eval`（§4） */
 function contentSecurityPolicy(): string {
   const devConnect = isDev ? " http://localhost:5173 ws://localhost:5173" : "";
   const devScript = isDev ? " 'unsafe-inline'" : "";
@@ -43,8 +40,6 @@ function applySecurityHeaders(): void {
   });
 }
 
-/** Blocks navigation to anything but the dev server / packaged renderer and
- *  routes user-approved external links to the system browser. */
 function hardenNavigation(window: BrowserWindow): void {
   const allowedOrigins = allowedNavigationOrigins();
 

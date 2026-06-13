@@ -58,11 +58,7 @@ function windowFromEvent(event: IpcMainInvokeEvent): BrowserWindow | null {
   return BrowserWindow.fromWebContents(event.sender);
 }
 
-/**
- * Registers one `ipcMain.handle` per capability action. Every handler validates
- * its payload with the authoritative zod schema before touching a service
- * (desktop-client-architecture §3.2). There is no catch-all channel.
- */
+/** 约束：handler 执行业务前须 zod 校验 payload；禁止 catch-all（§3.2） */
 export function registerIpc(services: Services): void {
   ipcMain.handle(Channels.app.info, (): AppInfo => ({
     version: app.getVersion(),
@@ -71,18 +67,15 @@ export function registerIpc(services: Services): void {
     locale: app.getLocale(),
   }));
 
-  // --- auth ---
   ipcMain.handle(Channels.auth.status, (): AuthStatus => services.auth.getStatus());
   ipcMain.handle(Channels.auth.login, () => services.auth.login());
   ipcMain.handle(Channels.auth.logout, () => services.auth.logout());
 
-  // --- api bridge ---
   ipcMain.handle(Channels.api.request, (_event, raw) => {
     const req = ApiRequestSchema.parse(raw);
     return services.api.request(req);
   });
 
-  // --- SSE bridge ---
   ipcMain.handle(Channels.events.open, (event, raw) => {
     const options = EventStreamOptionsSchema.parse(raw);
     return services.events.open(event.sender, options);
@@ -91,7 +84,6 @@ export function registerIpc(services: Services): void {
     services.events.abort(StreamIdSchema.parse(raw));
   });
 
-  // --- files ---
   ipcMain.handle(Channels.files.pick, async (event): Promise<PickedFile[]> => {
     const window = windowFromEvent(event);
     const result = await dialog.showOpenDialog(window ?? undefined!, {
@@ -123,7 +115,6 @@ export function registerIpc(services: Services): void {
     return picked;
   });
 
-  // --- uploads ---
   ipcMain.handle(Channels.uploads.start, (event, raw) => {
     const req = UploadStartRequestSchema.parse(raw);
     return services.uploads.start(event.sender, req);
@@ -132,7 +123,6 @@ export function registerIpc(services: Services): void {
     services.uploads.cancel(UploadIdSchema.parse(raw));
   });
 
-  // --- shell ---
   ipcMain.handle(Channels.shell.openExternal, (_event, raw) => {
     const url = ExternalUrlSchema.parse(raw);
     return shell.openExternal(url);
@@ -144,7 +134,6 @@ export function registerIpc(services: Services): void {
     shell.showItemInFolder(grant.absolutePath);
   });
 
-  // --- notifications ---
   ipcMain.handle(Channels.notifications.show, (event, raw) => {
     const req = NotificationRequestSchema.parse(raw);
     const notification = new Notification({ title: req.title, body: req.body });
@@ -158,13 +147,11 @@ export function registerIpc(services: Services): void {
     notification.show();
   });
 
-  // --- updater ---
   ipcMain.handle(Channels.updater.check, () => services.updater.check());
   ipcMain.handle(Channels.updater.quitAndInstall, () =>
     services.updater.quitAndInstall(),
   );
 
-  // --- window controls ---
   ipcMain.handle(Channels.window.minimize, (event) =>
     windowFromEvent(event)?.minimize(),
   );

@@ -22,7 +22,7 @@ let services: Services | null = null;
 
 function registerProtocol(): void {
   if (process.defaultApp && process.argv.length >= 2) {
-    // Dev: register with the explicit electron + script path on Windows.
+    // Windows 开发模式注册协议须传入 electron 可执行路径
     app.setAsDefaultProtocolClient(APP_PROTOCOL, process.execPath, [
       path.resolve(process.argv[1]!),
     ]);
@@ -49,7 +49,7 @@ function dispatchDeepLink(link: DeepLink): void {
 }
 
 function wireRendererCleanup(window: BrowserWindow): void {
-  // Renderer reload/destroy must tear down its streams and uploads.
+  // renderer 销毁时须回收其 SSE、上传与 fileToken，避免泄漏
   window.webContents.on("destroyed", () => {
     if (!services) return;
     services.events.abortAllFor(window.webContents);
@@ -84,15 +84,10 @@ async function onReady(): Promise<void> {
   services.updater.attach(mainWindow);
   services.updater.initialize();
 
-  // Handle a deep link that launched the app (Windows cold start).
   const initialLink = findDeepLinkInArgv(process.argv);
   if (initialLink) dispatchDeepLink(initialLink);
 }
 
-/**
- * Application bootstrap: single-instance lock, protocol registration, lifecycle
- * wiring, and service/window construction (desktop-client-architecture §8).
- */
 export function bootstrap(): void {
   const gotLock = app.requestSingleInstanceLock();
   if (!gotLock) {
@@ -108,7 +103,7 @@ export function bootstrap(): void {
     if (link) dispatchDeepLink(link);
   });
 
-  // macOS deep link delivery (kept for parity; Windows uses argv/second-instance).
+  // macOS 经 open-url 投递；Windows 经 argv / second-instance
   app.on("open-url", (event, url) => {
     event.preventDefault();
     const link = parseDeepLink(url);

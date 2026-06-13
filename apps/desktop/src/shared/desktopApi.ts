@@ -1,10 +1,11 @@
 /**
- * The typed surface exposed to the renderer as `window.mentoraDesktop`.
+ * 渲染进程桌面能力边界：`window.mentoraDesktop`
  *
- * This is the ONLY desktop capability boundary the renderer sees. There is no
- * `ipcRenderer`, no Node module, no filesystem, and no token access. Every
- * method maps to an allow-listed IPC channel and shares these DTOs across
- * preload and main (desktop-client-architecture §3.2).
+ * 约束：
+ * - 不得访问 ipcRenderer、Node、文件系统、环境变量或 token
+ * - 方法映射 allowlist IPC 通道，DTO 与 preload/main 共享
+ *
+ * @see docs/architecture/desktop-client-architecture.md §3.2
  */
 
 export type Unsubscribe = () => void;
@@ -24,11 +25,7 @@ export interface AuthStatus {
   displayName?: string;
 }
 
-/**
- * API bridge request. The renderer never supplies an absolute URL: only a
- * relative API path that the main process matches against an allowlist before
- * attaching the access token (desktop-client-architecture §5.1).
- */
+/** 约束：仅相对 path；token 由 main 注入（§5.1） */
 export interface ApiRequest {
   path: string;
   method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
@@ -59,10 +56,7 @@ export type StreamMessage =
   | { streamId: string; kind: "error"; message: string }
   | { streamId: string; kind: "end" };
 
-/**
- * A short-lived, window-bound handle to a user-selected file. The renderer
- * never sees or submits absolute paths (desktop-client-architecture §6.1).
- */
+/** 约束：renderer 不得看到或提交绝对路径（§6.1） */
 export interface PickedFile {
   fileToken: string;
   name: string;
@@ -95,14 +89,11 @@ export type UpdaterStatus =
 export interface NotificationRequest {
   title: string;
   body: string;
-  /** Internal route opened when the user clicks the notification. */
   route?: string;
 }
 
 export interface DeepLink {
-  /** e.g. "auth", "course", "task" */
   domain: string;
-  /** Remaining path, e.g. "callback" or a course id. */
   path: string;
   params: Record<string, string>;
 }

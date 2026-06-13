@@ -18,12 +18,7 @@ interface ActiveUpload {
   owner: WebContents;
 }
 
-/**
- * Streams a user-selected file to object storage. Main reads from the
- * file_token's path and PUTs directly to the pre-signed URL; large files never
- * cross IPC as base64 (desktop-client-architecture §6.2). Cloud still performs
- * the authoritative ClamAV / magic-number / quarantine checks.
- */
+/** 约束：大文件不经 IPC 传 base64；main 直传预签名 URL（§6.2） */
 export class UploadManager {
   private readonly uploads = new Map<string, ActiveUpload>();
 
@@ -84,7 +79,6 @@ export class UploadManager {
     try {
       emit("creating", 0);
 
-      // 1. Ask the cloud to create the upload and return a pre-signed target.
       const created = await this.api.request<{ uploadUrl: string }>({
         path: "/uploads/",
         method: "POST",
@@ -93,8 +87,6 @@ export class UploadManager {
       if (!created.ok) throw new Error(`create upload failed: ${created.status}`);
       const uploadUrl = created.data.uploadUrl;
 
-      // 2. Stream the file directly to object storage while reporting progress
-      //    and computing SHA-256 for the cloud completion check.
       emit("uploading", 0);
       const hash = createHash("sha256");
       let bytesSent = 0;
@@ -107,15 +99,13 @@ export class UploadManager {
 
       const putResponse = await fetch(uploadUrl, {
         method: "PUT",
-        // Node's fetch accepts a Readable as a stream body.
         body: stream as unknown as ReadableStream,
-        // @ts-expect-error duplex is required by Node fetch for stream bodies.
+        // @ts-expect-error Node fetch 对流式 body 要求 duplex
         duplex: "half",
         signal: controller.signal,
       });
       if (!putResponse.ok) throw new Error(`PUT failed: ${putResponse.status}`);
 
-      // 3. Complete: cloud verifies SHA-256 and object metadata.
       emit("completing", bytesSent);
       const sha256 = hash.digest("hex");
       await this.api.request({

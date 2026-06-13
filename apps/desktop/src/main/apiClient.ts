@@ -13,12 +13,7 @@ import type { AuthManager } from "./auth";
 
 const log = createLogger("api");
 
-/**
- * Authenticated API bridge. The renderer hands over a relative path; main
- * attaches the access token, standard headers, handles 401 with a single-flight
- * refresh + one retry, and normalizes errors. It is NOT a general open proxy:
- * paths are allowlisted and bodies are size-limited (desktop §5.1).
- */
+/** 约束：非开放代理；path 须匹配 allowlist，body 有大小上限（§5.1） */
 export class ApiClient {
   private readonly deviceId = randomUUID();
   private readonly inflight = new Map<string, AbortController>();

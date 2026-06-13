@@ -1,6 +1,6 @@
 # ADR-0005：采用 Electron 薄桌面客户端
 
-- 状态：Proposed
+- 状态：Proposed（实现骨架：2026-06-13，见 [implementation-log.md](../../project-management/implementation-log.md)）
 - 日期：2026-06-12
 - 关联设计：`docs/architecture/desktop-client-architecture.md`
 
