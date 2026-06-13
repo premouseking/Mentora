@@ -6,7 +6,6 @@ import {
   Check,
   ChevronLeft,
   FolderClosed,
-  GraduationCap,
   History,
   Settings,
 } from "lucide-react";
@@ -22,11 +21,42 @@ const navItems = [
 
 const setupSteps = ["描述目标", "补充信息", "添加资料", "确认需求", "确认方案"];
 
+function MentoraMark() {
+  return (
+    <svg
+      aria-hidden="true"
+      className="mentora-mark"
+      fill="none"
+      viewBox="0 0 24 24"
+    >
+      <path
+        d="M5 18.5V5.5l7 5 7-5v13"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth="2"
+      />
+      <path
+        d="M12 10.5V20.5l2-1.45 2 1.45V8.65"
+        stroke="currentColor"
+        strokeLinejoin="round"
+        strokeWidth="1.55"
+      />
+      <path
+        d="M8 17.5h8"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeWidth="1.8"
+      />
+    </svg>
+  );
+}
+
 function Brand() {
   return (
     <Link className="brand" to="/courses" aria-label="Mentora 课程首页">
       <span className="brand-mark">
-        <GraduationCap size={18} strokeWidth={2.2} />
+        <MentoraMark />
       </span>
       <span>Mentora</span>
     </Link>
