@@ -4,6 +4,7 @@ import { AppShell } from "./components/AppShell";
 import { CoursesPage } from "./pages/CoursesPage";
 import { CourseWorkspacePage } from "./pages/CourseWorkspacePage";
 import { LearningTaskPage } from "./pages/LearningTaskPage";
+import { LibraryPage } from "./pages/LibraryPage";
 import { StageSummaryPage } from "./pages/StageSummaryPage";
 import {
   ConfirmPlanPage,
@@ -39,7 +40,7 @@ export function App() {
       <Route path="/courses/new/sources" element={<SelectSourcesPage />} />
       <Route path="/courses/new/profile" element={<ConfirmProfilePage />} />
       <Route path="/courses/new/plan" element={<ConfirmPlanPage />} />
-      <Route path="/library" element={<PlaceholderPage title="资源库" />} />
+      <Route path="/library" element={<LibraryPage />} />
       <Route path="/history" element={<PlaceholderPage title="学习记录" />} />
       <Route path="/notifications" element={<PlaceholderPage title="通知" />} />
       <Route path="/settings" element={<PlaceholderPage title="设置" />} />
