@@ -1,0 +1,42 @@
+appId: com.mentora.desktop
+productName: Mentora
+copyright: Copyright (c) 2026 Mentora
+
+directories:
+  output: release
+  buildResources: build
+
+# Bundle the compiled main/preload and the renderer build output produced by
+# `apps/web`. The Django backend is a separate cloud service and is never packed.
+files:
+  - dist/**/*
+  - package.json
+
+extraResources:
+  - from: ../web/dist
+    to: renderer
+
+# Custom protocol for desktop deep links (mentora://auth/callback, etc.).
+protocols:
+  - name: Mentora Protocol
+    schemes:
+      - mentora
+
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  artifactName: ${productName}-Setup-${version}.${ext}
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  deleteAppDataOnUninstall: false
+
+# Generic update feed. Installer binaries and blockmaps are uploaded first; the
+# latest.yml metadata is published last (see desktop-client-architecture §10).
+publish:
+  - provider: generic
+    url: https://updates.example.com/mentora/win

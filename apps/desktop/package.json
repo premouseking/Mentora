@@ -1,0 +1,30 @@
+{
+  "name": "@mentora/desktop",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Mentora Electron thin desktop host (main + preload).",
+  "main": "dist/main/index.cjs",
+  "scripts": {
+    "dev": "concurrently -k -n bundle,electron \"tsup --watch\" \"wait-on http://localhost:5173 dist/main/index.cjs dist/preload/index.cjs && cross-env MENTORA_DEV_SERVER_URL=http://localhost:5173 electron .\"",
+    "build:bundle": "tsup",
+    "build:renderer": "pnpm --dir ../web build",
+    "build": "pnpm build:renderer && pnpm build:bundle",
+    "pack:dir": "pnpm build && electron-builder --dir",
+    "dist": "pnpm build && electron-builder",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "electron-updater": "^6.3.9",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.5",
+    "concurrently": "^9.1.2",
+    "cross-env": "^7.0.3",
+    "electron": "^33.3.1",
+    "electron-builder": "^25.1.8",
+    "tsup": "^8.3.5",
+    "typescript": "^5.8.3",
+    "wait-on": "^8.0.1"
+  }
+}
