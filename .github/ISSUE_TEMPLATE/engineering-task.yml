@@ -1,0 +1,80 @@
+name: 工程任务
+description: 创建包含负责人、接口契约和验收标准的 Mentora 工程任务。
+title: "[TASK] "
+body:
+  - type: input
+    id: task_id
+    attributes:
+      label: 任务 ID
+      placeholder: P1-LBZ-01
+    validations:
+      required: true
+  - type: input
+    id: owner
+    attributes:
+      label: 负责人
+      description: 只能指定一位直接责任人。
+    validations:
+      required: true
+  - type: input
+    id: reviewers
+    attributes:
+      label: 评审人
+      description: 必须包含接口生产者和消费者。
+    validations:
+      required: true
+  - type: textarea
+    id: outcome
+    attributes:
+      label: 目标结果
+      description: 描述一个用户可见或系统可观察的结果。
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: 范围
+      description: 写明包含内容和明确不做的内容。
+    validations:
+      required: true
+  - type: textarea
+    id: contracts
+    attributes:
+      label: 输入和输出
+      description: 列出请求、响应、事件、实体和 Artifact 契约。
+    validations:
+      required: true
+  - type: textarea
+    id: dependencies
+    attributes:
+      label: 依赖
+      description: 列出阻塞任务 ID；没有依赖时填写“无”。
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: 验收标准
+      description: 使用可观察、可勾选的标准。
+      value: |
+        - [ ] 主要行为：
+        - [ ] 权限行为：
+        - [ ] 失败和重试行为：
+        - [ ] 幂等或并发行为：
+        - [ ] 日志和指标：
+    validations:
+      required: true
+  - type: textarea
+    id: tests
+    attributes:
+      label: 测试方案
+      description: 包含单元、契约、集成测试和准确命令。
+    validations:
+      required: true
+  - type: textarea
+    id: rollout
+    attributes:
+      label: 发布和回滚
+      description: 说明兼容性、发布条件以及关闭或回滚方式。
+    validations:
+      required: true
