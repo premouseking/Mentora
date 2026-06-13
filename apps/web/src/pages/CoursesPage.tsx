@@ -1,7 +1,9 @@
 import {
+  ArrowRight,
   BookOpen,
-  FileText,
-  MoreHorizontal,
+  Clock,
+  Layers,
+  MapPin,
   Plus,
   Search,
   Sparkles,
@@ -52,50 +54,60 @@ function EmptyCourses() {
   );
 }
 
-function CourseTable() {
+const colorClasses: Record<string, string> = {
+  teal: "course-card-teal",
+  blue: "course-card-blue",
+  violet: "course-card-violet",
+};
+
+function CourseList() {
   return (
-    <div className="course-table">
-      <div className="course-table-head" aria-hidden="true">
-        <span>课程</span>
-        <span>当前阶段</span>
-        <span>下一步推荐</span>
-        <span>状态</span>
-        <span>阶段进度</span>
-        <span />
-      </div>
+    <div className="course-list">
       {courses.map((course) => (
-        <article className="course-row" key={course.id}>
-          <Link className="course-identity course-entry-link" to={`/courses/${course.id}`}>
-            <span className={`course-icon ${course.color}`}>{course.icon}</span>
-            <div>
-              <h2>{course.name}</h2>
-              <p>{course.updatedAt}</p>
-            </div>
-          </Link>
-          <div className="cell-copy">
-            <strong>{course.phase}</strong>
-            <span>{course.phaseDetail}</span>
-          </div>
-          <div className="next-recommendation">
-            <FileText size={17} />
-            <div>
-              <strong>{course.nextTask}</strong>
-              <span>{course.estimate}</span>
-            </div>
-          </div>
-          <span className={`status-tag ${course.status === "待确认" ? "waiting" : ""}`}>
-            {course.status}
+        <Link
+          className={`course-card ${colorClasses[course.color] ?? ""}`}
+          key={course.id}
+          to={`/courses/${course.id}`}
+        >
+          <span className={`course-card-icon ${course.color}`}>
+            {course.icon}
           </span>
-          <div className="progress-cell">
-            <strong>{course.progress}%</strong>
-            <span className="progress-line">
-              <i style={{ width: `${Math.max(course.progress, 4)}%` }} />
+          <h2 className="course-card-name">{course.name}</h2>
+          <div className="course-card-meta">
+            {course.progress > 0 && (
+              <span className="course-card-progress">
+                <span
+                  className="course-card-progress-bar"
+                  style={{ width: `${course.progress}%` }}
+                />
+              </span>
+            )}
+            <span
+              className={`course-card-status${course.status === "待确认" ? " waiting" : ""}`}
+            >
+              {course.status}
             </span>
           </div>
-          <button className="icon-button" type="button" aria-label={`${course.name}更多操作`}>
-            <MoreHorizontal size={19} />
-          </button>
-        </article>
+
+          <div className="course-card-detail">
+            <div className="course-card-phase">
+              <Layers size={12} />
+              <span>{course.phase}</span>
+              <span className="course-card-phase-detail">
+                · {course.phaseDetail}
+              </span>
+            </div>
+            <div className="course-card-next">
+              <MapPin size={12} />
+              <span>{course.nextTask}</span>
+            </div>
+            <span className="course-card-estimate">
+              <Clock size={11} />
+              {course.estimate}
+            </span>
+            <ArrowRight size={15} className="course-card-arrow" />
+          </div>
+        </Link>
       ))}
     </div>
   );
@@ -108,7 +120,7 @@ export function CoursesPage() {
   return (
     <AppShell>
       <CourseHeader />
-      {isEmpty ? <EmptyCourses /> : <CourseTable />}
+      {isEmpty ? <EmptyCourses /> : <CourseList />}
     </AppShell>
   );
 }
