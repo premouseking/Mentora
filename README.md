@@ -36,6 +36,9 @@ separately deployed cloud service; it is not bundled into the desktop app.
 See [end-to-end-implementation-plan.md](docs/architecture/end-to-end-implementation-plan.md)
 for the product architecture and implementation roadmap.
 
+四人团队的职责分工、交付路线、协作规则和当前迭代任务见
+[团队工程手册](docs/project-management/README.md)。
+
 See [scope-versioning-design.md](docs/architecture/scope-versioning-design.md)
 for source versions, course scope revisions, incremental impact analysis,
 activation, and rollback semantics.
