@@ -8,11 +8,11 @@ alwaysApply: true
 ## 目标
 
 - Shell 默认允许**只读**探索、运行状态检查、日志查看、语法校验
-- 任何**可能覆盖、截断、删除、生成、解包、同步、自动修复、安装依赖、生成迁移**的命令，应由 hook 拦截；AI 亦不得绕过 hook 用其他工具达成同等破坏效果
+- 任何**可能覆盖、截断、删除、生成、解包、同步、自动修复、安装依赖、生成迁移**的命令，应由 hook 要求确认或拦截；AI 亦不得绕过 hook 用其他工具达成同等破坏效果
 
-## hook 会自动拦截的命令类别
+## hook 会自动要求确认或拦截的命令类别
 
-- **Git 写操作**：`git add` / `commit` / `push` / `pull` / `merge` / `rebase` / `reset` / `checkout` / `restore` / `switch` / `stash`（含 `cherry-pick` 等改写历史或工作区的子命令）
+- **Git 写操作**：`git add` / `commit` / `push` / `pull` / `merge` / `rebase` / `reset` / `checkout` / `restore` / `switch` / `stash`（含 `cherry-pick` 等改写历史或工作区的子命令），默认要求开发者确认
 - **直接文件系统变更**：`rm`、`del`、`rmdir`、`Remove-Item`、`unlink`、`cp`、`mv`、`install`、`rsync`、`truncate`、`patch`、`dd`
 - **间接文件变更链路**：`find -delete`、`find -exec rm/cp/mv/...`、`xargs rm/cp/mv/...`
 - **shell 落盘写入**：`>`、`>>`、`<>`、`>|`、`tee`、`sponge`
@@ -37,7 +37,7 @@ alwaysApply: true
 | 局部替换 | StrReplace |
 | 删除文件 | Delete（仅开发者明确要求时） |
 | 编辑 Notebook | EditNotebook |
-| Git 提交 / 推送 | 输出命令由开发者在本地终端执行（见 `git-rules.mdc`） |
+| Git 提交 / 推送 | 默认输出命令；开发者授权后可由 AI 执行（见 `git-rules.mdc`） |
 
 ## 限制说明
 

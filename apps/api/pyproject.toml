@@ -1,3 +1,7 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "mentora-api"
 version = "0.1.0"
@@ -17,6 +21,12 @@ dev = [
   "pytest-django>=4.10,<5",
   "ruff>=0.9,<1",
 ]
+
+# Django 工程为 flat-layout：config（项目配置）与 mentora（领域 app）并列于仓库根。
+# 须显式声明包发现范围，否则 setuptools 会因「多个顶层包」拒绝 editable install。
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["config*", "mentora*"]
 
 [tool.pytest.ini_options]
 DJANGO_SETTINGS_MODULE = "config.settings"

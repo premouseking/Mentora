@@ -1,8 +1,6 @@
 import { app } from "electron";
 import path from "node:path";
 
-export const APP_PROTOCOL = "mentora";
-
 export const DEV_SERVER_URL = process.env.MENTORA_DEV_SERVER_URL ?? null;
 
 export const isDev = !app.isPackaged;

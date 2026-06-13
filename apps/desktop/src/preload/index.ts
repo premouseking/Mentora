@@ -8,7 +8,6 @@ import type {
   AuthCredentials,
   AuthRegisterRequest,
   AuthStatus,
-  DeepLink,
   EventStreamOptions,
   MentoraDesktopApi,
   NotificationRequest,
@@ -149,8 +148,6 @@ const api: MentoraDesktopApi = {
     toggleMaximize: () =>
       ipcRenderer.invoke(Channels.window.toggleMaximize) as Promise<void>,
     close: () => ipcRenderer.invoke(Channels.window.close) as Promise<void>,
-    onDeepLink: (listener) =>
-      subscribe<DeepLink>(Channels.window.deepLink, listener),
   },
 };
 

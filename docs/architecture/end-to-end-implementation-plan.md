@@ -461,7 +461,7 @@ Electron Main
 
 进程边界：
 
-- Main：窗口、Deep Link、令牌、API/SSE、文件、上传、通知和更新；
+- Main：窗口、令牌、API/SSE、文件、上传、通知和更新；
 - Preload：通过 `contextBridge` 暴露有类型、白名单化的桌面能力；
 - Renderer：只负责 UI，不允许 Node.js、任意文件访问和长期令牌；
 - Cloud：继续拥有课程、资料、计划、评测和学习状态的唯一事实。
@@ -498,7 +498,7 @@ webSecurity: true
 - 普通命令：Main Process 认证后转发 REST；
 - 模型回答、解析进度、工作流进度：Main Process 桥接可恢复 SSE；
 - 上传：Main Process 从临时 `file_token` 对应路径按流读取并直传预签名 URL；
-- 登录：系统浏览器 + PKCE + `mentora://auth/callback`；
+- 登录：renderer 经 IPC 提交凭据，主进程调用 Django `/auth/login/` / `/auth/register/` 并保存 Refresh Token；
 - 实时语音或多人协作确定立项后再增加 WebSocket。
 
 API Bridge 只接受 Mentora 相对 API path，不能成为任意 URL 开放代理。大文件不能
@@ -1459,8 +1459,8 @@ FSRS 只负责“已学内容何时复习”的记忆调度，不负责判断学
 
 ### 12.4 桌面外壳
 
-- 单实例运行，第二实例将 Deep Link 转发给主实例；
-- 系统浏览器登录后回到原课程工作台；
+- 单实例运行，第二实例聚焦已有窗口；
+- 应用内登录/注册后回到课程工作台；
 - 系统通知可定位解析任务、学习计划或复习任务；
 - 外部链接默认用系统浏览器打开；
 - 文件选择和下载位置使用系统对话框；
@@ -1756,7 +1756,7 @@ Docker Compose：
 - 用户资源库；
 - Windows Electron 桌面壳、单实例和安全 preload；
 - 主进程 API/SSE Bridge；
-- 系统浏览器登录和 `mentora://auth/callback`；
+- 应用内登录/注册（凭据经 IPC，Refresh Token 存 safeStorage）；
 - 文本层完整的 PDF 上传和不可变版本；
 - 课程创建并从资源库选择 PDF；
 - 完整快照式 `CourseKnowledgeScopeRevision`；

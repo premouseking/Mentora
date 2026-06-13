@@ -3,30 +3,36 @@ description: Git / GitHub 协作范式（AI 与开发者）
 alwaysApply: true
 ---
 
-# Git / GitHub 操作范式（强制）
+# Git / GitHub 操作范式（授权）
 
 人类协作者见 [CONTRIBUTING.md](../../CONTRIBUTING.md)。Shell 拦截见 `shell-file-safety.mdc` 与 `.cursor/hooks/`。
 
-## AI 禁止直接执行的 Git 写操作
+## AI 执行 Git 写操作的授权边界
 
-AI **不得**通过 Shell 或等价途径直接执行以下命令（含变体、链式、`git -C` 前缀）：
+默认情况下，AI 先做只读检查并给出建议；当开发者在当前对话中明确授权时，AI 可以通过 Shell 执行必要的 Git 写操作：
 
 - `git add`、`git commit`、`git push`、`git pull`
 - `git merge`、`git rebase`、`git cherry-pick`
 - `git reset`、`git checkout`、`git restore`、`git switch`
 - `git stash`（含 `push` / `pop` / `apply` / `drop`）
 
-即使用户未启用 hook，规则层面同样禁止 AI 擅自提交、推送或改写 Git 历史。
+授权前必须说明拟执行命令、分支流向、会影响的文件范围与回滚风险。禁止在未授权时提交、推送、切分支或改写历史。
 
 **AI 允许**的只读 Git 操作：`status`、`diff`、`log`、`show`、`branch -v`、`remote -v`、`stash list`、`tag -l`、`describe`、`blame`、`ls-files`。
+
+## 高风险操作
+
+- `push --force`、`reset --hard`、清理未跟踪文件、丢弃工作区改动等操作必须单独确认。
+- 禁止对 `main` / `master` 执行强制推送，除非开发者明确要求并确认风险。
+- 冲突解决禁止无脑 `-X ours` / `-X theirs`，必须逐文件 review。
 
 ## AI 标准协作方式
 
 1. 先检查仓库状态：当前分支、未提交改动、远端跟踪、最近提交风格。
 2. 基于 `git diff` 起草 **commit message**（优先写清「为什么」，不要只罗列「改了什么」）。
-3. 向开发者输出**可复制、最小、安全**的命令序列，并说明分支流向与暂存文件范围。
-4. 由**开发者**在本地终端执行写操作；AI 不替用户点「提交」。
-5. 开发者执行后若需继续（push、开 PR、合并），把终端输出或 `git status` 交回，AI 再接管下一步判断。
+3. 对无授权场景，向开发者输出**可复制、最小、安全**的命令序列，并说明分支流向与暂存文件范围。
+4. 对已授权场景，AI 可执行命令，但每一步后要检查状态，遇到冲突或失败先停下来判断。
+5. push、开 PR、合并远端分支等会影响共享分支的动作，优先再次确认目标分支与范围。
 
 ### 推荐输出格式
 
@@ -53,7 +59,7 @@ PowerShell 环境可改用 here-string 或多行 `-m`；关键是标题与正文
 
 ### 确认话术（push / merge / 开 PR 前）
 
-涉及 push、merge、rebase 或创建 PR 时，先说明拟执行步骤与分支流向，**等开发者确认**后再给出命令；不要默认 AI 已代劳。
+涉及 push、merge、rebase 或创建 PR 时，先说明拟执行步骤与分支流向，**等开发者确认**后再执行或给出命令；不要默认 AI 已获得授权。
 
 ```text
 准备执行：
@@ -69,11 +75,11 @@ fix: ...
 
 ### 开发者明确要求「只给命令」时
 
-优先输出**可直接复制**的完整命令序列，逐步标注分支流向；仍不替开发者执行写操作。
+优先输出**可直接复制**的完整命令序列，逐步标注分支流向；不主动执行。
 
-### Hook 拦截 Git 写操作时
+### Hook 要求确认 Git 写操作时
 
-环境 hook 禁止 AI 执行 Git 写操作时，AI 仍负责：判断 merge/commit 状态、处理冲突思路、起草 message；并给出**当前最小可执行命令**供开发者粘贴。开发者执行后再交回结果，AI 继续下一步。
+环境 hook 对 Git 写操作要求确认时，AI 仍负责：判断 merge/commit 状态、处理冲突思路、起草 message；若开发者批准，AI 可继续执行当前最小必要命令。
 
 ## 仓库分支约定
 

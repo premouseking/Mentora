@@ -4,13 +4,13 @@ Cursor Agent 自动读取 `.cursor/rules/`。本文件面向人类协作者。
 
 ## AI 协作者（Cursor Agent）
 
-Git 写操作（`add`、`commit`、`push`、`merge` 等）**不由 AI 直接执行**，而由 AI：
+Git 写操作（`add`、`commit`、`push`、`merge` 等）默认由 AI 先说明计划并给出命令；开发者在当前对话明确授权后，AI 可代为执行。AI 在执行前应：
 
 1. 只读检查仓库（`status`、`diff`、`log` 等）
 2. 起草符合下方格式的 commit message
-3. 给出可复制、文件范围明确的命令序列
+3. 说明拟执行命令、分支流向、文件范围与风险
 
-开发者在本地终端执行后，再将结果交回 AI 继续后续步骤（push、PR 等）。细则见 `.cursor/rules/git-rules.mdc`；Shell 拦截见 `.cursor/rules/shell-file-safety.mdc` 与 `.cursor/hooks/`。
+若开发者未授权，AI 只给出可复制命令，由开发者在本地终端执行。高风险操作（强制推送、`reset --hard`、丢弃工作区改动等）必须单独确认。细则见 `.cursor/rules/git-rules.mdc`；Shell 确认与拦截见 `.cursor/rules/shell-file-safety.mdc` 与 `.cursor/hooks/`。
 
 **语言约定：** 仓库文档（`README.md`、`docs/`、`apps/*/README.md` 等）正文使用简体中文；代码标识符、命令、环境变量名、协议字段等专有名词可保留英文。
 
@@ -76,7 +76,7 @@ pnpm --dir apps/desktop build:bundle
 pnpm dev:desktop   # Vite HMR + nodemon 重启 Electron（改 main/preload 时）
 ```
 
-API（在 `apps/api` 目录下）：
+API（在 `apps/api` 目录下；首次须按 [apps/api/README.md](apps/api/README.md) 创建环境并 `pip install -e ".[dev]"`）：
 
 ```powershell
 pytest
