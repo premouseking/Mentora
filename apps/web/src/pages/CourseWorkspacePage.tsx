@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  MoveLeft,
   BrainCircuit,
   BookOpen,
   Lightbulb,
+  MoveLeft,
   PenLine,
   AlertTriangle,
   X,
@@ -12,6 +12,7 @@ import {
 import { AppShell } from "../components/AppShell";
 import { FileExplorer } from "../components/FileExplorer";
 import type { SectionKey } from "../components/FileExplorer";
+import { PhaseSummary } from "../components/PhaseSummary";
 import { QuizPanel } from "../components/QuizPanel";
 import { courseFiles } from "../data/files";
 import { aiExplanations } from "../data/aiExplanations";
@@ -278,6 +279,7 @@ function ContentPanel({
 
 export function CourseWorkspacePage() {
   const [quizOpen, setQuizOpen] = useState(false);
+  const [phaseSummaryOpen, setPhaseSummaryOpen] = useState(false);
   const [tabHeld, setTabHeld] = useState(false);
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
   const [selectedAi, setSelectedAi] = useState<string | null>(null);
@@ -347,6 +349,9 @@ export function CourseWorkspacePage() {
   /* ── Top trigger → open quiz ── */
   const handleTopClick = useCallback(() => setQuizOpen(true), []);
 
+  /* ── Bottom trigger → open phase summary ── */
+  const handleBottomClick = useCallback(() => setPhaseSummaryOpen(true), []);
+
   /* ── Swipe up → close quiz ── */
   const swipeStart = useRef<{ y: number; moved: boolean; active: boolean }>({ y: 0, moved: false, active: false });
   const handleL2PointerDown = useCallback((e: React.PointerEvent) => {
@@ -376,6 +381,38 @@ export function CourseWorkspacePage() {
       if (swipeStart.current.moved && dy < -60) setQuizOpen(false);
     },
     [quizOpen],
+  );
+
+  /* ── Swipe down → close phase summary ── */
+  const psRef = useRef<HTMLDivElement>(null);
+  const psSwipeStart = useRef<{ y: number; moved: boolean; active: boolean }>({ y: 0, moved: false, active: false });
+  const handlePSPointerDown = useCallback((e: React.PointerEvent) => {
+    psSwipeStart.current = { y: e.clientY, moved: false, active: true };
+  }, []);
+  const handlePSPointerMove = useCallback(
+    (e: React.PointerEvent) => {
+      if (!phaseSummaryOpen || !psSwipeStart.current.active) return;
+      const dy = e.clientY - psSwipeStart.current.y;
+      if (dy > 20) psSwipeStart.current.moved = true;
+      if (psSwipeStart.current.moved && psRef.current) {
+        psRef.current.style.transform = `translateY(${Math.max(0, dy)}px)`;
+        psRef.current.style.opacity = String(Math.max(0.3, 1 - dy / 300));
+      }
+    },
+    [phaseSummaryOpen],
+  );
+  const handlePSPointerUp = useCallback(
+    (e: React.PointerEvent) => {
+      if (!phaseSummaryOpen || !psSwipeStart.current.active) return;
+      psSwipeStart.current.active = false;
+      const dy = e.clientY - psSwipeStart.current.y;
+      if (psRef.current) {
+        psRef.current.style.transform = "";
+        psRef.current.style.opacity = "";
+      }
+      if (psSwipeStart.current.moved && dy > 60) setPhaseSummaryOpen(false);
+    },
+    [phaseSummaryOpen],
   );
 
   /* ── Tab peek ── */
@@ -545,7 +582,7 @@ export function CourseWorkspacePage() {
 
         {/* Content Area */}
         <div className="cw-content" ref={containerRef}>
-          {!quizOpen && (
+          {!quizOpen && !phaseSummaryOpen && (
             <div className="cw-top-trigger" onClick={handleTopClick}>
               <div className="cw-top-trigger-bar" />
               <span className="cw-top-hint">点击进入刷题模式</span>
@@ -620,6 +657,24 @@ export function CourseWorkspacePage() {
           onPointerUp={showFileOverlay ? undefined : handleL2PointerUp}
         >
           {quizOpen && <QuizPanel question={sampleQuestion} />}
+        </div>
+
+        {/* Bottom trigger → open phase summary */}
+        {!quizOpen && !phaseSummaryOpen && (
+          <div className="cw-bottom-trigger" onClick={handleBottomClick}>
+            <div className="cw-bottom-trigger-bar" />
+          </div>
+        )}
+
+        {/* Phase summary overlay */}
+        <div
+          ref={psRef}
+          className={`phase-summary-overlay${phaseSummaryOpen ? " open" : ""}`}
+          onPointerDown={handlePSPointerDown}
+          onPointerMove={handlePSPointerMove}
+          onPointerUp={handlePSPointerUp}
+        >
+          {phaseSummaryOpen && <PhaseSummary />}
         </div>
       </div>
     </AppShell>
