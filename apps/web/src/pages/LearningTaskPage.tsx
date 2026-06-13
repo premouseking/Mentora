@@ -138,11 +138,21 @@ export function LearningTaskPage() {
                   ))}
                 </div>
                 {answer ? (
-                  <p className={answer === "只能放入一个固定行" ? "correct" : "retry"}>
-                    {answer === "只能放入一个固定行"
-                      ? "回答正确。固定位置让硬件查找更快，但也更容易发生冲突。"
-                      : "再想一下：直接映射的“直接”意味着位置由块号唯一计算。"}
-                  </p>
+                  <>
+                    <p className={answer === "只能放入一个固定行" ? "correct" : "retry"}>
+                      {answer === "只能放入一个固定行"
+                        ? "回答正确。固定位置让硬件查找更快，但也更容易发生冲突。"
+                        : "再想一下：直接映射的“直接”意味着位置由块号唯一计算。"}
+                    </p>
+                    {answer === "只能放入一个固定行" ? (
+                      <Link
+                        className="check-summary-link"
+                        to={`/courses/${courseId}/phases/focus/summary`}
+                      >
+                        查看阶段总结 <ChevronRight size={16} />
+                      </Link>
+                    ) : null}
+                  </>
                 ) : null}
               </section>
             ) : null}

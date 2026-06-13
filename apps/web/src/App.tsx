@@ -4,6 +4,7 @@ import { AppShell } from "./components/AppShell";
 import { CoursesPage } from "./pages/CoursesPage";
 import { CourseWorkspacePage } from "./pages/CourseWorkspacePage";
 import { LearningTaskPage } from "./pages/LearningTaskPage";
+import { StageSummaryPage } from "./pages/StageSummaryPage";
 import {
   ConfirmPlanPage,
   ConfirmProfilePage,
@@ -29,6 +30,10 @@ export function App() {
       <Route path="/courses" element={<CoursesPage />} />
       <Route path="/courses/:courseId" element={<CourseWorkspacePage />} />
       <Route path="/courses/:courseId/tasks/:taskId" element={<LearningTaskPage />} />
+      <Route
+        path="/courses/:courseId/phases/:phaseId/summary"
+        element={<StageSummaryPage />}
+      />
       <Route path="/courses/new" element={<DescribeGoalPage />} />
       <Route path="/courses/new/clarify" element={<ClarifyPage />} />
       <Route path="/courses/new/sources" element={<SelectSourcesPage />} />

@@ -97,3 +97,82 @@ export const focusTasks = [
     estimate: "约 15 分钟",
   },
 ] as const;
+
+export type EvidenceState = "mastered" | "reinforce" | "unfinished";
+
+export type StageEvidence = {
+  id: string;
+  name: string;
+  source: string;
+  detail: string;
+  state: EvidenceState;
+};
+
+export const stageEvidence: StageEvidence[] = [
+  {
+    id: "mapping",
+    name: "Cache 映射方式",
+    source: "阶段检查 4/4",
+    detail: "能区分三种映射方式及其冲突特征",
+    state: "mastered",
+  },
+  {
+    id: "locality",
+    name: "局部性原理",
+    source: "阶段检查 4/4",
+    detail: "能解释时间与空间局部性的实际作用",
+    state: "mastered",
+  },
+  {
+    id: "replacement",
+    name: "Cache 替换策略",
+    source: "阶段检查 2/4",
+    detail: "需要继续比较 LRU、FIFO 与随机替换",
+    state: "reinforce",
+  },
+  {
+    id: "write-policy",
+    name: "写策略",
+    source: "阶段检查 2/4",
+    detail: "写直达与写回的适用场景仍容易混淆",
+    state: "reinforce",
+  },
+  {
+    id: "cache-lab",
+    name: "实验：Cache 性能对比",
+    source: "任务未完成",
+    detail: "保留为后续补学，不影响进入下一阶段",
+    state: "unfinished",
+  },
+];
+
+export const nextPhasePreview = {
+  id: "application",
+  name: "综合应用",
+  goal: "将已学知识综合运用，解决综合性问题并独立设计方案。",
+  connection: "基于映射方式与命中率的理解，进一步进行参数权衡与性能优化。",
+  workload: "参考学习量：约 30%（约 4～5 小时）",
+  tasks: [
+    "综合应用：Cache 设计与优化分析",
+    "练习：多级 Cache 系统设计",
+    "项目：小型处理器 Cache 子系统设计",
+  ],
+} as const;
+
+export const adjustmentImpact = [
+  {
+    id: "reinforcement",
+    scope: "本阶段（重点突破）",
+    change: "新增补学：Cache 替换策略",
+  },
+  {
+    id: "guided",
+    scope: "下一阶段（综合应用）",
+    change: "首个综合题调整为引导式练习",
+  },
+  {
+    id: "unchanged",
+    scope: "其他阶段",
+    change: "不受影响，保持原方案不变",
+  },
+] as const;

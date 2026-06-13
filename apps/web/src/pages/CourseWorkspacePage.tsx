@@ -10,7 +10,7 @@ import {
   Play,
   Settings,
 } from "lucide-react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useParams, useSearchParams } from "react-router-dom";
 
 import { AppShell } from "../components/AppShell";
 import { coursePhases, focusTasks } from "../data/courses";
@@ -26,6 +26,8 @@ function TaskStateIcon({ state }: { state: string }) {
 
 export function CourseWorkspacePage() {
   const { courseId = "computer-architecture" } = useParams();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const reinforcementMode = searchParams.get("focus") === "reinforcement";
   const currentTask = focusTasks.find((task) => task.state === "current") ?? focusTasks[1];
 
   return (
@@ -64,7 +66,10 @@ export function CourseWorkspacePage() {
 
         <section className="workspace-section">
           <div className="workspace-section-heading">
-            <h2>学习阶段</h2>
+            <div className="workspace-heading-actions">
+              <h2>学习阶段</h2>
+              <Link to={`/courses/${courseId}/phases/focus/summary`}>查看阶段总结</Link>
+            </div>
             <p>阶段是课程主结构，你可以按实际情况连续推进。</p>
           </div>
           <div className="workspace-phase-path">
@@ -81,23 +86,40 @@ export function CourseWorkspacePage() {
           </div>
         </section>
 
-        <section className="recommended-task">
+        {reinforcementMode ? (
+          <div className="reinforcement-context" role="status">
+            <div>
+              <strong>已切换为薄弱项补学</strong>
+              <span>阶段保持不变，完成后仍可从阶段总结进入下一阶段。</span>
+            </div>
+            <button onClick={() => setSearchParams({})} type="button">恢复推荐顺序</button>
+          </div>
+        ) : null}
+
+        <section className={`recommended-task${reinforcementMode ? " reinforcement" : ""}`}>
           <div className="recommendation-icon">
             <BookOpen size={27} />
           </div>
           <div className="recommendation-copy">
-            <span>接下来建议学习</span>
-            <h2>{currentTask.name}</h2>
-            <p>理解三种映射方式的原理与适用场景，掌握命中率的影响因素与基本计算。</p>
+            <span>{reinforcementMode ? "优先补强薄弱项" : "接下来建议学习"}</span>
+            <h2>{reinforcementMode ? "Cache 替换策略" : currentTask.name}</h2>
+            <p>
+              {reinforcementMode
+                ? "集中比较 LRU、FIFO 与随机替换的适用场景，完成后返回阶段总结。"
+                : "理解三种映射方式的原理与适用场景，掌握命中率的影响因素与基本计算。"}
+            </p>
             <div>
               <span><FileText size={14} /> 新知识</span>
-              <span>{currentTask.estimate}</span>
+              <span>{reinforcementMode ? "约 16 分钟" : currentTask.estimate}</span>
               <span><Map size={14} /> 知识点讲解 + 例题</span>
             </div>
           </div>
           <div className="recommendation-actions">
-            <Link className="button primary" to={`/courses/${courseId}/tasks/${currentTask.id}`}>
-              继续学习 <ArrowRight size={16} />
+            <Link
+              className="button primary"
+              to={`/courses/${courseId}/tasks/${reinforcementMode ? "cache-replacement" : currentTask.id}`}
+            >
+              {reinforcementMode ? "开始补强" : "继续学习"} <ArrowRight size={16} />
             </Link>
             <button type="button">查看任务详情</button>
           </div>
