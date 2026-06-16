@@ -46,6 +46,14 @@ class EvidenceUnit(models.Model):
         help_text="所属 ParsedBundle ID，用于追溯解析产物。",
     )
     content = models.TextField(help_text="证据正文片段。")
+    segmented_content = models.TextField(
+        default="",
+        help_text="jieba 分词后的文本（空格分隔），用于 PG tsvector 索引。",
+    )
+    search_vector = SearchVectorField(
+        null=True,
+        help_text="PG 全文检索向量，由应用层在写入时通过 jieba 分词 + to_tsvector 生成。",
+    )
     page_number = models.IntegerField(help_text="所在页码，从 1 开始。")
     bbox_json = models.JSONField(
         null=True,
@@ -78,6 +86,10 @@ class EvidenceUnit(models.Model):
                 name="evidence_content_trgm_idx",
                 fields=["content"],
                 opclasses=["gin_trgm_ops"],
+            ),
+            GinIndex(
+                name="evidence_search_vector_idx",
+                fields=["search_vector"],
             ),
         ]
 

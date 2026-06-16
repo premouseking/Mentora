@@ -17,7 +17,7 @@
 @module mentora/parsing/schemas
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from uuid import UUID, uuid4
 
@@ -126,7 +126,7 @@ class ParsedBundle(BaseModel):
     warnings: list[str] = Field(default_factory=list)
     quality: QualityInfo = Field(default_factory=QualityInfo)
     artifact_ref: str = Field(default="", description="对象存储键，持久化后回填")
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
     @property
     def element_count(self) -> int:
@@ -158,7 +158,7 @@ class EvidenceUnit(BaseModel):
         description="引用的 ParsedElement 序号（0-based，在 ParsedBundle.pages 拍平后的索引）",
     )
     token_count: int | None = Field(default=None, ge=0, description="Token 估算值")
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 class EvidenceSnapshot(BaseModel):
@@ -173,4 +173,4 @@ class EvidenceSnapshot(BaseModel):
     id: UUID = Field(default_factory=uuid4)
     evidence_ids: list[UUID] = Field(default_factory=list)
     scope_revision_id: str = Field(description="课程知识作用域修订 ID")
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
