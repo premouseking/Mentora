@@ -20,6 +20,42 @@
 
 ---
 
+## 2026-06-13：移除 Deep Link，统一应用内登录
+
+关联：
+
+- [desktop-client-architecture.md](../architecture/desktop-client-architecture.md) §5.3、§8、§12
+- [ADR-0005](../architecture/adr/0005-electron-desktop-client.md)
+- [end-to-end-implementation-plan.md](../architecture/end-to-end-implementation-plan.md) §12.4、M0
+
+状态：**已落地**
+
+### 做了什么
+
+- 删除 `apps/desktop/src/main/deepLink.ts` 及 `mentora://` 自定义协议注册（`electron-builder.yml` `protocols`）。
+- 移除 IPC 通道 `window.deep-link`、`DeepLink` 类型与 `window.onDeepLink` preload 暴露。
+- `bootstrap.ts` 保留单实例锁，第二实例仅聚焦已有窗口；不再监听 `open-url` 或解析启动参数中的协议 URL。
+- 同步架构文档：认证改为 renderer 经 `auth.login` / `auth.register` IPC 提交凭据，主进程调用 Django 并保存 Refresh Token。
+
+### 影响范围
+
+- 桌面认证路径与 `apps/desktop/src/main/auth.ts` 现实现一致，不再预留系统浏览器 OAuth / PKCE 回调。
+- `shell.openExternal` 仍用于打开外部帮助链接等，不参与登录。
+
+### 尚未完成 / 已知限制
+
+- 登录/注册 IPC 骨架已有，**尚未与 Django 真实端点端到端验收**。
+- 通知点击内部路由（`notifications.onActivated`）仍走 IPC 事件，不依赖自定义 URL 协议。
+
+### 验证方式
+
+```bash
+pnpm --dir apps/desktop typecheck
+pnpm dev:desktop   # 开发态默认 dev auth bypass；设 MENTORA_DEV_AUTH_BYPASS=0 可验证登录 UI
+```
+
+---
+
 ## 2026-06-13：Electron 桌面客户端框架骨架
 
 关联：
@@ -40,9 +76,9 @@
 | 共享契约 | `src/shared/desktopApi.ts` | `window.mentoraDesktop` TypeScript 类型 |
 | 共享契约 | `src/shared/schemas.ts` | main 侧 zod 权威校验（相对 API 路径、外部 URL 等） |
 | 主进程 | `src/main/index.ts` | 崩溃保护入口，业务前注册 handler |
-| 主进程 | `src/main/bootstrap.ts` | 单实例锁、`mentora://` Deep Link、生命周期 |
+| 主进程 | `src/main/bootstrap.ts` | 单实例锁、生命周期 |
 | 主进程 | `src/main/window.ts` | 安全基线（sandbox、CSP、导航拦截） |
-| 主进程 | `src/main/auth.ts` | safeStorage + PKCE 登录 + 单飞刷新（待后端对接） |
+| 主进程 | `src/main/auth.ts` | safeStorage + 应用内登录/注册 + 单飞刷新 |
 | 主进程 | `src/main/apiClient.ts` | 认证 API 桥 + 路径 allowlist + 401 重试 |
 | 主进程 | `src/main/eventStreams.ts` | SSE 桥（stream_id、Last-Event-ID、renderer 销毁清理） |
 | 主进程 | `src/main/fileTokens.ts` | 短期、窗口绑定的 `file_token` |
@@ -69,7 +105,7 @@
 ### 尚未完成 / 已知限制
 
 - 登录、上传、SSE 等 IPC 已实现骨架，**尚未与 Django 真实端点联调**
-- 文档 §12 要求的完整 IPC/SSE/Deep Link E2E **未编写**；Electron GUI 基线 smoke 已补充
+- 文档 §12 要求的完整 IPC/SSE/认证 E2E **未编写**；Electron GUI 基线 smoke 已补充
 - Windows 代码签名与生产更新 feed 仍为占位配置（`electron-builder.yml` → `updates.example.com`）
 - ADR-0005 仍为 Proposed；端到端验收通过后再改为 Accepted
 
@@ -123,7 +159,7 @@ feat: 搭建 Electron 桌面客户端框架骨架
 
 ### 尚未覆盖
 
-- 真实登录 Deep Link。
+- 真实登录/注册与后端联调。
 - PDF 上传与对象存储。
 - SSE 断线恢复。
 - 安装包与自动更新。

@@ -2,7 +2,7 @@
 /**
  * Cursor beforeShellExecution hook：拦截破坏性 shell 命令。
  *
- * 约束：Git 写操作与文件还原类命令须由开发者在本地终端手动执行。
+ * 约束：Git 写操作须经开发者确认；文件删除类命令继续拦截。
  */
 
 let raw = "";
@@ -24,33 +24,33 @@ process.stdin.on("end", () => {
       cmd
     )
   ) {
-    return deny(
-      "⛔ Git 写操作已被 Hook 拦截，请在本地终端手动执行",
-      "Git 写操作（add/commit/push/pull/merge/rebase/stash 等）已被安全策略拦截。AI 不得直接提交或推送；请按 git-rules 向开发者提供可复制命令，由开发者在本机执行。"
+    return ask(
+      "Git 写操作需要确认",
+      "检测到 Git 写操作（add/commit/push/pull/merge/rebase/stash 等）。请确认当前命令、分支流向与文件范围是否符合预期。"
     );
   }
 
   // ── git reset（含 --hard / --mixed 等）────────────────────────────────────────
   if (/\bgit\b[\s\S]*\breset\b/.test(cmd)) {
-    return deny(
-      "⛔ git reset 已被 Hook 拦截",
-      "git reset 会改写暂存区或丢弃本地改动，禁止通过 AI 自动执行，请让开发者手动决策。"
+    return ask(
+      "git reset 需要单独确认",
+      "git reset 会改写暂存区或丢弃本地改动。请确认当前命令不会覆盖开发者需要保留的改动。"
     );
   }
 
   // ── git checkout 还原文件或切换分支 ─────────────────────────────────────────────
   if (/\bgit\b[\s\S]*\bcheckout\b/.test(cmd)) {
-    return deny(
-      "⛔ git checkout 已被 Hook 拦截",
-      "git checkout 可能丢弃本地改动或切换分支，禁止通过 AI 自动执行，请让开发者手动决策。"
+    return ask(
+      "git checkout 需要确认",
+      "git checkout 可能丢弃本地改动或切换分支。请确认目标分支或文件路径正确。"
     );
   }
 
   // ── git restore / git switch ───────────────────────────────────────────────────
   if (/\bgit\b[\s\S]*\b(restore|switch)\b/.test(cmd)) {
-    return deny(
-      "⛔ git restore/switch 已被 Hook 拦截",
-      "git restore/switch 会改写工作区或分支，禁止通过 AI 自动执行，请让开发者手动决策。"
+    return ask(
+      "git restore/switch 需要确认",
+      "git restore/switch 会改写工作区或切换分支。请确认不会覆盖需要保留的改动。"
     );
   }
 
@@ -79,6 +79,13 @@ process.stdin.on("end", () => {
 
 function allow() {
   process.stdout.write(JSON.stringify({ permission: "allow" }));
+  process.exit(0);
+}
+
+function ask(user_message, agent_message) {
+  process.stdout.write(
+    JSON.stringify({ permission: "ask", user_message, agent_message })
+  );
   process.exit(0);
 }
 

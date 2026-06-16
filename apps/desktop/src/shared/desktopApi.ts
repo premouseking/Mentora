@@ -101,12 +101,6 @@ export interface NotificationRequest {
   route?: string;
 }
 
-export interface DeepLink {
-  domain: string;
-  path: string;
-  params: Record<string, string>;
-}
-
 export interface MentoraDesktopApi {
   app: {
     getInfo(): Promise<AppInfo>;
@@ -151,7 +145,6 @@ export interface MentoraDesktopApi {
     minimize(): Promise<void>;
     toggleMaximize(): Promise<void>;
     close(): Promise<void>;
-    onDeepLink(listener: (link: DeepLink) => void): Unsubscribe;
   };
 }
 

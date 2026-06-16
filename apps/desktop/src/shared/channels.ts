@@ -83,7 +83,6 @@ export const Channels = {
     minimize: ipcChannel("window", "minimize"),
     toggleMaximize: ipcChannel("window", "toggle-maximize"),
     close: ipcChannel("window", "close"),
-    deepLink: ipcChannel("window", "deep-link"),
   },
 } as const;
 
