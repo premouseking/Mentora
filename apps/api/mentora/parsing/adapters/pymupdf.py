@@ -63,7 +63,9 @@ class PyMuPDFAdapter:
             for page_idx in range(len(doc)):
                 page = doc[page_idx]
                 page_dict = page.get_text("dict")
-                elements = self._extract_elements(page_dict, page_idx + 1)
+                # get_text("dict") 的 bbox 为左上角原点；契约要求 PDF 左下角原点
+                page_height = page.rect.height
+                elements = self._extract_elements(page_dict, page_height)
 
                 page_warnings: list[str] = []
                 if not elements:
@@ -116,7 +118,7 @@ class PyMuPDFAdapter:
                 sha.update(chunk)
         return sha.hexdigest()
 
-    def _extract_elements(self, page_dict: dict, page_number: int) -> list[ParsedElement]:
+    def _extract_elements(self, page_dict: dict, page_height: float) -> list[ParsedElement]:
         """从 PyMuPDF page dict 提取 ParsedElement 列表，按阅读顺序。"""
         elements: list[ParsedElement] = []
         blocks = page_dict.get("blocks", [])
@@ -126,7 +128,7 @@ class PyMuPDFAdapter:
 
             # 图片块
             if block_type == 1:
-                bbox = self._to_bbox(block.get("bbox"))
+                bbox = self._to_pdf_bbox(block.get("bbox"), page_height)
                 elements.append(
                     ParsedElement(
                         type=ElementType.IMAGE,
@@ -139,13 +141,13 @@ class PyMuPDFAdapter:
             # 文本块
             if block_type == 0:
                 for line in block.get("lines", []):
-                    element = self._line_to_element(line)
+                    element = self._line_to_element(line, page_height)
                     if element is not None:
                         elements.append(element)
 
         return elements
 
-    def _line_to_element(self, line: dict) -> ParsedElement | None:
+    def _line_to_element(self, line: dict, page_height: float) -> ParsedElement | None:
         """将单个文本行转换为 ParsedElement。"""
         spans = line.get("spans", [])
         if not spans:
@@ -155,7 +157,7 @@ class PyMuPDFAdapter:
         if not text:
             return None
 
-        bbox = self._to_bbox(line.get("bbox"))
+        bbox = self._to_pdf_bbox(line.get("bbox"), page_height)
         font_sizes = [span.get("size", 0) for span in spans if span.get("size")]
         max_font_size = max(font_sizes) if font_sizes else 0
 
@@ -176,8 +178,18 @@ class PyMuPDFAdapter:
             )
 
     @staticmethod
-    def _to_bbox(rect: list[float] | None) -> BoundingBox | None:
-        """PyMuPDF rect [x0, y0, x1, y1] → BoundingBox。"""
+    def _to_pdf_bbox(rect: list[float] | None, page_height: float) -> BoundingBox | None:
+        """
+        PyMuPDF rect（左上角原点，y 向下）→ 契约 BoundingBox（PDF 左下角原点）。
+
+        转换：y_pdf = page_height - y_top
+        """
         if rect is None or len(rect) < 4:
             return None
-        return BoundingBox(x0=rect[0], y0=rect[1], x1=rect[2], y1=rect[3])
+        x0, y_top, x1, y_bottom = rect[0], rect[1], rect[2], rect[3]
+        return BoundingBox(
+            x0=x0,
+            y0=page_height - y_bottom,
+            x1=x1,
+            y1=page_height - y_top,
+        )

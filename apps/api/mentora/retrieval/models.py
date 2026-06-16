@@ -22,7 +22,7 @@
 import uuid
 
 from django.contrib.postgres.indexes import GinIndex
-from django.contrib.postgres.search import SearchVectorField
+from django.contrib.postgres.search import SearchVector, SearchVectorField
 from django.db import models
 from pgvector.django import IvfflatIndex, VectorField
 
@@ -158,7 +158,7 @@ class PageTextProjection(models.Model):
     full_text = models.TextField(help_text="该页全部文本内容。")
     search_vector = SearchVectorField(
         null=True,
-        help_text="PG 全文检索向量，由数据库触发器或应用层维护。",
+        help_text="PG 全文检索向量，在 save() 时由 full_text 自动同步。",
     )
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -176,6 +176,14 @@ class PageTextProjection(models.Model):
 
     def __str__(self) -> str:
         return f"PageText({self.source_version_id}) p{self.page_number}"
+
+    def save(self, *args, **kwargs) -> None:
+        """保存后同步填充 search_vector，供 PG 全文检索使用。"""
+        super().save(*args, **kwargs)
+        type(self).objects.filter(pk=self.pk).update(
+            search_vector=SearchVector("full_text", config="simple"),
+        )
+        self.refresh_from_db(fields=["search_vector"])
 
 
 class SentenceProjection(models.Model):

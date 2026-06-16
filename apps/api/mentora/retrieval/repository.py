@@ -14,8 +14,9 @@
 """
 
 from django.conf import settings
+from django.db import connection, transaction
 from django.db.models import QuerySet
-from django.db.models.expressions import RawSQL
+from pgvector.django import CosineDistance
 
 from mentora.retrieval.models import (
     ChunkProjection,
@@ -80,25 +81,21 @@ def search_chunks_by_vector(
     """
     pgvector 余弦相似度检索。
 
-    约束：必须按作用域过滤。
+    约束：必须按作用域过滤；ivfflat.probes 在同一事务内 SET LOCAL 后查询。
     """
-    # 设置探测数（更大 = 更准但更慢）
     probes = getattr(settings, "PGVECTOR_PROBES", 10)
-
-    return (
-        ChunkProjection.objects.filter(
-            source_version_id__in=source_version_ids,
-            embedding__isnull=False,
-        )
-        .annotate(
-            similarity=RawSQL(
-                "1 - (embedding <=> %s::vector)",
-                [query_embedding],
-            )
-        )
-        .extra(select={"probes": f"SET LOCAL ivfflat.probes = {probes}"})
-        .order_by("-similarity")[:top_k]
+    base_qs = ChunkProjection.objects.filter(
+        source_version_id__in=source_version_ids,
+        embedding__isnull=False,
     )
+
+    with transaction.atomic():
+        with connection.cursor() as cursor:
+            cursor.execute("SET LOCAL ivfflat.probes = %s", [probes])
+        return (
+            base_qs.annotate(distance=CosineDistance("embedding", query_embedding))
+            .order_by("distance")[:top_k]
+        )
 
 
 # ── PageTextProjection ────────────────────────────────

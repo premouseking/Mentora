@@ -29,11 +29,17 @@ class TestPyMuPDFAdapter:
         ]
         assert len(paragraphs) >= 2
 
-        # 坐标应为正
-        for elem in bundle.pages[0].elements:
-            if elem.bbox is not None:
-                assert elem.bbox.x1 >= elem.bbox.x0
-                assert elem.bbox.y1 >= elem.bbox.y0
+        # 坐标应为正，且符合 PDF 左下角原点（页顶文本 y 偏大）
+        page_height = 842.0  # A4 fixture
+        text_with_bbox = [
+            e for e in bundle.pages[0].elements if e.bbox is not None and e.text.strip()
+        ]
+        assert text_with_bbox
+        for elem in text_with_bbox:
+            assert elem.bbox.x1 >= elem.bbox.x0
+            assert elem.bbox.y1 >= elem.bbox.y0
+        top_elem = text_with_bbox[0]
+        assert top_elem.bbox.y0 > page_height / 2
 
     def test_parse_heading_pdf(self, heading_pdf):
         """含标题 PDF 应正确分类 heading 和 paragraph。"""
