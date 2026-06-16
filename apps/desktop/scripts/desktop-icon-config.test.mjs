@@ -20,7 +20,9 @@ test("desktop window uses the Mentora icon path from config", () => {
   );
 
   assert.match(configSource, /export function resolveWindowIconPath\(\)/);
-  assert.match(windowSource, /icon:\s*resolveWindowIconPath\(\)/);
+  assert.match(windowSource, /const iconPath = resolveWindowIconPath\(\)/);
+  assert.match(windowSource, /nativeImage\.createFromPath\(iconPath\)/);
+  assert.match(windowSource, /icon:\s*resolveWindowIcon\(\)/);
 });
 
 test("desktop window uses renderer-owned chrome", () => {

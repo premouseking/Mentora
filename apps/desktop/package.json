@@ -24,7 +24,7 @@
     "@types/node": "^22.10.5",
     "concurrently": "^9.1.2",
     "cross-env": "^7.0.3",
-    "electron": "^33.3.1",
+    "electron": "32.2.8",
     "electron-builder": "^25.1.8",
     "nodemon": "^3.1.14",
     "playwright": "^1.60.0",
