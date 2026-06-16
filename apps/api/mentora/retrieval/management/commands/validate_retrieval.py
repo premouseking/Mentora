@@ -24,44 +24,44 @@ class Command(BaseCommand):
                 PageTextProjection,
                 SentenceProjection,
             )
-            self.stdout.write(self.style.SUCCESS("  ✓ 四个 ORM 模型导入成功"))
+            self.stdout.write(self.style.SUCCESS("  [OK] 四个 ORM 模型导入成功"))
         except Exception as exc:
-            self.stderr.write(self.style.ERROR(f"  ✗ 模型导入失败: {exc}"))
+            self.stderr.write(self.style.ERROR(f"  [FAIL] 模型导入失败: {exc}"))
             return
 
         # 2. 数据库连接
         from django.db import connection
         try:
             connection.ensure_connection()
-            self.stdout.write(self.style.SUCCESS("  ✓ 数据库连接正常"))
+            self.stdout.write(self.style.SUCCESS("  [OK] 数据库连接正常"))
         except Exception as exc:
-            self.stderr.write(self.style.WARNING(f"  ⚠ 数据库不可用（迁移将跳过）: {exc}"))
+            self.stderr.write(self.style.WARNING(f"  [WARN] 数据库不可用（迁移将跳过）: {exc}"))
 
         # 3. pgvector 扩展
         try:
             with connection.cursor() as cursor:
                 cursor.execute("SELECT extname FROM pg_extension WHERE extname = 'vector'")
                 if cursor.fetchone():
-                    self.stdout.write(self.style.SUCCESS("  ✓ pgvector 扩展已启用"))
+                    self.stdout.write(self.style.SUCCESS("  [OK] pgvector 扩展已启用"))
                 else:
                     self.stderr.write(self.style.WARNING(
-                        "  ⚠ pgvector 扩展未启用。执行: CREATE EXTENSION IF NOT EXISTS vector"
+                        "  [WARN] pgvector 扩展未启用。执行: CREATE EXTENSION IF NOT EXISTS vector"
                     ))
         except Exception:
-            self.stderr.write(self.style.WARNING("  ⚠ 无法检查 pgvector 扩展（数据库不可用）"))
+            self.stderr.write(self.style.WARNING("  [WARN] 无法检查 pgvector 扩展（数据库不可用）"))
 
         # 4. pg_trgm 扩展
         try:
             with connection.cursor() as cursor:
                 cursor.execute("SELECT extname FROM pg_extension WHERE extname = 'pg_trgm'")
                 if cursor.fetchone():
-                    self.stdout.write(self.style.SUCCESS("  ✓ pg_trgm 扩展已启用"))
+                    self.stdout.write(self.style.SUCCESS("  [OK] pg_trgm 扩展已启用"))
                 else:
                     self.stderr.write(self.style.WARNING(
-                        "  ⚠ pg_trgm 扩展未启用。执行: CREATE EXTENSION IF NOT EXISTS pg_trgm"
+                        "  [WARN] pg_trgm 扩展未启用。执行: CREATE EXTENSION IF NOT EXISTS pg_trgm"
                     ))
         except Exception:
-            self.stderr.write(self.style.WARNING("  ⚠ 无法检查 pg_trgm 扩展（数据库不可用）"))
+            self.stderr.write(self.style.WARNING("  [WARN] 无法检查 pg_trgm 扩展（数据库不可用）"))
 
         # 5. 迁移状态
         from django.db.migrations.recorder import MigrationRecorder
@@ -73,14 +73,14 @@ class Command(BaseCommand):
             }
             if retrieval_migrations:
                 self.stdout.write(self.style.SUCCESS(
-                    f"  ✓ retrieval 迁移已应用: {len(retrieval_migrations)} 个"
+                    f"  [OK] retrieval 迁移已应用: {len(retrieval_migrations)} 个"
                 ))
             else:
                 self.stderr.write(self.style.WARNING(
-                    "  ⚠ retrieval 迁移未应用。执行: python manage.py migrate retrieval"
+                    "  [WARN] retrieval 迁移未应用。执行: python manage.py migrate retrieval"
                 ))
         except Exception:
-            self.stderr.write(self.style.WARNING("  ⚠ 无法检查迁移状态（数据库不可用）"))
+            self.stderr.write(self.style.WARNING("  [WARN] 无法检查迁移状态（数据库不可用）"))
 
         # 6. 模型计数（无数据库时跳过）
         try:
@@ -92,4 +92,4 @@ class Command(BaseCommand):
             self.stdout.write("    （跳过计数 — 数据库不可用）")
 
         self.stdout.write("=" * 56)
-        self.stdout.write("  验证完成。⚠ 标记项需在 PostgreSQL 环境中处理。")
+        self.stdout.write("  验证完成。[WARN] 标记项需在 PostgreSQL 环境中处理。")
