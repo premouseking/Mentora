@@ -21,6 +21,7 @@ export const API_PATH_ALLOWLIST: readonly string[] = [
   "/auth/",
   "/courses",
   "/sources",
+  "/library",
   "/uploads",
   "/events",
   "/assessments",
@@ -40,9 +41,9 @@ export function resolvePreloadPath(): string {
 
 export function resolveWindowIconPath(): string | undefined {
   if (!isDev) return undefined;
-  // Windows 任务栏对 PNG 支持不稳定，开发态也走多尺寸 ICO
+  // 与 preload 一致：bundle 在 dist/main，build 资源在项目根 build/
   const fileName = process.platform === "win32" ? "icon.ico" : "icon-dev.png";
-  return path.join(app.getAppPath(), "build", fileName);
+  return path.resolve(__dirname, "..", "..", "build", fileName);
 }
 
 export function resolveRendererTarget():

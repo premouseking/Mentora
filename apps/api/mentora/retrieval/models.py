@@ -73,7 +73,10 @@ class EvidenceUnit(models.Model):
         verbose_name = "证据单元"
         verbose_name_plural = verbose_name
         indexes = [
-            models.Index(fields=["source_version_id", "page_number"]),
+            models.Index(
+                fields=["source_version_id", "page_number"],
+                name="evidence_srcver_page_idx",
+            ),
             GinIndex(
                 name="evidence_content_trgm_idx",
                 fields=["content"],
@@ -125,7 +128,7 @@ class ChunkProjection(models.Model):
         verbose_name = "块投影"
         verbose_name_plural = verbose_name
         indexes = [
-            models.Index(fields=["source_version_id"]),
+            models.Index(fields=["source_version_id"], name="chunk_srcver_idx"),
             IvfflatIndex(
                 name="chunk_embedding_ivfflat_idx",
                 fields=["embedding"],
@@ -158,7 +161,7 @@ class PageTextProjection(models.Model):
     full_text = models.TextField(help_text="该页全部文本内容。")
     search_vector = SearchVectorField(
         null=True,
-        help_text="PG 全文检索向量，在 save() 时由 full_text 自动同步。",
+        help_text="PG 全文检索向量，由数据库触发器或应用层维护。",
     )
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -217,7 +220,7 @@ class SentenceProjection(models.Model):
         verbose_name = "句子投影"
         verbose_name_plural = verbose_name
         indexes = [
-            models.Index(fields=["evidence_unit_id"]),
+            models.Index(fields=["evidence_unit_id"], name="sentence_evidence_idx"),
         ]
 
     def __str__(self) -> str:

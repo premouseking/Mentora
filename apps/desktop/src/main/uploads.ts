@@ -79,10 +79,10 @@ export class UploadManager {
     try {
       emit("creating", 0);
 
-      const created = await this.api.request<{ uploadUrl: string }>({
+      const created = await this.api.request<{ uploadUrl: string; uploadId?: string }>({
         path: "/uploads/",
         method: "POST",
-        body: { courseId: req.courseId, size: bytesTotal },
+        body: { courseId: req.courseId, size: bytesTotal, uploadId },
       });
       if (!created.ok) throw new Error(`create upload failed: ${created.status}`);
       const uploadUrl = created.data.uploadUrl;

@@ -8,6 +8,8 @@ import {
   FolderClosed,
   GripVertical,
   History,
+  PanelLeftClose,
+  PanelLeftOpen,
   Send,
   Settings,
   Sparkles,
@@ -33,20 +35,79 @@ const MAX_SIDEBAR = 320;
 const MIN_PANEL = 260;
 const MAX_PANEL = 600;
 const SIDEBAR_DEFAULT = 196;
+const COLLAPSED_SIDEBAR = 68;
 const PANEL_DEFAULT = 360;
+const SIDEBAR_COLLAPSED_KEY = "mentora-sidebar-collapsed";
+const SIDEBAR_WIDTH_KEY = "mentora-sidebar-width";
 
-function AppSidebar({ width }: { width: number }) {
+function clampSidebarWidth(value: number) {
+  return Math.min(MAX_SIDEBAR, Math.max(MIN_SIDEBAR, value));
+}
+
+function readStoredSidebarWidth() {
+  const raw = localStorage.getItem(SIDEBAR_WIDTH_KEY);
+  if (!raw) return SIDEBAR_DEFAULT;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) ? clampSidebarWidth(parsed) : SIDEBAR_DEFAULT;
+}
+
+function readStoredCollapsed() {
+  return localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === "true";
+}
+
+function AppSidebar({
+  width,
+  collapsed,
+  labelsVisible,
+  animating,
+  resizing,
+  onToggleCollapsed,
+  onTransitionEnd,
+}: {
+  width: number;
+  collapsed: boolean;
+  labelsVisible: boolean;
+  animating: boolean;
+  resizing: boolean;
+  onToggleCollapsed: () => void;
+  onTransitionEnd: (event: React.TransitionEvent<HTMLElement>) => void;
+}) {
+  const showLabels = labelsVisible && !collapsed;
+
   return (
-    <aside className="sidebar" style={{ width }}>
+    <aside
+      className={[
+        "sidebar",
+        collapsed && "collapsed",
+        showLabels && "sidebar-labels-visible",
+        animating && "sidebar-animating",
+        resizing && "sidebar-resizing",
+      ]
+        .filter(Boolean)
+        .join(" ")}
+      onTransitionEnd={onTransitionEnd}
+      style={{ width: collapsed ? COLLAPSED_SIDEBAR : width }}
+    >
+      <button
+        aria-expanded={!collapsed}
+        aria-label={collapsed ? "展开侧边栏" : "折叠侧边栏"}
+        className="sidebar-toggle"
+        onClick={onToggleCollapsed}
+        title={collapsed ? "展开侧边栏" : "折叠侧边栏"}
+        type="button"
+      >
+        {collapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
+      </button>
       <nav className="primary-nav" aria-label="主导航">
         {navItems.map(({ to, label, icon: Icon }) => (
           <NavLink
             className={({ isActive }) => `nav-item${isActive ? " active" : ""}`}
             key={to}
+            title={!showLabels ? label : undefined}
             to={to}
           >
             <Icon size={19} strokeWidth={1.9} />
-            <span>{label}</span>
+            <span className="nav-item-label">{label}</span>
           </NavLink>
         ))}
       </nav>
@@ -58,16 +119,25 @@ function AppSidebar({ width }: { width: number }) {
 
 function ResizeHandle({
   onResize,
+  onResizeStart,
+  onResizeEnd,
 }: {
   onResize: (delta: number) => void;
+  onResizeStart?: () => void;
+  onResizeEnd?: () => void;
 }) {
   const activeRef = useRef(false);
+  const lastXRef = useRef(0);
   const onResizeRef = useRef(onResize);
+  const onResizeEndRef = useRef(onResizeEnd);
   onResizeRef.current = onResize;
+  onResizeEndRef.current = onResizeEnd;
 
   const onMove = (e: MouseEvent) => {
     if (!activeRef.current) return;
-    onResizeRef.current(e.movementX);
+    const delta = e.clientX - lastXRef.current;
+    lastXRef.current = e.clientX;
+    if (delta !== 0) onResizeRef.current(delta);
   };
 
   const onUp = () => {
@@ -77,12 +147,15 @@ function ResizeHandle({
     document.body.style.userSelect = "";
     document.removeEventListener("mousemove", onMove);
     document.removeEventListener("mouseup", onUp);
+    onResizeEndRef.current?.();
   };
 
-  function onDown() {
+  function onDown(e: React.MouseEvent) {
     activeRef.current = true;
+    lastXRef.current = e.clientX;
     document.body.style.cursor = "col-resize";
     document.body.style.userSelect = "none";
+    onResizeStart?.();
     document.addEventListener("mousemove", onMove);
     document.addEventListener("mouseup", onUp);
   }
@@ -231,11 +304,48 @@ function AiChatPanel({
 
 export function AppShell({ children }: { children: ReactNode }) {
   const [aiPanelOpen, setAiPanelOpen] = useState(false);
-  const [sidebarWidth, setSidebarWidth] = useState(SIDEBAR_DEFAULT);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(readStoredCollapsed);
+  const [sidebarLabelsVisible, setSidebarLabelsVisible] = useState(
+    () => !readStoredCollapsed(),
+  );
+  const [sidebarAnimating, setSidebarAnimating] = useState(false);
+  const [sidebarResizing, setSidebarResizing] = useState(false);
+  const [sidebarWidth, setSidebarWidth] = useState(readStoredSidebarWidth);
   const [panelWidth, setPanelWidth] = useState(PANEL_DEFAULT);
+  const sidebarWidthRef = useRef(sidebarWidth);
+  const sidebarCollapsedRef = useRef(sidebarCollapsed);
+  sidebarWidthRef.current = sidebarWidth;
+  sidebarCollapsedRef.current = sidebarCollapsed;
 
   function clamp(val: number, min: number, max: number) {
     return Math.min(max, Math.max(min, val));
+  }
+
+  function toggleSidebarCollapsed() {
+    setSidebarAnimating(true);
+    setSidebarCollapsed((prev) => {
+      const next = !prev;
+      setSidebarLabelsVisible(!next);
+      localStorage.setItem(SIDEBAR_COLLAPSED_KEY, String(next));
+      return next;
+    });
+  }
+
+  function handleSidebarTransitionEnd(event: React.TransitionEvent<HTMLElement>) {
+    if (event.target !== event.currentTarget || event.propertyName !== "width") return;
+    setSidebarAnimating(false);
+    if (!sidebarCollapsedRef.current) {
+      setSidebarLabelsVisible(true);
+    }
+  }
+
+  function handleSidebarResize(delta: number) {
+    setSidebarWidth((w) => clampSidebarWidth(w + delta));
+  }
+
+  function handleSidebarResizeEnd() {
+    setSidebarResizing(false);
+    localStorage.setItem(SIDEBAR_WIDTH_KEY, String(sidebarWidthRef.current));
   }
 
   return (
@@ -245,12 +355,22 @@ export function AppShell({ children }: { children: ReactNode }) {
         onToggleAi={() => setAiPanelOpen((v) => !v)}
       />
       <div className="app-body">
-        <AppSidebar width={sidebarWidth} />
-        <ResizeHandle
-          onResize={(d) =>
-            setSidebarWidth((w) => clamp(w + d, MIN_SIDEBAR, MAX_SIDEBAR))
-          }
+        <AppSidebar
+          animating={sidebarAnimating}
+          collapsed={sidebarCollapsed}
+          labelsVisible={sidebarLabelsVisible}
+          onToggleCollapsed={toggleSidebarCollapsed}
+          onTransitionEnd={handleSidebarTransitionEnd}
+          resizing={sidebarResizing}
+          width={sidebarWidth}
         />
+        {!sidebarCollapsed && (
+          <ResizeHandle
+            onResize={handleSidebarResize}
+            onResizeEnd={handleSidebarResizeEnd}
+            onResizeStart={() => setSidebarResizing(true)}
+          />
+        )}
         <section className="page-surface">{children}</section>
         {aiPanelOpen && (
           <>

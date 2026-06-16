@@ -1,10 +1,38 @@
 """Shared test fixtures for parsing tests."""
 
 import os
-import tempfile
 
 import fitz
+import psycopg
 import pytest
+from django.conf import settings
+
+
+def pytest_configure(config):
+    """检测 PostgreSQL 是否可用，不可用时跳过 django_db 测试。"""
+    database = settings.DATABASES["default"]
+    try:
+        with psycopg.connect(
+            dbname=database["NAME"],
+            user=database["USER"],
+            password=database["PASSWORD"],
+            host=database["HOST"],
+            port=database["PORT"],
+            connect_timeout=2,
+        ):
+            pass
+        config._postgres_available = True
+    except Exception:
+        config._postgres_available = False
+
+
+def pytest_collection_modifyitems(config, items):
+    if getattr(config, "_postgres_available", True):
+        return
+    skip_marker = pytest.mark.skip(reason="PostgreSQL 不可用，跳过数据库测试")
+    for item in items:
+        if "django_db" in item.keywords:
+            item.add_marker(skip_marker)
 
 
 @pytest.fixture(scope="session")
