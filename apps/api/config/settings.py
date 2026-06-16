@@ -70,6 +70,7 @@ CELERY_RESULT_BACKEND = CELERY_BROKER_URL
 CELERY_TASK_ROUTES = {
     "mentora.knowledge.tasks.*": {"queue": "heavy"},
     "mentora.parsing.tasks.*": {"queue": "heavy"},
+    "mentora.retrieval.tasks.*": {"queue": "heavy"},
     "mentora.agent_runtime.tasks.*": {"queue": "agent"},
     "mentora.learning.tasks.*": {"queue": "learning"},
 }

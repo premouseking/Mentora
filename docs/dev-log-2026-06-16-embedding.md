@@ -86,6 +86,46 @@ cd apps/api
 
 | 任务 | 说明 | 状态 |
 |---|---|---|
-| E2 | Chunk Embedding 生成 Celery 任务 | 待开始 |
-| E3 | 向量搜索集成到 search() | 待 E1+E2 完成后 |
+| E3 | 向量搜索集成到 search() | 待 E2 完成后 |
 | E4 | 检索基准对比（三路 vs 两路） | 待 E3 完成后 |
+
+---
+
+## E2：Chunk Embedding 生成 Celery 任务（2026-06-16）
+
+### 做了什么
+
+实现 `generate_chunk_embeddings` Celery 任务，处理解析→建 Chunk→生成 embedding 的最后一步。
+
+**任务流程：**
+
+1. 查询 `ChunkProjection` 中 `embedding IS NULL` 的记录（可选按 `source_version_id` 过滤）
+2. 按 `batch_size=100` 分批调用 `get_provider().embed()`
+3. `bulk_update` 批量写回
+4. 已有 embedding 的 Chunk 跳过（幂等）
+5. Provider 异常时记录 error 计数，不中断后续批次
+
+**Celery 配置：** `max_retries=3`、`default_retry_delay=30`、`autoretry_for=(IOError, OSError, RuntimeError)`
+
+### 文件清单
+
+| 文件 | 说明 |
+|---|---|
+| `mentora/retrieval/tasks.py`（新建） | `generate_chunk_embeddings` Celery 任务 |
+| `config/settings.py` | 新增 `mentora.retrieval.tasks.*` → heavy 队列路由 |
+| `apps/api/tests/test_embedding_tasks.py`（新建） | 5 个测试（含 DB） |
+
+### 测试覆盖
+
+1. `test_empty_no_chunks` — 无 Chunk 时返回 processed=0
+2. `test_generates_embeddings` — 为 3 个 Chunk 生成 1024d 向量并写回
+3. `test_skips_existing_embeddings` — 已有 embedding 的跳过
+4. `test_handles_provider_error` — API 异常记录 errors 不中断
+5. `test_all_source_versions_when_none` — source_version_id=None 处理全部
+
+### 验证命令
+
+```bash
+cd apps/api
+.venv/bin/python -m pytest tests/test_embedding_tasks.py -v
+```
