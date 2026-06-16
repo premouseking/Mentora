@@ -54,5 +54,51 @@ cd apps/api
 
 | 任务 | 说明 | 状态 |
 |---|---|---|
-| P2 | 表格提取 POC | 待开始 |
-| P3 | OCR 方案预研 | 待 P1 完成后 |
+| P3 | OCR 方案预研 | 待开始 |
+
+---
+
+## P2：表格提取 POC（2026-06-16）
+
+### 做了什么
+
+集成 PyMuPDF `page.find_tables()` API，对含原生线条表格的 PDF 提取结构化 TABLE 元素。
+
+**实现方式：**
+
+1. 在 `_extract_elements` 中先提取文本元素，再调用 `_merge_tables()` 检测表格
+2. 对每个检测到的表格，将区域内文本元素替换为 `TABLE` 类型元素
+3. 表格 text 以 TSV 格式存储：首行 `TSV(行x列)`，后续为 `col1\tcol2\t...`
+4. `find_tables()` 不可用或无表格时保持原行为不变
+
+**调研结论：**
+- 可检测：Word/LaTeX 导出的原生线条表格（边框用 PDF 线条绘制）
+- 不可检测：HTML 嵌入表格、无线框表格、扫描版图片表格
+- 合并单元格处理可能有偏差
+- 安装 `pymupdf_layout` 可改善布局分析（未安装）
+
+详见 `docs/table-extraction-poc.md`。
+
+### 文件清单
+
+| 文件 | 说明 |
+|---|---|
+| `mentora/parsing/adapters/pymupdf.py` | 新增 `_merge_tables()`；`_extract_elements` 增加 `fitz_page` 参数，先合并表格再列重排 |
+| `apps/api/tests/test_table_extraction.py`（新建） | 6 个测试 |
+| `docs/table-extraction-poc.md`（新建） | 调研报告 |
+
+### 测试覆盖
+
+1. `test_no_table_in_normal_pdf` — 普通 PDF 不产生 TABLE 元素
+2. `test_table_detected` — 原生线条表格被检测
+3. `test_table_has_tsv_text` — 表格文本为 TSV 格式
+4. `test_table_has_bbox` — 表格元素有 bbox
+5. `test_parse_with_table_does_not_crash` — 含表格 PDF 解析不崩溃
+6. `test_table_does_not_duplicate_content` — 表格内容不在非 TABLE 元素中重复
+
+### 验证命令
+
+```bash
+cd apps/api
+.venv/bin/python -m pytest tests/test_table_extraction.py -v
+```

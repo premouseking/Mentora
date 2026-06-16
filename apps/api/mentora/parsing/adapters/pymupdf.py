@@ -68,8 +68,10 @@ class PyMuPDFAdapter:
                 page_height = page.rect.height
                 page_width = page.rect.width
                 elements, reorder_warnings = self._extract_elements(
-                    page_dict, page_height, page_width
+                    page, page_dict, page_height, page_width
                 )
+
+                page_warnings: list[str] = list(reorder_warnings)
 
                 page_warnings: list[str] = list(reorder_warnings)
                 if not elements:
@@ -123,9 +125,13 @@ class PyMuPDFAdapter:
         return sha.hexdigest()
 
     def _extract_elements(
-        self, page_dict: dict, page_height: float, page_width: float
+        self,
+        fitz_page,
+        page_dict: dict,
+        page_height: float,
+        page_width: float,
     ) -> tuple[list[ParsedElement], list[str]]:
-        """从 PyMuPDF page dict 提取 ParsedElement 列表，按阅读顺序。"""
+        """从 PyMuPDF page 提取 ParsedElement 列表，按阅读顺序。"""
         elements: list[ParsedElement] = []
         blocks = page_dict.get("blocks", [])
 
@@ -151,9 +157,103 @@ class PyMuPDFAdapter:
                     if element is not None:
                         elements.append(element)
 
+        # 表格检测：将表格区域内的文本元素合并为 TABLE 元素
+        elements, table_warnings = self._merge_tables(fitz_page, elements, page_height)
+
         # 多列阅读顺序恢复
-        elements, warnings = reorder_elements(elements, page_width)
-        return elements, warnings
+        elements, reorder_warnings = reorder_elements(elements, page_width)
+        return elements, table_warnings + reorder_warnings
+
+    def _merge_tables(
+        self,
+        fitz_page,
+        elements: list[ParsedElement],
+        page_height: float,
+    ) -> tuple[list[ParsedElement], list[str]]:
+        """
+        检测页面中的表格，将表格区域内的文本元素替换为 TABLE 类型元素。
+
+        表格文本以 TSV 格式存储：制表符分隔列，换行分隔行。
+        """
+        warnings: list[str] = []
+        try:
+            tabs = fitz_page.find_tables()
+        except Exception:
+            # find_tables 不可用时跳过
+            return elements, warnings
+
+        if not tabs or not tabs.tables:
+            return elements, warnings
+
+        table_elements: list[ParsedElement] = []
+        used_indices: set[int] = set()
+
+        for table in tabs.tables:
+            # 转换表格 bbox 到 PDF 坐标系
+            table_bbox = self._to_pdf_bbox(
+                list(table.bbox), page_height
+            )
+            if table_bbox is None:
+                continue
+
+            # 收集 bbox 中心点在表格区域内的文本元素
+            cell_indices: list[int] = []
+            for i, el in enumerate(elements):
+                if i in used_indices or el.bbox is None:
+                    continue
+                if el.type not in (ElementType.PARAGRAPH, ElementType.HEADING):
+                    continue
+                cx = (el.bbox.x0 + el.bbox.x1) / 2
+                cy = (el.bbox.y0 + el.bbox.y1) / 2
+                if (
+                    table_bbox.x0 <= cx <= table_bbox.x1
+                    and table_bbox.y0 <= cy <= table_bbox.y1
+                ):
+                    cell_indices.append(i)
+
+            if not cell_indices:
+                continue
+
+            # 用 find_tables 提取的结构化内容代替文本行内容
+            try:
+                rows = table.extract()
+            except Exception:
+                rows = []
+            if rows:
+                tsv_text = "\n".join("\t".join(str(cell) for cell in row) for row in rows)
+                prefix = f"TSV({table.row_count}x{table.col_count})\n"
+            else:
+                # 回退：合并区域内元素文本
+                tsv_text = "\n".join(
+                    elements[i].text for i in cell_indices
+                )
+                prefix = ""
+
+            table_elements.append(
+                ParsedElement(
+                    type=ElementType.TABLE,
+                    text=prefix + tsv_text,
+                    bbox=table_bbox,
+                )
+            )
+            used_indices.update(cell_indices)
+
+        # 未被表格覆盖的元素 + 新表格元素，按原序排列
+        result = [
+            el for i, el in enumerate(elements)
+            if i not in used_indices
+        ]
+        # 在第一个被替换元素的位置插入表格元素
+        if table_elements:
+            first_used = min(used_indices)
+            insert_pos = sum(
+                1 for i in range(first_used) if i not in used_indices
+            )
+            for te in table_elements:
+                result.insert(insert_pos, te)
+                insert_pos += 1
+
+        return result, warnings
 
     def _line_to_element(self, line: dict, page_height: float) -> ParsedElement | None:
         """将单个文本行转换为 ParsedElement。"""
