@@ -111,17 +111,23 @@ def _rrf(
 def search(
     query: str,
     top_k: int = 10,
-    fts_weight: float = 0.7,
-    trgm_weight: float = 0.3,
+    fts_weight: float = 0.5,
+    trgm_weight: float = 0.2,
+    vector_weight: float = 0.3,
+    source_version_ids: list[str] | None = None,
 ) -> SearchResultSet:
     """
     混合检索入口。优先 PG 原生检索，DB 不可用时回退内存版。
+
+    vector_weight=0 时跳过向量路（适用于未配置 API key 的场景）。
     """
     try:
         connection.ensure_connection()
-        return _search_pg(query, top_k, fts_weight, trgm_weight)
+        return _search_pg(
+            query, top_k, fts_weight, trgm_weight, vector_weight, source_version_ids,
+        )
     except (Exception, RuntimeError):
-        return _search_memory(query, top_k, fts_weight, trgm_weight)
+        return _search_memory(query, top_k, fts_weight, trgm_weight, vector_weight)
 
 
 # ── PG-native search ─────────────────────────────────
@@ -132,12 +138,15 @@ def _search_pg(
     top_k: int,
     fts_weight: float,
     trgm_weight: float,
+    vector_weight: float = 0.3,
+    source_version_ids: list[str] | None = None,
 ) -> SearchResultSet:
     """
-    PG FTS + pg_trgm + RRF。
+    PG FTS + pg_trgm + pgvector RRF 三路融合。
 
     FTS：to_tsvector('simple', content) @@ jieba tsquery → ts_rank 排序
     Trgm：similarity(content, query) → 过滤 > 阈值
+    Vector：query embedding → pgvector cosine distance → Chunk → Evidence 映射
     """
     t0 = time.perf_counter()
 
@@ -150,7 +159,6 @@ def _search_pg(
         total = cursor.fetchone()[0]
 
     # ── FTS 路 ─────────────────────────────────
-    # jieba 分词 → tsquery → GIN 索引查找（search_vector 在写入时已分词）
     fts_query_str = build_fts_query(query)
     fts_ranking: dict[str, float] = {}
     if fts_query_str:
@@ -184,11 +192,18 @@ def _search_pg(
         for row in cursor.fetchall():
             trgm_ranking[str(row[0])] = float(row[1])
 
+    # ── Vector 路 ──────────────────────────────
+    vector_ranking: dict[str, float] = {}
+    if vector_weight > 0:
+        vector_ranking = _search_vector(query, source_version_ids)
+
     # ── RRF 融合 ───────────────────────────────
-    fused = _rrf(
-        [fts_ranking, trgm_ranking],
-        weights=[fts_weight, trgm_weight],
-    )
+    rankings = [fts_ranking, trgm_ranking]
+    weights = [fts_weight, trgm_weight]
+    if vector_ranking:
+        rankings.append(vector_ranking)
+        weights.append(vector_weight)
+    fused = _rrf(rankings, weights=weights)
 
     # 拿到数据对象
     from dataclasses import dataclass as _dc
@@ -238,6 +253,42 @@ def _search_pg(
     )
 
 
+def _search_vector(
+    query: str,
+    source_version_ids: list[str] | None = None,
+) -> dict[str, float]:
+    """
+    pgvector 向量检索路。
+
+    生成 query embedding → 搜 ChunkProjection → 映射回 EvidenceUnit ID。
+    provider 不可用时返回空 dict（优雅降级）。
+    """
+    try:
+        from mentora.retrieval.embedding_provider import get_provider
+        from mentora.retrieval.repository import search_chunks_by_vector
+
+        provider = get_provider()
+        query_embedding = provider.embed([query])[0]
+        sv_ids = source_version_ids or []
+
+        chunks = search_chunks_by_vector(query_embedding, sv_ids, top_k=30)
+        if not chunks:
+            return {}
+
+        ranking: dict[str, float] = {}
+        for chunk in chunks:
+            # CosineDistance 越小越相似，转为分数（越大越好）
+            score = 1.0 / (1.0 + float(chunk.distance))
+            for eid in chunk.evidence_ids:
+                eid_str = str(eid)
+                if eid_str not in ranking or score > ranking[eid_str]:
+                    ranking[eid_str] = score
+        return ranking
+    except Exception:
+        # API key 未配置 / 网络不可用 / 无 embedding 数据 → 降级
+        return {}
+
+
 # ── in-memory fallback ────────────────────────────────
 
 
@@ -246,8 +297,9 @@ def _search_memory(
     top_k: int,
     fts_weight: float,
     trgm_weight: float,
+    vector_weight: float = 0.3,
 ) -> SearchResultSet:
-    """内存版检索（DB 不可用时的回退方案）。"""
+    """内存版检索（DB 不可用时的回退方案）。向量路在内存模式下跳过。"""
     t0 = time.perf_counter()
 
     if not query.strip() or not _corpus:

@@ -86,10 +86,48 @@ cd apps/api
 
 | 任务 | 说明 | 状态 |
 |---|---|---|
-| E3 | 向量搜索集成到 search() | 待 E2 完成后 |
 | E4 | 检索基准对比（三路 vs 两路） | 待 E3 完成后 |
 
 ---
+
+## E3：向量搜索集成到 search()（2026-06-16）
+
+### 做了什么
+
+将 pgvector 向量相似度检索作为第三条通路接入 RRF 融合，实现 FTS + Trgm + Vector 三路混合检索。
+
+**核心改动：**
+
+1. 新增 `_search_vector()`：生成 query embedding → `search_chunks_by_vector()` → Chunk cosine distance 映射回 EvidenceUnit ID
+2. `_search_pg()` 改为三路 RRF 融合，默认权重 `FTS=0.5, Trgm=0.2, Vector=0.3`
+3. Provider 不可用（API key 未配置等）时 `_search_vector()` 返回空 dict，自动降级为两路
+4. `search()` 新增 `vector_weight`（0=跳过向量路）和 `source_version_ids` 参数
+5. `SearchResult.vector_score` 从恒 0 变为实际向量相似度分数
+
+**降级策略：** `_search_vector()` 内部 catch 所有异常返回 `{}`——无 API key、网络不可用、无 embedding 数据时均自动回退，不影响基础检索功能。
+
+### 文件清单
+
+| 文件 | 说明 |
+|---|---|
+| `mentora/retrieval/search.py` | 新增 `_search_vector()`；`_search_pg()` 三路融合；`search()` 签名扩展；`_search_memory()` 签名兼容 |
+| `apps/api/tests/test_search_vector.py`（新建） | 6 个测试 |
+
+### 测试覆盖
+
+1. `test_returns_empty_when_no_provider` — provider 不可用时返回空
+2. `test_returns_chunk_to_evidence_mapping` — Chunk→Evidence 映射正确
+3. `test_empty_chunks_returns_empty` — 无匹配 Chunk
+4. `test_search_vector_weight_zero_skips_provider` — weight=0 跳过向量路
+5. `test_search_preserves_new_params` — 新参数传递正常
+6. `test_search_default_weights_no_error` — 默认权重不报错
+
+### 验证命令
+
+```bash
+cd apps/api
+.venv/bin/python -m pytest tests/test_search_vector.py -v
+```
 
 ## E2：Chunk Embedding 生成 Celery 任务（2026-06-16）
 
