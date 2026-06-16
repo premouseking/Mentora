@@ -1,5 +1,6 @@
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import {
+  Beaker,
   Bell,
   BookOpen,
   Check,
@@ -22,6 +23,7 @@ const navItems = [
   { to: "/history", label: "学习记录", icon: History },
   { to: "/notifications", label: "通知", icon: Bell },
   { to: "/settings", label: "设置", icon: Settings },
+  { to: "/lab/parsing", label: "解析实验室", icon: Beaker },
 ];
 
 const setupSteps = ["描述目标", "补充信息", "添加资料", "确认需求", "确认方案"];
