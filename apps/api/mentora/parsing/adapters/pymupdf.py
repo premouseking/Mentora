@@ -27,6 +27,7 @@ from mentora.parsing.schemas import (
     ParserInfo,
     QualityInfo,
 )
+from mentora.parsing.adapters.column_reorder import reorder_elements
 from mentora.parsing.adapters.exceptions import (
     CorruptedPDFError,
     EncryptedPDFError,
@@ -65,9 +66,12 @@ class PyMuPDFAdapter:
                 page_dict = page.get_text("dict")
                 # get_text("dict") 的 bbox 为左上角原点；契约要求 PDF 左下角原点
                 page_height = page.rect.height
-                elements = self._extract_elements(page_dict, page_height)
+                page_width = page.rect.width
+                elements, reorder_warnings = self._extract_elements(
+                    page_dict, page_height, page_width
+                )
 
-                page_warnings: list[str] = []
+                page_warnings: list[str] = list(reorder_warnings)
                 if not elements:
                     page_warnings.append(f"第 {page_idx + 1} 页无可提取文本")
 
@@ -118,7 +122,9 @@ class PyMuPDFAdapter:
                 sha.update(chunk)
         return sha.hexdigest()
 
-    def _extract_elements(self, page_dict: dict, page_height: float) -> list[ParsedElement]:
+    def _extract_elements(
+        self, page_dict: dict, page_height: float, page_width: float
+    ) -> tuple[list[ParsedElement], list[str]]:
         """从 PyMuPDF page dict 提取 ParsedElement 列表，按阅读顺序。"""
         elements: list[ParsedElement] = []
         blocks = page_dict.get("blocks", [])
@@ -145,7 +151,9 @@ class PyMuPDFAdapter:
                     if element is not None:
                         elements.append(element)
 
-        return elements
+        # 多列阅读顺序恢复
+        elements, warnings = reorder_elements(elements, page_width)
+        return elements, warnings
 
     def _line_to_element(self, line: dict, page_height: float) -> ParsedElement | None:
         """将单个文本行转换为 ParsedElement。"""
