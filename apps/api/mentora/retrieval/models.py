@@ -120,7 +120,7 @@ class ChunkProjection(models.Model):
     )
     content = models.TextField(help_text="拼接后的完整文本块。")
     embedding = VectorField(
-        dimensions=1536,
+        dimensions=1024,
         null=True,
         blank=True,
         help_text="文本块向量，全量生成。",
@@ -217,7 +217,7 @@ class SentenceProjection(models.Model):
     position_index = models.IntegerField(help_text="句子在所属 EvidenceUnit 中的序号（0-based）。")
     content = models.TextField(help_text="单个句子的文本。")
     embedding = VectorField(
-        dimensions=1536,
+        dimensions=1024,
         null=True,
         blank=True,
         help_text="句子向量，按需求生成（不默认全量）。",
