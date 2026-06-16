@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from "react";
+import React, { useState, useRef, useEffect, useCallback } from "react";
 import {
   ChevronDown,
   ChevronRight,
@@ -142,56 +142,71 @@ export function FileExplorer({
   const initialHeightsRef = useRef<number[] | null>(null);
 
   const visibleSections = SECTIONS.filter((s) => !detachedSections.has(s.key));
-  // null = use flex; number[] = explicit pixel heights after resize
+  // null = flex mode; number[] = fraction per section (always sums to 1)
   const [heights, setHeights] = useState<number[] | null>(null);
 
-  // Reset heights to flex mode when visible sections change
+  /* ── Collapse / expand ── */
+  const [collapsedSections, setCollapsedSections] = useState<Set<SectionKey>>(new Set());
+
+  const toggleCollapse = useCallback((key: SectionKey) => {
+    setCollapsedSections((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }, []);
+
+  // Sort: expanded sections first (original order), collapsed sections last (original order)
+  const sortedSections = visibleSections
+    .map((s, i) => ({ section: s, originalIndex: i }))
+    .sort((a, b) => {
+      const aCollapsed = collapsedSections.has(a.section.key);
+      const bCollapsed = collapsedSections.has(b.section.key);
+      if (aCollapsed === bCollapsed) return a.originalIndex - b.originalIndex;
+      return aCollapsed ? 1 : -1;
+    })
+    .map(({ section }) => section);
+
+  // Reset heights to flex mode when sections or collapse state change
   useEffect(() => {
     setHeights(null);
     initialHeightsRef.current = null;
-  }, [detachedSections.size]);
+  }, [detachedSections.size, collapsedSections.size]);
+
+  // Split sections into expanded and collapsed groups
+  const expandedSections = sortedSections.filter((s) => !collapsedSections.has(s.key));
+  const collapsedList = sortedSections.filter((s) => collapsedSections.has(s.key));
 
   /* ── Resize by dragging between sections ── */
   const dragIdx = useRef<number | null>(null);
-  const onMoveRef = useRef<((e: MouseEvent) => void) | null>(null);
+  const dragStartY = useRef(0);
+  const dragStartRatios = useRef<number[]>([]);
+  const dragAreaHeight = useRef(0);
 
   const onMoveHandler = useCallback((e: MouseEvent) => {
-    if (dragIdx.current === null || !containerRef.current) return;
+    if (dragIdx.current === null || dragAreaHeight.current <= 0) return;
     e.preventDefault();
-
     const idx = dragIdx.current;
-    const containerRect = containerRef.current.getBoundingClientRect();
-    const handleH = 6;
-    const count = visibleSections.length;
-    // heights are full section heights (including 26px titles), so just subtract handles
-    const totalH = containerRect.height - (count - 1) * handleH;
-    const y = e.clientY - containerRect.top;
-
-    // Use ref for initial heights (sync, avoids async setHeights race)
-    const base = initialHeightsRef.current ?? visibleSections.map(() => Math.floor(totalH / count));
-
+    const base = dragStartRatios.current;
+    const dy = (e.clientY - dragStartY.current) / dragAreaHeight.current;
+    const minRatio = 80 / dragAreaHeight.current;
     const next = [...base];
-    let acc = 0;
-    for (let i = 0; i < count; i++) {
-      if (i === idx) {
-        const minOthers = (count - idx - 1) * 80 + (count - idx - 1) * handleH;
-        const rawH = y - acc;
-        next[i] = Math.max(80, Math.min(totalH - minOthers - (acc - (acc > 0 ? handleH * (i) : 0)), rawH));
-        // simpler: clamp within bounds
-        next[i] = Math.max(80, Math.min(totalH - (count - 1) * 80, rawH));
-      }
-      acc += next[i];
-      if (i < count - 1) acc += handleH;
+    // Only adjust the two adjacent sections — they cancel each other out
+    const newAbove = base[idx] + dy;
+    const newBelow = base[idx + 1] - dy;
+    if (newAbove < minRatio) {
+      next[idx] = minRatio;
+      next[idx + 1] = base[idx] + base[idx + 1] - minRatio;
+    } else if (newBelow < minRatio) {
+      next[idx] = base[idx] + base[idx + 1] - minRatio;
+      next[idx + 1] = minRatio;
+    } else {
+      next[idx] = newAbove;
+      next[idx + 1] = newBelow;
     }
-    // Last section gets the remainder
-    const sumOthers = next.slice(0, -1).reduce((a, b) => a + b, 0) + (count - 1) * handleH;
-    next[count - 1] = Math.max(80, totalH - sumOthers + (count - 1) * handleH);
-
     setHeights(next);
-    initialHeightsRef.current = next;
-  }, [visibleSections]);
-
-  onMoveRef.current = onMoveHandler;
+  }, []);
 
   const onUpHandler = useCallback(() => {
     dragIdx.current = null;
@@ -245,50 +260,89 @@ export function FileExplorer({
 
   return (
     <aside className="file-explorer" ref={containerRef}>
-      {visibleSections.map((section, i) => (
-        <div key={section.key}>
-          {i > 0 && (
-            <div
-              className="fe-resize-handle"
-              onMouseDown={() => {
-                // Capture current heights synchronously into ref (avoids async race)
-                if (containerRef.current) {
-                  const els = containerRef.current.querySelectorAll<HTMLElement>(".fe-section");
-                  const currentHeights = Array.from(els).map((el) => el.getBoundingClientRect().height);
-                  if (currentHeights.length === visibleSections.length) {
-                    initialHeightsRef.current = currentHeights;
-                    setHeights(currentHeights);
-                  }
-                }
-                dragIdx.current = i - 1;
-                document.body.style.cursor = "row-resize";
-                document.body.style.userSelect = "none";
-                document.addEventListener("mousemove", onMoveHandler);
-                document.addEventListener("mouseup", onUpHandler);
-              }}
-            />
-          )}
-          <div
-            className="fe-section"
-            style={heights ? { flex: "0 0 auto", height: heights[i] } : { flex: 1 }}
-          >
-            <div className={`fe-section-title${i > 0 ? " sub" : ""}`}>
-              {section.icon}
-              <span>{section.title}</span>
-              <button
-                className="fe-ai-popout"
-                onClick={() => onToggleDetach(section.key)}
-                title="移到右侧"
-              >
-                <PanelRightClose size={14} />
-              </button>
-            </div>
-            <div className="fe-section-content">
-              {renderSectionContent(section)}
-            </div>
-          </div>
+      {/* Expanded section area — resize handles + sections are direct children */}
+      {expandedSections.length > 0 && (
+        <div className="fe-expanded-area">
+          {expandedSections.map((section, i) => {
+            const style = heights
+              ? { flex: `0 0 ${(heights[i] * 100).toFixed(2)}%` }
+              : { flex: 1, minHeight: 80 };
+            return (
+            <React.Fragment key={section.key}>
+                {i > 0 && (
+                <div
+                  className="fe-resize-handle"
+                  onMouseDown={(e) => {
+                    const area = containerRef.current?.querySelector<HTMLElement>(".fe-expanded-area");
+                    if (!area) return;
+                    const areaH = area.getBoundingClientRect().height;
+                    if (areaH <= 0) return;
+                    const els = area.querySelectorAll<HTMLElement>(":scope > .fe-section");
+                    const pixelHeights = Array.from(els).map((el) => el.getBoundingClientRect().height);
+                    if (pixelHeights.length < 2) return;
+                    // Convert to ratios (sum = 1)
+                    const total = pixelHeights.reduce((a, b) => a + b, 0);
+                    const ratios = pixelHeights.map((h) => h / total);
+                    dragStartRatios.current = ratios;
+                    dragStartY.current = e.clientY;
+                    dragAreaHeight.current = areaH;
+                    setHeights(ratios);
+                    dragIdx.current = i - 1;
+                    document.body.style.cursor = "row-resize";
+                    document.body.style.userSelect = "none";
+                    document.addEventListener("mousemove", onMoveHandler);
+                    document.addEventListener("mouseup", onUpHandler);
+                  }}
+                />
+              )}
+              <div className="fe-section" style={style}>
+                <div className={`fe-section-title${i > 0 ? " sub" : ""}`}>
+                  <button className="fe-collapse-toggle" onClick={() => toggleCollapse(section.key)} title="收起">
+                    <ChevronDown size={12} />
+                  </button>
+                  {section.icon}
+                  <span>{section.title}</span>
+                  <button className="fe-ai-popout" onClick={() => onToggleDetach(section.key)} title="移到右侧">
+                    <PanelRightClose size={14} />
+                  </button>
+                </div>
+                <div className="fe-section-content">
+                  {renderSectionContent(section)}
+                </div>
+              </div>
+            </React.Fragment>
+            );
+          })}
         </div>
-      ))}
+      )}
+
+      {/* Collapsed section area — fixed height, pinned to bottom */}
+      {collapsedList.length > 0 && (
+        <div className="fe-collapsed-area">
+          {collapsedList.map((section) => (
+            <div key={section.key} className="fe-section collapsed" style={{ flex: "0 0 auto", height: 26 }}>
+                <div className="fe-section-title collapsed-title">
+                  <button
+                    className="fe-collapse-toggle"
+                    onClick={() => toggleCollapse(section.key)}
+                    title="展开"
+                  >
+                    <ChevronRight size={12} />
+                  </button>
+                  {section.icon}
+                  <span>{section.title}</span>
+                  <button
+                    className="fe-ai-popout"
+                    onClick={() => onToggleDetach(section.key)}
+                    title="移到右侧"
+                  >
+                    <PanelRightClose size={14} />
+                  </button>
+                </div>
+              </div>
+          ))}
+        </div>
+      )}
     </aside>
   );
 }
