@@ -261,11 +261,17 @@ def _search_vector(
     pgvector 向量检索路。
 
     生成 query embedding → 搜 ChunkProjection → 映射回 EvidenceUnit ID。
-    provider 不可用时返回空 dict（优雅降级）。
+    provider 不可用或无 API key 时返回空 dict（优雅降级）。
     """
     try:
+        from django.conf import settings
+
         from mentora.retrieval.embedding_provider import get_provider
         from mentora.retrieval.repository import search_chunks_by_vector
+
+        # 无 API key 时快速降级，避免 API 超时等待
+        if not getattr(settings, "EMBEDDING_DOUBAO_API_KEY", ""):
+            return {}
 
         provider = get_provider()
         query_embedding = provider.embed([query])[0]

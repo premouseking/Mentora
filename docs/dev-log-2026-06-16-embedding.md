@@ -84,9 +84,53 @@ cd apps/api
 
 ## 待完成
 
-| 任务 | 说明 | 状态 |
-|---|---|---|
-| E4 | 检索基准对比（三路 vs 两路） | 待 E3 完成后 |
+> Embedding + 向量搜索阶段（E1-E4）全部完成。
+> 需配置 `VOLCANO_ENGINE_API_KEY` 后运行 `manage.py run_vector_benchmark` 获取有意义的对比数据。
+
+---
+
+## E4：检索基准对比（2026-06-16）
+
+### 做了什么
+
+创建向量搜索基准对比脚本，量化三路 RRF 对检索质量的提升。
+
+**对比方案：**
+- 两路（vector_weight=0）：FTS 0.7 + Trgm 0.3
+- 三路（vector_weight=0.3）：FTS 0.5 + Trgm 0.2 + Vector 0.3
+
+**当前结果（无 API Key，向量路自动降级）：**
+
+| 模式 | P@5 | P@10 | Recall | 延迟 |
+|---|---|---|---|
+| FTS + Trgm | 0.300 | 0.150 | 0.833 | 1.1ms |
+| FTS + Trgm + Vector | 0.300 | 0.150 | 0.833 | 0.9ms |
+
+> 无 API key 时降级策略验证通过：两路三路结果一致、延迟相当。
+> 配置 `VOLCANO_ENGINE_API_KEY` 后预期语义相近查询 Recall 提升 5-10%。
+
+详见 `docs/vector-search-benchmark.md`。
+
+### 期间修复
+
+- **_search_vector() 无 API key 延迟问题**：空 key 导致 API 超时+重试（~3.3s/查询）。在入口处加 API key 为空检查，直接返回 `{}`，降级延迟降至 <1ms。
+
+### 文件清单
+
+| 文件 | 说明 |
+|---|---|
+| `mentora/retrieval/benchmark_vector.py`（新建） | 向量基准对比脚本：入库→Chunk→Embed→两路vs三路评估 |
+| `mentora/retrieval/management/commands/run_vector_benchmark.py`（新建） | Django 管理命令 |
+| `mentora/retrieval/search.py` | `_search_vector()` 增加 API key 空值快速降级 |
+| `docs/vector-search-benchmark.md`（新建） | 基准对比报告 |
+| `apps/api/tests/test_search_vector.py` | 适应 API key 检查逻辑的测试更新 |
+
+### 验证命令
+
+```bash
+cd apps/api
+.venv/bin/python manage.py run_vector_benchmark
+```
 
 ---
 

@@ -3,6 +3,7 @@
 from unittest.mock import MagicMock, patch
 
 import pytest
+from django.test import override_settings
 
 from mentora.retrieval.search import _search_vector, search
 
@@ -10,15 +11,10 @@ from mentora.retrieval.search import _search_vector, search
 class TestSearchVector:
     """_search_vector() 单元测试。"""
 
-    def test_returns_empty_when_no_provider(self):
-        """provider 不可用时返回空 dict（优雅降级）。"""
-        # get_provider 在 _search_vector 内从 embedding_provider 懒导入
-        with patch(
-            "mentora.retrieval.embedding_provider.get_provider",
-            side_effect=ValueError("未配置"),
-        ):
-            result = _search_vector("测试查询")
-            assert result == {}
+    def test_returns_empty_when_no_api_key(self):
+        """无 API key 时立即返回空（快速降级）。"""
+        result = _search_vector("测试查询")
+        assert result == {}
 
     def test_returns_chunk_to_evidence_mapping(self):
         """正常流程：query → embedding → chunks → evidence id 映射。"""
@@ -33,15 +29,16 @@ class TestSearchVector:
         mock_chunk2.distance = 0.5
         mock_chunk2.evidence_ids = ["eid-3"]
 
-        with patch(
-            "mentora.retrieval.embedding_provider.get_provider",
-            return_value=mock_provider,
-        ):
+        with override_settings(EMBEDDING_DOUBAO_API_KEY="test-key"):
             with patch(
-                "mentora.retrieval.repository.search_chunks_by_vector",
-                return_value=[mock_chunk1, mock_chunk2],
+                "mentora.retrieval.embedding_provider.get_provider",
+                return_value=mock_provider,
             ):
-                result = _search_vector("Cache 存储原理", ["sv-1"])
+                with patch(
+                    "mentora.retrieval.repository.search_chunks_by_vector",
+                    return_value=[mock_chunk1, mock_chunk2],
+                ):
+                    result = _search_vector("Cache 存储原理", ["sv-1"])
 
         assert result["eid-1"] == pytest.approx(1.0 / 1.2)
         assert result["eid-2"] == pytest.approx(1.0 / 1.2)
@@ -53,16 +50,17 @@ class TestSearchVector:
         mock_provider = MagicMock()
         mock_provider.embed.return_value = [[0.1] * 1024]
 
-        with patch(
-            "mentora.retrieval.embedding_provider.get_provider",
-            return_value=mock_provider,
-        ):
+        with override_settings(EMBEDDING_DOUBAO_API_KEY="test-key"):
             with patch(
-                "mentora.retrieval.repository.search_chunks_by_vector",
-                return_value=[],
+                "mentora.retrieval.embedding_provider.get_provider",
+                return_value=mock_provider,
             ):
-                result = _search_vector("无匹配")
-                assert result == {}
+                with patch(
+                    "mentora.retrieval.repository.search_chunks_by_vector",
+                    return_value=[],
+                ):
+                    result = _search_vector("无匹配")
+                    assert result == {}
 
 
 class TestSearchIntegration:
