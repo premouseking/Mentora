@@ -4,14 +4,16 @@ import { useNavigate } from "react-router-dom";
 
 import { SetupShell } from "../components/AppShell";
 import { useCourseCreation } from "../components/CourseCreationContext";
+import { createCourseSession, updateCourseSession } from "../services/courseApi";
 
 /* ── 步骤 1：描述目标 ── */
 
 export function DescribeGoalPage() {
   const navigate = useNavigate();
-  const { addItem } = useCourseCreation();
+  const { addItem, setSessionId } = useCourseCreation();
   const savedGoal = sessionStorage.getItem("mentora-course-goal") || "";
   const [goal, setGoal] = useState(savedGoal);
+  const [submitting, setSubmitting] = useState(false);
   const canContinue = goal.trim().length >= 4;
 
   useEffect(() => {
@@ -20,13 +22,25 @@ export function DescribeGoalPage() {
     }
   }, []);
 
-  function submitGoal(event: React.FormEvent) {
+  async function submitGoal(event: React.FormEvent) {
     event.preventDefault();
-    if (!canContinue) return;
+    if (!canContinue || submitting) return;
     const value = goal.trim();
-    sessionStorage.setItem("mentora-course-goal", value);
-    addItem({ key: "goal", title: "学习目标", value, source: "你的输入" });
-    navigate("/courses/new/info");
+    setSubmitting(true);
+
+    try {
+      const session = await createCourseSession(value);
+      sessionStorage.setItem("mentora-course-goal", value);
+      sessionStorage.setItem("mentora-session-id", session.id);
+      setSessionId(session.id);
+      addItem({ key: "goal", title: "学习目标", value, source: "你的输入" });
+      navigate("/courses/new/info");
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "创建会话失败";
+      alert(msg);
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   return (
@@ -34,7 +48,9 @@ export function DescribeGoalPage() {
       current={1}
       footer={
         <div className="setup-footer" style={{ justifyContent: "flex-end" }}>
-          <button className="button primary" disabled={!canContinue} form="goal-form" type="submit">下一步</button>
+          <button className="button primary" disabled={!canContinue || submitting} form="goal-form" type="submit">
+            {submitting ? "创建中…" : "下一步"}
+          </button>
         </div>
       }
     >
@@ -100,30 +116,51 @@ function readSources(): SourceItem[] {
 
 export function AddInfoPage() {
   const navigate = useNavigate();
-  const { addItem } = useCourseCreation();
+  const { addItem, sessionId } = useCourseCreation();
   const storedGoal = sessionStorage.getItem("mentora-course-goal") || "";
   const savedLevel = sessionStorage.getItem("mentora-course-level") || "basic";
   const savedPace = sessionStorage.getItem("mentora-course-pace") || "intensive";
+  const savedSchool = sessionStorage.getItem("mentora-course-school") || "华中科技大学";
 
   const [level, setLevel] = useState(savedLevel);
   const [pace, setPace] = useState(savedPace);
+  const [school, setSchool] = useState(savedSchool);
   const [sources] = useState<SourceItem[]>(readSources);
+  const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
     if (storedGoal) addItem({ key: "goal", title: "学习目标", value: storedGoal, source: "你的输入" });
   }, []);
 
-  function submit() {
+  async function submit() {
     const lev = levelOptions.find((o) => o.id === level);
     const pc = paceOptions.find((o) => o.id === pace);
-    if (!lev || !pc) return;
+    if (!lev || !pc || submitting) return;
+    setSubmitting(true);
+
     sessionStorage.setItem("mentora-course-level", lev.title);
     sessionStorage.setItem("mentora-course-pace", pc.title);
+    sessionStorage.setItem("mentora-course-school", school.trim());
     addItem({ key: "level", title: "当前基础", value: lev.title, source: "你的回答" });
     addItem({ key: "pace", title: "推进方式", value: pc.title, source: "你的输入" });
+    if (school.trim()) {
+      addItem({ key: "school", title: "学校", value: school.trim(), source: "你的输入" });
+    }
     if (sources.length > 0) {
       addItem({ key: "sources", title: "课程资料", value: `${sources.length} 项`, source: "资料选择" });
     }
+
+    // 有 sessionId 则同步到后端
+    if (sessionId) {
+      try {
+        await updateCourseSession(sessionId, { level: lev.title, pace: pc.title, school: school.trim() });
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : "更新会话失败";
+        alert(msg);
+      }
+    }
+
+    setSubmitting(false);
     navigate("/courses/new/materials");
   }
 
@@ -137,16 +174,11 @@ export function AddInfoPage() {
           </button>
           <button
             className="button primary"
-            onClick={() => {
-              try {
-                submit();
-              } catch (e) {
-                alert("错误: " + String(e));
-              }
-            }}
+            disabled={submitting}
+            onClick={() => { submit(); }}
             type="button"
           >
-            下一步
+            {submitting ? "保存中…" : "下一步"}
           </button>
         </div>
       }
@@ -193,6 +225,18 @@ export function AddInfoPage() {
               </button>
             ))}
           </div>
+        </section>
+
+        <section className="info-block">
+          <h2>学校</h2>
+          <p className="info-desc">填写所在学校，帮助 AI 了解你的学习背景。</p>
+          <input
+            className="input"
+            onChange={(e) => setSchool(e.target.value)}
+            placeholder="请输入学校名称"
+            type="text"
+            value={school}
+          />
         </section>
       </div>
     </SetupShell>

@@ -1,37 +1,45 @@
 # 建课流程重设计 v2
 
-- 状态：Draft
+- 状态：Implemented（v1）
 - 日期：2026-06-18
 - 分支：`feat/P1-LBZ-04-course-creation`
 - 关联：
   - `docs/architecture/end-to-end-implementation-plan.md` §2.1
   - `docs/design/desktop-product-ux-design.md` §4
 
+## 变更记录
+
+| 日期 | Commit | 内容 |
+|---|---|---|
+| 2026-06-18 | `b7d1e16` | 首次实现：5 步流程 + CourseCreationContext + CourseInfoBar + AiMessageBubble + MaterialUploadPage |
+
 ## 1. 新流程
 
 ```text
-描述目标 → 补充信息 → 资料上传 → 信息追问 → 生成学习方案
+描述目标 → 补充信息 → 资料上传 → 信息追问 → 确认方案
 ```
 
-**五步，底栏逐步填充为最终学习方案。**
+**五步，底栏逐步填充为最终学习方案。** 进度条对应标签：`["描述目标", "补充信息", "资料上传", "信息追问", "确认方案"]`。
 
 ### 1.1 描述目标（步骤 1）
 
-- 固定选项，不接入 AI
-- 选项示例：准备考试、系统学习一个领域、完成项目实践、快速入门……
-- 每个选项点击后展开子选项（如考试日期、科目等）
-- 用户填完 → 信息写入底栏（标题：「学习目标」）
+- **自由文本输入**，含 1000 字限制与实时字符计数
+- 示例快捷填充按钮（「准备一场考试」「系统入门一个领域」等），点击填入 textarea
+- 文案：「你现在想学什么？尽量描述你的学习目标、应用场景，以及希望达到的能力。」
+- 用户填完 → 信息写入底栏（key: `"goal"`, 标题：「学习目标」）
+- 路由：`/courses/new`
 
 ### 1.2 补充信息（步骤 2）
 
 - 固定选项，不接入 AI
-- 当前基础（完全新手 / 了解基础 / 学过一遍 / 不确定）
-- 可投入方式（集中多学 / 短时间推进 / 稳定节奏 / 暂不确定）
-- 用户填完 → 信息写入底栏（标题：「当前基础」「推进方式」等）
+- 当前基础（完全新手 / 稍微了解 / 学过一遍 / 不确定）
+- 可投入方式（集中多学 / 短时间推进 / 相对稳定 / 暂不确定）
+- 用户填完 → 信息写入底栏（key: `"level"`「当前基础」, `"pace"`「推进方式」）
+- 路由：`/courses/new/info`
 
 ### 1.3 资料上传（步骤 3）
 
-- **独立步骤，可选跳过**
+- **独立步骤，可选跳过**，路由：`/courses/new/materials`
 - 支持上传文件（PDF、图片、Word 等），需接入 AI 进行内容识别与解读
 - 上传完成后 AI 自动解读文件内容，提取学习相关结构化信息
 - 解读结果写入底栏（标题：「参考资料」）
@@ -40,17 +48,19 @@
 
 ### 1.4 信息追问（步骤 4）
 
-- **AI 主导**，由 PlannerAgent 根据前序步骤信息（含资料解读结果）生成追问
+- **AI 主导**，路由：`/courses/new/inquiry`，`current={4}`
+- 由 PlannerAgent 根据前序步骤信息（含资料解读结果）生成追问
 - **中间主区域**：AI 生成的问答交互（选择题 / 填表 / 输入框），每一轮一个问题
 - **左侧**：AiMessageBubble，展示 AI 的简短引导描述，帮助用户理解当前问题
   - 气泡横向固定宽度（≤ 左边空白区域），纵向随内容撑开
   - 尾巴垂直居中，指向 Mentora 图标（Sparkles）
 - 追问持续到 AI 判断信息足够生成方案
-- 每轮回答 → 信息写入底栏（逐项追加）
+- 每轮回答 → 信息写入底栏（key: `"inquiry_XXX"`，逐项追加）
+- 回退按钮指向 `/courses/new/materials`
 
-### 1.5 生成学习方案（步骤 5）
+### 1.5 确认方案（步骤 5）
 
-- 从步骤 4 点击「下一步」进入
+- 路由：`/courses/new/plan`，`current={5}`
 - **动画**：
   1. 底栏从收起态（1/5 高度）自然展开到 ~2/3 高度
   2. 展开到位后，底栏向上滑动，停在页面标题下方
@@ -82,14 +92,40 @@
 - 高度：`flex` 随内容撑开
 - 内容：简短引导文字（1-3 句）
 
-## 4. 与旧版差异
+## 4. CourseCreationContext 数据模型
+
+```ts
+interface CourseInfoItem {
+  key: string;    // 唯一标识，用于去重与更新
+  title: string;  // 左侧标题
+  value: string;  // 右侧内容
+  source?: string; // "你的输入" | "你的回答" | "资料识别" | "AI 建议"
+}
+```
+
+Provider 包裹建课路由，提供 `addItem` / `removeItem` / `updateItem`，同一 `key` 重复添加会覆盖。
+
+## 5. 实现文件映射
+
+| 模块 | 路径 |
+|------|------|
+| 路由 + Provider 包裹 | `apps/web/src/App.tsx` |
+| 进度条标签 | `apps/web/src/components/AppShell.tsx` (`setupSteps`) |
+| 步骤 1-3 页面 | `apps/web/src/pages/SetupPages.tsx` |
+| 步骤 4-5 页面 | `apps/web/src/pages/SetupContinuationPages.tsx` |
+| 跨步骤状态 | `apps/web/src/components/CourseCreationContext.tsx` |
+| 底栏组件 | `apps/web/src/components/CourseInfoBar.tsx` |
+| 追问气泡 | `apps/web/src/components/AiMessageBubble.tsx` |
+| 所有 UI 样式 | `apps/web/src/styles.css` |
+
+## 6. 与旧版差异
 
 | | 旧版 | 新版 |
 |---|---|---|
 | 步骤数 | 5 步（描述 → 澄清 → 资料 → 需求 → 方案） | 5 步（描述 → 补充 → 资料上传 → 追问 → 方案） |
 | AI 介入时机 | 步骤 2 起逐步介入 | 步骤 3（资料解读）+ 步骤 4（集中追问） |
 | 底栏内容 | 浮层仅展示已了解信息 | 角色升级为「学习方案」，最终成为确认页主内容 |
-| 描述目标 | 自由文本 | 固定选项 |
+| 描述目标 | 自由文本 | 自由文本 + 示例快捷填充 |
 | 资料添加 | 独立步骤 | 独立步骤（含 AI 解读，可跳过） |
 | 确认需求 | 独立步骤 | 融入信息追问 |
 | 方案确认 | overlay 面板 | 底栏展开后不贴底，页面内展示 |

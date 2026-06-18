@@ -19,12 +19,16 @@ interface CourseCreationContextValue {
   addItem: (item: CourseInfoItem) => void;
   removeItem: (key: string) => void;
   updateItem: (key: string, value: string) => void;
+  /** 后端会话 ID，步骤 1 提交后赋值 */
+  sessionId: string | null;
+  setSessionId: (id: string) => void;
 }
 
 const CourseCreationContext = createContext<CourseCreationContextValue | null>(null);
 
 export function CourseCreationProvider({ children }: { children: ReactNode }) {
   const [items, setItems] = useState<CourseInfoItem[]>([]);
+  const [sessionId, setSessionId] = useState<string | null>(null);
 
   const addItem = useCallback((item: CourseInfoItem) => {
     setItems((prev) => {
@@ -47,7 +51,7 @@ export function CourseCreationProvider({ children }: { children: ReactNode }) {
   }, []);
 
   return (
-    <CourseCreationContext.Provider value={{ items, addItem, removeItem, updateItem }}>
+    <CourseCreationContext.Provider value={{ items, addItem, removeItem, updateItem, sessionId, setSessionId }}>
       {children}
     </CourseCreationContext.Provider>
   );

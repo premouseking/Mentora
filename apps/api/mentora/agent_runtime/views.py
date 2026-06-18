@@ -23,7 +23,9 @@ from django.http import JsonResponse, StreamingHttpResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 
+from mentora.agent_runtime.agents.clarifier import ClarifierAgent
 from mentora.agent_runtime.agents.orchestrator import Orchestrator
+from mentora.agent_runtime.agents.planner import PlannerAgent
 from mentora.agent_runtime.agents.tutor import TutorAgent
 from mentora.agent_runtime.context.manager import ContextManager
 from mentora.agent_runtime.context.token_counter import TokenCounter
@@ -35,13 +37,15 @@ from mentora.model_gateway.providers.openai import OpenAIProvider
 from mentora.model_gateway.router import TaskRouter
 from mentora.model_gateway.structured_output import StructuredOutputValidator
 
-# ── 单例 Orchestrator ──
+# ── 单例组件 ──
 
 _orchestrator: Orchestrator | None = None
+_gateway: ModelGateway | None = None
+_prompt_manager: PromptManager | None = None
 
 
 def _build_orchestrator() -> Orchestrator:
-    """构建 Orchestrator，注入 OpenAIProvider + TutorAgent。"""
+    """构建 Orchestrator，注册 tutor / clarifier / planner 三个 Agent。"""
     api_key = settings.LLM_API_KEY
     if not api_key:
         raise RuntimeError("LLM_API_KEY 未配置，无法初始化 OpenAIProvider")
@@ -63,13 +67,28 @@ def _build_orchestrator() -> Orchestrator:
         tool_registry=tool_registry,
         model_gateway=gateway,
     )
+    clarifier = ClarifierAgent(
+        prompt_manager=prompt_manager,
+        tool_registry=tool_registry,
+        model_gateway=gateway,
+    )
+    planner = PlannerAgent(
+        prompt_manager=prompt_manager,
+        tool_registry=tool_registry,
+        model_gateway=gateway,
+    )
 
     budget = BudgetConfig()
     token_counter = TokenCounter()
     context_mgr = ContextManager(budget=budget, counter=token_counter)
 
+    # 写入模块级单例（供 courses/views 等复用）
+    global _gateway, _prompt_manager
+    _gateway = gateway
+    _prompt_manager = prompt_manager
+
     return Orchestrator(
-        agent_map={"tutor": tutor},
+        agent_map={"tutor": tutor, "clarifier": clarifier, "planner": planner},
         prompt_manager=prompt_manager,
         context_manager=context_mgr,
     )
@@ -80,6 +99,24 @@ def _get_orchestrator() -> Orchestrator:
     if _orchestrator is None:
         _orchestrator = _build_orchestrator()
     return _orchestrator
+
+
+def get_gateway() -> ModelGateway:
+    """获取单例 ModelGateway（供其他模块复用）。"""
+    global _gateway
+    if _gateway is None:
+        _build_orchestrator()
+    assert _gateway is not None
+    return _gateway
+
+
+def get_prompt_manager() -> PromptManager:
+    """获取单例 PromptManager（供其他模块复用）。"""
+    global _prompt_manager
+    if _prompt_manager is None:
+        _build_orchestrator()
+    assert _prompt_manager is not None
+    return _prompt_manager
 
 
 # ── 视图 ──
