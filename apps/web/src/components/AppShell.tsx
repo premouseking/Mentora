@@ -18,6 +18,7 @@ import {
 import { Link, NavLink } from "react-router-dom";
 
 import { DesktopTitleBar } from "./DesktopTitleBar";
+import { CourseInfoBar } from "./CourseInfoBar";
 
 const navItems = [
   { to: "/courses", label: "课程", icon: BookOpen },
@@ -28,7 +29,7 @@ const navItems = [
   { to: "/lab/parsing", label: "解析实验室", icon: Beaker },
 ];
 
-const setupSteps = ["描述目标", "补充信息", "添加资料", "确认需求", "确认方案"];
+const setupSteps = ["描述目标", "补充信息", "资料上传", "信息追问", "确认方案"];
 
 const MIN_SIDEBAR = 160;
 const MAX_SIDEBAR = 320;
@@ -474,13 +475,21 @@ function SetupProgress({ current }: { current: number }) {
 
 export function SetupShell({
   current,
+  hideInfoBar = false,
+  footer,
+  leftAside,
   children,
 }: {
   current: number;
+  hideInfoBar?: boolean;
+  footer?: ReactNode;
+  leftAside?: ReactNode;
   children: ReactNode;
 }) {
+  const [infoBarExpanded, setInfoBarExpanded] = useState(false);
+
   return (
-    <div className="desktop-app setup-app">
+    <div className={`desktop-app setup-app${hideInfoBar ? " no-info-bar" : ""}`}>
       <DesktopTitleBar />
       <header className="setup-header">
         <Link className="back-link" to="/courses">
@@ -492,7 +501,17 @@ export function SetupShell({
           取消
         </Link>
       </header>
-      <main className="setup-main">{children}</main>
+      <main className="setup-main">
+        {leftAside && <div className="setup-left-aside">{leftAside}</div>}
+        <div className="setup-content-box">{children}</div>
+        {footer && <div className="setup-nav-area">{footer}</div>}
+      </main>
+      {!hideInfoBar && (
+        <CourseInfoBar
+          mode={infoBarExpanded ? "expanded" : "collapsed"}
+          onToggle={() => setInfoBarExpanded((v) => !v)}
+        />
+      )}
     </div>
   );
 }

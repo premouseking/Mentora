@@ -4,417 +4,214 @@ import {
   ArrowLeft,
   ArrowRight,
   ArrowUp,
-  BookOpen,
-  Check,
-  ChevronRight,
-  CircleCheck,
-  Clock3,
-  File,
   FileText,
-  FolderOpen,
-  Link as LinkIcon,
   ListTree,
   LockKeyhole,
   Sparkles,
   Target,
-  Upload,
-  UserRound,
-  X,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
 import { SetupShell } from "../components/AppShell";
+import { useCourseCreation } from "../components/CourseCreationContext";
+import { AiMessageBubble } from "../components/AiMessageBubble";
 
-type SourceItem = {
-  id: string;
-  name: string;
-  type: "PDF" | "DOCX" | "LINK" | "OFFICIAL";
-  size?: string;
-  purpose: string;
-  state: "ready" | "processing";
-};
+/* ── 步骤 3：信息追问 ── */
 
-const initialSources: SourceItem[] = [
+const mockQuestions = [
   {
-    id: "textbook",
-    name: "计算机组成原理（第 6 版）.pdf",
-    type: "PDF",
-    size: "23.4 MB",
-    purpose: "主要参考书",
-    state: "ready",
+    id: "q1",
+    question: "你需要重点学习哪些具体主题？",
+    guidance: "根据你之前的描述，AI 已经了解到你想学习计算机组成原理。请选择你希望重点掌握的主题，可以多选。",
+    type: "multi_choice" as const,
+    options: ["存储系统", "指令系统", "CPU 组成", "总线与 I/O", "运算方法与 ALU"],
   },
   {
-    id: "class-notes",
-    name: "计算机组成原理课堂笔记.docx",
-    type: "DOCX",
-    size: "1.8 MB",
-    purpose: "课堂笔记",
-    state: "processing",
-  },
-];
-
-const libraryCandidates: SourceItem[] = [
-  {
-    id: "exam-outline",
-    name: "期末考试范围与重点.pdf",
-    type: "PDF",
-    size: "860 KB",
-    purpose: "考试范围",
-    state: "ready",
+    id: "q2",
+    question: "你的考试范围是否包含实验或设计题目？",
+    guidance: "了解是否有实践环节可以帮助 AI 规划更合适的学习路径和练习内容。",
+    type: "single_choice" as const,
+    options: ["仅理论笔试", "包含实验部分", "包含课程设计", "不确定"],
   },
   {
-    id: "cache-notes",
-    name: "Cache 重点整理.md",
-    type: "LINK",
-    purpose: "重点补充",
-    state: "ready",
+    id: "q3",
+    question: "你对哪个方面最有信心？哪个最需要加强？",
+    guidance: "这些信息有助于 AI 调整各阶段的重点分配和练习量。",
+    type: "free_text" as const,
   },
 ];
 
-function readSources(): SourceItem[] {
-  const stored = sessionStorage.getItem("mentora-course-sources");
-  if (!stored) return initialSources;
-  try {
-    return JSON.parse(stored) as SourceItem[];
-  } catch {
-    return initialSources;
-  }
-}
-
-function persistSources(sources: SourceItem[]) {
-  sessionStorage.setItem("mentora-course-sources", JSON.stringify(sources));
-}
-
-function SourceTypeIcon({ type }: { type: SourceItem["type"] }) {
-  if (type === "OFFICIAL") return <BookOpen size={19} />;
-  if (type === "LINK") return <LinkIcon size={19} />;
-  return <FileText size={19} />;
-}
-
-export function SelectSourcesPage() {
+export function AiInquiryPage() {
   const navigate = useNavigate();
-  const [sources, setSources] = useState<SourceItem[]>(readSources);
-  const [pickerOpen, setPickerOpen] = useState(false);
-  const [selectedCandidate, setSelectedCandidate] = useState("exam-outline");
-  const [officialAdded, setOfficialAdded] = useState(
-    sources.some((source) => source.type === "OFFICIAL"),
-  );
+  const { addItem } = useCourseCreation();
+  const [qIndex, setQIndex] = useState(0);
+  const current = mockQuestions[qIndex];
+  const isLast = qIndex >= mockQuestions.length - 1;
 
-  function updateSources(nextSources: SourceItem[]) {
-    setSources(nextSources);
-    persistSources(nextSources);
-  }
-
-  function addCandidate() {
-    const candidate = libraryCandidates.find((item) => item.id === selectedCandidate);
-    if (candidate && !sources.some((source) => source.id === candidate.id)) {
-      updateSources([...sources, candidate]);
-    }
-    setPickerOpen(false);
-  }
-
-  function simulateUpload() {
-    if (sources.some((source) => source.id === "uploaded-review")) return;
-    updateSources([
-      ...sources,
-      {
-        id: "uploaded-review",
-        name: "老师划重点整理.pdf",
-        type: "PDF",
-        size: "2.1 MB",
-        purpose: "考试范围",
-        state: "processing",
-      },
-    ]);
-  }
-
-  function addLink() {
-    if (sources.some((source) => source.id === "linked-video")) return;
-    updateSources([
-      ...sources,
-      {
-        id: "linked-video",
-        name: "CPU 指令执行过程讲解",
-        type: "LINK",
-        purpose: "重点补充",
-        state: "ready",
-      },
-    ]);
-  }
-
-  function toggleOfficial() {
-    if (officialAdded) {
-      const next = sources.filter((source) => source.type !== "OFFICIAL");
-      updateSources(next);
-      setOfficialAdded(false);
-      return;
-    }
-    updateSources([
-      ...sources,
-      {
-        id: "official-base",
-        name: "计算机组成原理 · 官方基础资源",
-        type: "OFFICIAL",
-        purpose: "基础讲解",
-        state: "ready",
-      },
-    ]);
-    setOfficialAdded(true);
-  }
-
-  function continueToProfile() {
-    persistSources(sources);
-    navigate("/courses/new/profile");
+  function handleAnswer(value: string) {
+    addItem({
+      key: `inquiry_${current.id}`,
+      title: current.question.replace(/[？?]$/, ""),
+      value,
+      source: "你的回答",
+    });
+    if (isLast) return;
+    setQIndex((i) => i + 1);
   }
 
   return (
-    <SetupShell current={3}>
-      <div className="sources-page">
-        <div className="setup-heading compact-heading">
-          <h1>添加资料 <span>（可选）</span></h1>
-          <p>资料可以帮助 AI 更好地理解学习范围，但没有资料也能继续。</p>
-        </div>
-
-        <div className="source-actions">
-          <button type="button" onClick={() => setPickerOpen(true)}>
-            <FolderOpen size={27} />
-            <strong>从资源库选择</strong>
-            <span>从已有资料中筛选</span>
+    <SetupShell
+      current={4}
+      leftAside={
+        <AiMessageBubble visible={!!current}>
+          {current.guidance}
+        </AiMessageBubble>
+      }
+      footer={
+        <div className="setup-footer">
+          <button className="button secondary" onClick={() => navigate("/courses/new/materials")} type="button">
+            <ArrowLeft size={15} /> 上一步
           </button>
-          <button type="button" onClick={simulateUpload}>
-            <Upload size={27} />
-            <strong>上传本地文件</strong>
-            <span>支持 PDF、DOCX、PPTX</span>
-          </button>
-          <button type="button" onClick={addLink}>
-            <LinkIcon size={27} />
-            <strong>添加链接</strong>
-            <span>添加网页或教学视频</span>
-          </button>
-        </div>
-
-        {pickerOpen ? (
-          <section className="source-picker" aria-label="从资源库选择资料">
-            <div className="source-picker-head">
-              <div>
-                <strong>从资源库选择</strong>
-                <span>选择一项加入当前课程</span>
-              </div>
-              <button aria-label="关闭资料选择" onClick={() => setPickerOpen(false)} type="button">
-                <X size={18} />
+          <div className="footer-buttons">
+            {!isLast && (
+              <button className="button secondary" onClick={() => navigate("/courses/new/plan")} type="button">
+                停止追问
               </button>
-            </div>
-            <div className="candidate-list">
-              {libraryCandidates.map((candidate) => (
-                <button
-                  aria-pressed={selectedCandidate === candidate.id}
-                  className={selectedCandidate === candidate.id ? "selected" : ""}
-                  key={candidate.id}
-                  onClick={() => setSelectedCandidate(candidate.id)}
-                  type="button"
-                >
-                  <SourceTypeIcon type={candidate.type} />
-                  <span>
-                    <strong>{candidate.name}</strong>
-                    <small>{candidate.purpose} · {candidate.size ?? "链接"}</small>
-                  </span>
-                  <i>{selectedCandidate === candidate.id ? <Check size={13} /> : null}</i>
-                </button>
-              ))}
-            </div>
-            <div className="picker-footer">
-              <button className="button secondary" onClick={() => setPickerOpen(false)} type="button">
-                取消
-              </button>
-              <button className="button primary" onClick={addCandidate} type="button">
-                添加到课程
-              </button>
-            </div>
-          </section>
-        ) : null}
-
-        <section className="selected-sources">
-          <div className="section-heading-row">
-            <h2>已选择的资料</h2>
-            <span>{sources.length} 项</span>
-          </div>
-          <div className="source-list">
-            {sources.length === 0 ? (
-              <div className="source-list-empty">暂未添加资料，你仍然可以继续确认学习需求。</div>
-            ) : (
-              sources.map((source) => (
-                <div className="source-row" key={source.id}>
-                  <span className={`source-type ${source.type.toLowerCase()}`}>
-                    <SourceTypeIcon type={source.type} />
-                    <small>{source.type}</small>
-                  </span>
-                  <div className="source-name">
-                    <strong>{source.name}</strong>
-                    <span>{source.size ?? "平台资源"}</span>
-                  </div>
-                  <span className="source-purpose">{source.purpose}</span>
-                  <span className={`source-state ${source.state}`}>
-                    {source.state === "ready" ? (
-                      <>
-                        <CircleCheck size={16} />
-                        已就绪
-                      </>
-                    ) : (
-                      <>
-                        <span className="processing-dot" />
-                        解析中
-                        <small>约 1 分钟</small>
-                      </>
-                    )}
-                  </span>
-                  <button
-                    aria-label={`移除${source.name}`}
-                    className="remove-source"
-                    onClick={() => updateSources(sources.filter((item) => item.id !== source.id))}
-                    type="button"
-                  >
-                    <X size={17} />
-                  </button>
-                </div>
-              ))
             )}
+            <button className="button primary" onClick={() => navigate("/courses/new/plan")} type="button">
+              <Sparkles size={16} /> 生成学习方案
+            </button>
           </div>
-        </section>
-
-        <section className="official-source">
-          <div>
-            <span className="official-icon"><BookOpen size={20} /></span>
-            <div>
-              <strong>计算机组成原理 · 官方基础资源</strong>
-              <span>包含核心概念、常见考点和基础练习</span>
-            </div>
-          </div>
-          <span className="official-state">{officialAdded ? "已加入课程" : "尚未添加"}</span>
-          <button className="button secondary compact" onClick={toggleOfficial} type="button">
-            {officialAdded ? "移除" : "添加"}
-          </button>
-        </section>
-
-        <div className="sources-footer">
-          <button className="button secondary" onClick={() => {
-            updateSources([]);
-            setOfficialAdded(false);
-          }} type="button">
-            暂不添加
-          </button>
-          <button className="button primary" onClick={continueToProfile} type="button">
-            继续确认学习需求
-          </button>
         </div>
-        <p className="privacy-note"><LockKeyhole size={13} /> 资料仅用于本课程学习。</p>
+      }
+    >
+      <div className="inquiry-page">
+        <div className="inquiry-main">
+          <div className="setup-heading compact-heading">
+            <h1>信息追问</h1>
+            <p>
+              AI 正在根据你的目标进一步确认需求。
+              <span className="inquiry-progress">
+                问题 {qIndex + 1} / {mockQuestions.length}
+              </span>
+            </p>
+          </div>
+
+          <section className="question-block">
+            <p className="question-index">当前问题</p>
+            <h2>{current.question}</h2>
+
+            {current.type === "multi_choice" && (
+              <MultiChoiceQ options={current.options} onAnswer={handleAnswer} />
+            )}
+            {current.type === "single_choice" && (
+              <SingleChoiceQ options={current.options} onAnswer={handleAnswer} />
+            )}
+            {current.type === "free_text" && (
+              <FreeTextQ onAnswer={handleAnswer} />
+            )}
+          </section>
+        </div>
       </div>
     </SetupShell>
   );
 }
 
-type ProfileKey = "goal" | "level" | "pace" | "focus" | "sources" | "suggestion";
-
-const profileMeta: Array<{
-  key: ProfileKey;
-  title: string;
-  icon: typeof Target;
-  source: string;
-}> = [
-  { key: "goal", title: "学习目标", icon: Target, source: "你的输入" },
-  { key: "level", title: "当前基础", icon: UserRound, source: "你的回答" },
-  { key: "pace", title: "推进方式", icon: Clock3, source: "你的输入" },
-  { key: "focus", title: "学习重点", icon: Sparkles, source: "资料识别" },
-  { key: "sources", title: "课程资料", icon: File, source: "资料选择" },
-  { key: "suggestion", title: "系统建议", icon: Sparkles, source: "AI 建议" },
-];
-
-export function ConfirmProfilePage() {
-  const navigate = useNavigate();
-  const sources = readSources();
-  const [editing, setEditing] = useState<ProfileKey | null>(null);
-  const [profile, setProfile] = useState({
-    goal: sessionStorage.getItem("mentora-course-goal") || "两周后完成计算机组成原理重点复习",
-    level: sessionStorage.getItem("mentora-course-level") || "了解基础",
-    pace: "按阶段推进，有时间时可以连续学习多个任务",
-    focus: "存储系统、指令系统、CPU 组成与工作原理",
-    sources: `${sources.length} 项资料，其中 ${sources.filter((source) => source.state === "processing").length} 项仍在解析`,
-    suggestion: "建议分为 4 个阶段，从基础梳理开始，并根据检查结果动态加快",
-  });
-
-  function editValue(key: ProfileKey, value: string) {
-    setProfile((current) => ({ ...current, [key]: value }));
-    setEditing(null);
-  }
-
-  function generatePlan() {
-    sessionStorage.setItem("mentora-course-profile", JSON.stringify(profile));
-    navigate("/courses/new/plan");
-  }
-
+function MultiChoiceQ({
+  options,
+  onAnswer,
+}: {
+  options: string[];
+  onAnswer: (v: string) => void;
+}) {
+  const [selected, setSelected] = useState<string[]>([]);
   return (
-    <SetupShell current={4}>
-      <div className="profile-page">
-        <div className="setup-heading compact-heading">
-          <h1>确认学习需求</h1>
-          <p>请确认或补充以下信息，AI 将基于这些事实生成学习方案。</p>
-        </div>
-
-        <div className="profile-summary-list">
-          {profileMeta.map(({ key, title, icon: Icon, source }) => (
-            <section className={`profile-summary-row ${key === "suggestion" ? "suggested" : ""}`} key={key}>
-              <Icon size={23} />
-              <div className="profile-copy">
-                <div>
-                  <h2>{title}</h2>
-                  <span>来源：{source}</span>
-                </div>
-                {editing === key ? (
-                  <div className="inline-editor">
-                    <input
-                      autoFocus
-                      defaultValue={profile[key]}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter") {
-                          editValue(key, event.currentTarget.value);
-                        }
-                      }}
-                    />
-                    <button
-                      onClick={(event) => {
-                        const input = event.currentTarget.previousElementSibling as HTMLInputElement;
-                        editValue(key, input.value);
-                      }}
-                      type="button"
-                    >
-                      保存
-                    </button>
-                  </div>
-                ) : (
-                  <p>{profile[key]}</p>
-                )}
-              </div>
-              <button className="modify-button" onClick={() => setEditing(key)} type="button">
-                修改 <ChevronRight size={15} />
-              </button>
-            </section>
-          ))}
-        </div>
-
-        <div className="profile-footer">
-          <button className="button secondary" onClick={() => navigate("/courses/new/sources")} type="button">
-            <ArrowLeft size={17} />
-            返回修改资料
+    <div>
+      <div className="choice-grid">
+        {options.map((opt) => (
+          <button
+            key={opt}
+            aria-pressed={selected.includes(opt)}
+            className={selected.includes(opt) ? "choice selected" : "choice"}
+            onClick={() =>
+              setSelected((prev) =>
+                prev.includes(opt) ? prev.filter((o) => o !== opt) : [...prev, opt],
+              )
+            }
+            type="button"
+          >
+            {opt}
           </button>
-          <button className="button primary" onClick={generatePlan} type="button">
-            <Sparkles size={17} />
-            生成学习方案
-          </button>
-        </div>
-        <p className="privacy-note"><LockKeyhole size={13} /> 以上内容可随时修改，方案生成后也可以继续调整。</p>
+        ))}
       </div>
-    </SetupShell>
+      <button
+        className="button secondary"
+        disabled={selected.length === 0}
+        onClick={() => onAnswer(selected.join("、"))}
+        style={{ marginTop: 16 }}
+        type="button"
+      >
+        确认
+      </button>
+    </div>
   );
 }
+
+function SingleChoiceQ({
+  options,
+  onAnswer,
+}: {
+  options: string[];
+  onAnswer: (v: string) => void;
+}) {
+  const [picked, setPicked] = useState("");
+  return (
+    <div>
+      <div className="choice-grid">
+        {options.map((opt) => (
+          <button
+            key={opt}
+            aria-pressed={picked === opt}
+            className={picked === opt ? "choice selected" : "choice"}
+            onClick={() => {
+              setPicked(opt);
+              onAnswer(opt);
+            }}
+            type="button"
+          >
+            {opt}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function FreeTextQ({ onAnswer }: { onAnswer: (v: string) => void }) {
+  const [text, setText] = useState("");
+  return (
+    <div className="free-text-block">
+      <textarea
+        autoFocus
+        className="free-text-input"
+        maxLength={500}
+        onChange={(e) => setText(e.target.value)}
+        placeholder="请简要描述你的想法…"
+        value={text}
+      />
+      <button
+        className="button secondary"
+        disabled={text.trim().length < 2}
+        onClick={() => onAnswer(text.trim())}
+        type="button"
+      >
+        确认
+      </button>
+    </div>
+  );
+}
+
+/* ── 步骤 4：确认方案 ── */
 
 type Phase = {
   id: string;
@@ -457,12 +254,24 @@ const initialPhases: Phase[] = [
 
 export function ConfirmPlanPage() {
   const navigate = useNavigate();
+  const { items } = useCourseCreation();
   const [phases, setPhases] = useState(initialPhases);
   const [activePhaseId, setActivePhaseId] = useState(initialPhases[0].id);
+  const [planExpanded, setPlanExpanded] = useState(false);
   const activePhase = useMemo(
     () => phases.find((phase) => phase.id === activePhaseId) ?? phases[0],
     [activePhaseId, phases],
   );
+
+  // 页面加载后触发底栏展开动画
+  function triggerExpand() {
+    setPlanExpanded(true);
+  }
+
+  function startCourse() {
+    sessionStorage.setItem("mentora-course-started", "true");
+    navigate("/courses");
+  }
 
   function adjustActivePhase(direction: "simplify" | "deepen") {
     setPhases((current) =>
@@ -484,27 +293,43 @@ export function ConfirmPlanPage() {
     );
   }
 
-  function startCourse() {
-    sessionStorage.setItem("mentora-course-started", "true");
-    navigate("/courses");
-  }
-
   return (
-    <SetupShell current={5}>
+    <SetupShell
+      current={5}
+      hideInfoBar
+      footer={
+        <div className="setup-footer">
+          <button className="button secondary" onClick={() => navigate("/courses/new/inquiry")} type="button">
+            返回修改需求
+          </button>
+          <button className="button primary" onClick={startCourse} type="button">开始学习</button>
+        </div>
+      }
+    >
       <div className="plan-page">
         <div className="setup-heading compact-heading">
           <h1>确认学习方案</h1>
           <p>AI 已根据你的需求生成阶段方案，请确认并按需调整。</p>
         </div>
 
-        <section className="plan-goal">
-          <Target size={24} />
-          <div>
-            <strong>学习目标</strong>
-            <p>两周后完成计算机组成原理重点复习，掌握考试高频知识点。</p>
-          </div>
-          <button onClick={() => navigate("/courses/new/profile")} type="button">修改</button>
-        </section>
+        <div className={`plan-info-section${planExpanded ? " plan-expanded" : ""}`}>
+          <h3 className="plan-info-heading">
+            <Sparkles size={16} /> 学习方案概览
+          </h3>
+          <dl className="info-bar-list plan-info-list">
+            {items.map((item) => (
+              <div className="info-bar-row" key={item.key}>
+                <dt>{item.title}</dt>
+                <dd>{item.value}</dd>
+              </div>
+            ))}
+          </dl>
+          {!planExpanded && (
+            <button className="plan-expand-btn" onClick={triggerExpand} type="button">
+              查看完整方案
+            </button>
+          )}
+        </div>
 
         <div className="phase-heading">
           <h2>学习阶段 <span>（共 {phases.length} 个阶段）</span></h2>
@@ -563,15 +388,6 @@ export function ConfirmPlanPage() {
             </button>
           </div>
         </section>
-
-        <div className="plan-footer">
-          <button className="button secondary" onClick={() => navigate("/courses/new/profile")} type="button">
-            返回修改学习需求
-          </button>
-          <button className="button primary" onClick={startCourse} type="button">
-            开始学习
-          </button>
-        </div>
         <p className="privacy-note"><LockKeyhole size={13} /> 开始后仍可调整阶段顺序、内容重点和学习节奏。</p>
       </div>
     </SetupShell>
