@@ -208,27 +208,91 @@ function AiChatPanel({
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
-  function handleSend() {
+  const [sending, setSending] = useState(false);
+
+  async function handleSend() {
     const text = input.trim();
     if (!text) return;
     setMessages((prev) => [...prev, { role: "user", content: text }]);
     setInput("");
-    setTimeout(() => {
-      setMessages((prev) => [
-        ...prev,
-        {
-          role: "assistant",
-          content:
-            "这是一个示例回复。后续将接入真实的 AI 对话能力，为你提供个性化的学习建议和帮助。",
-        },
-      ]);
-      requestAnimationFrame(() => {
-        listRef.current?.scrollTo({
-          top: listRef.current.scrollHeight,
-          behavior: "smooth",
-        });
+    setSending(true);
+
+    // 先添加一条空的 assistant 消息，流式填充
+    setMessages((prev) => [...prev, { role: "assistant", content: "" }]);
+
+    try {
+      const resp = await fetch("/api/chat/stream/", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message: text,
+          history: messages.map((m) => ({ role: m.role, content: m.content })),
+        }),
       });
-    }, 800);
+
+      if (!resp.ok) {
+        // 非流式错误
+        const errorText = await resp.text();
+        throw new Error(errorText || `HTTP ${resp.status}`);
+      }
+
+      const reader = resp.body!.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        // 保留最后一个可能不完整的行
+        buffer = lines.pop() || "";
+
+        for (const line of lines) {
+          if (!line.startsWith("data: ")) continue;
+          try {
+            const data = JSON.parse(line.slice(6));
+            if (data.type === "chunk") {
+              setMessages((prev) => {
+                const updated = [...prev];
+                const last = updated[updated.length - 1];
+                updated[updated.length - 1] = {
+                  ...last,
+                  content: last.content + data.content,
+                };
+                return updated;
+              });
+            } else if (data.type === "error") {
+              setMessages((prev) => {
+                const updated = [...prev];
+                const last = updated[updated.length - 1];
+                updated[updated.length - 1] = {
+                  ...last,
+                  content: last.content || `错误: ${data.message}`,
+                };
+                return updated;
+              });
+            }
+          } catch {
+            // 跳过无法解析的行
+          }
+        }
+      }
+    } catch (err: any) {
+      setMessages((prev) => {
+        const updated = [...prev];
+        const last = updated[updated.length - 1];
+        const errorMsg = err?.message || "连接失败";
+        updated[updated.length - 1] = {
+          ...last,
+          content: last.content || `抱歉，AI 服务出错: ${errorMsg}`,
+        };
+        return updated;
+      });
+    } finally {
+      setSending(false);
+    }
   }
 
   function handleKeyDown(e: React.KeyboardEvent) {
@@ -289,7 +353,7 @@ function AiChatPanel({
             className="ai-chat-send"
             type="button"
             onClick={handleSend}
-            disabled={!input.trim()}
+            disabled={!input.trim() || sending}
             aria-label="发送"
           >
             <Send size={16} />

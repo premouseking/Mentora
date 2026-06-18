@@ -3,6 +3,25 @@ from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
+# ── 加载 .env（stdlib 手动解析，无 python-dotenv 依赖）──
+
+def _load_dotenv() -> None:
+    env_path = BASE_DIR.parent.parent / ".env"
+    if not env_path.exists():
+        return
+    with open(env_path, encoding="utf-8") as fh:
+        for line in fh:
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, _, value = line.partition("=")
+            key = key.strip()
+            value = value.strip().strip('"').strip("'")
+            if key and key not in os.environ:
+                os.environ[key] = value
+
+_load_dotenv()
+
 SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "dev-only-secret")
 DEBUG = os.getenv("DJANGO_DEBUG", "true").lower() == "true"
 ALLOWED_HOSTS = ["127.0.0.1", "localhost", "testserver"]
@@ -23,6 +42,7 @@ INSTALLED_APPS = [
     "mentora.agent_runtime",
     "mentora.parsing",
     "mentora.retrieval",
+    "mentora.model_gateway",
 ]
 
 MIDDLEWARE = [
@@ -109,3 +129,13 @@ DEV_OWNER_ID = os.getenv("DEV_OWNER_ID", "dev-user")
 PGVECTOR_IVFFLAT_LISTS = 100
 # 向量搜索的探测数（查询时使用，越大召回越准但越慢）
 PGVECTOR_PROBES = 10
+
+# ── LLM 配置（通过环境变量注入，参考 .env.example）─────
+
+LLM_API_KEY = os.getenv("LLM_API_KEY", "")
+LLM_API_BASE_URL = os.getenv("LLM_API_BASE_URL", "https://api.openai.com/v1")
+LLM_MODEL = os.getenv("LLM_MODEL", "gpt-4o-mini")
+LLM_MAX_TOKENS = int(os.getenv("LLM_MAX_TOKENS", "4096"))
+LLM_TEMPERATURE = float(os.getenv("LLM_TEMPERATURE", "0.7"))
+LLM_REQUEST_TIMEOUT = int(os.getenv("LLM_REQUEST_TIMEOUT", "30"))
+LLM_STREAM_TIMEOUT = int(os.getenv("LLM_STREAM_TIMEOUT", "120"))

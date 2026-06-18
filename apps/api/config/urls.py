@@ -1,6 +1,7 @@
 from django.http import JsonResponse
 from django.urls import path
 
+from mentora.agent_runtime.views import chat_api, chat_stream
 from mentora.knowledge.views import list_sources, upload_complete, upload_create
 from mentora.parsing.views import get_benchmark, preview_parse
 
@@ -11,6 +12,8 @@ def health(_: object) -> JsonResponse:
 
 urlpatterns = [
     path("api/health/", health, name="health"),
+    path("api/chat/", chat_api, name="chat"),
+    path("api/chat/stream/", chat_stream, name="chat-stream"),
     path("api/uploads/", upload_create, name="upload-create"),
     path("api/uploads/complete/", upload_complete, name="upload-complete"),
     path("api/library/sources/", list_sources, name="library-sources"),
