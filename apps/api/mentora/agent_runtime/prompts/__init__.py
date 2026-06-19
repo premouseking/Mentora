@@ -1,4 +1,4 @@
-"""Agent 提示词模板与组装。"""
+"""Prompt templates and layered instruction assembly."""
 
 from .base import (
     PROMPT_VERSION,
@@ -8,10 +8,14 @@ from .base import (
     build_instructions_from_tools,
 )
 from .fragments import PromptContext
+from .manager import PromptManager
+from .schema import PromptTemplate
 
 __all__ = [
     "PROMPT_VERSION",
     "PromptContext",
+    "PromptManager",
+    "PromptTemplate",
     "build_base_instructions",
     "build_contextual_fragment",
     "build_instructions",

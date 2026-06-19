@@ -1,16 +1,11 @@
 """
-受控多轮 tool-loop 学习 Agent 运行时。
+Agent 运行时框架：多 Agent 调度、工具调用、提示词管理和上下文预算控制。
 
 约定：
-- ToolRegistry + ContextManager + PromptBuilder 组成通用 Agent 内核。
-- 开放推理走 tool-loop；结构化业务流程仍由领域状态机负责。
+- Agent 不拥有领域事实，只通过 Tool 调用领域服务
+- 所有 Agent 运行通过审计模型持久化
+- 模型调用统一经过 model_gateway 路由
 
-@see docs/architecture/adr/0007-controlled-agent-tool-loop.md
+@see docs/architecture/agent-runtime-design.md
 @module mentora/agent_runtime
 """
-
-from .contracts import AgentConfig, AgentEvent, AgentResult
-from .session import AgentSession
-
-__all__ = ["AgentConfig", "AgentEvent", "AgentResult", "AgentSession"]
-

@@ -2,17 +2,33 @@ import os
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
-# 仓库根：apps/api -> apps -> smartStudy。.env 与 .env.example 均位于此处。
 REPO_ROOT = BASE_DIR.parent.parent
 
-# 启动时加载 .env，使本地开发无需手动注入环境变量。
-# 约束：不覆盖已存在的进程环境变量（CI / 容器注入优先），缺少 .env 时静默跳过。
 try:
     from dotenv import load_dotenv
 
     load_dotenv(REPO_ROOT / ".env", override=False)
 except ImportError:
     pass
+
+# ── 加载 .env（stdlib 手动解析，无 python-dotenv 依赖）──
+
+def _load_dotenv() -> None:
+    env_path = REPO_ROOT / ".env"
+    if not env_path.exists():
+        return
+    with open(env_path, encoding="utf-8") as fh:
+        for line in fh:
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, _, value = line.partition("=")
+            key = key.strip()
+            value = value.strip().strip('"').strip("'")
+            if key and key not in os.environ:
+                os.environ[key] = value
+
+_load_dotenv()
 
 SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "dev-only-secret")
 DEBUG = os.getenv("DJANGO_DEBUG", "true").lower() == "true"
@@ -122,34 +138,27 @@ PGVECTOR_IVFFLAT_LISTS = 100
 # 向量搜索的探测数（查询时使用，越大召回越准但越慢）
 PGVECTOR_PROBES = 10
 
-# ── 模型网关 ─────────────────────────────────────────────
-#
-# 领域服务通过 mentora.model_gateway 调用大模型，不直接接触下方配置。
-# 默认 provider 为 OpenAI 兼容端点：DeepSeek / 通义千问 / Moonshot / 智谱 等
-# 均可通过 LLM_BASE_URL + 模型名接入，无需新增适配器。
-# 新增厂商或质量档只需扩展 providers / routing，无需改动网关与领域代码。
+# ── LLM 配置（通过环境变量注入，参考 .env.example）─────
 
 LLM_API_KEY = os.getenv("LLM_API_KEY", "")
-LLM_BASE_URL = os.getenv("LLM_BASE_URL", "https://api.openai.com/v1")
+LLM_BASE_URL = os.getenv(
+    "LLM_BASE_URL",
+    os.getenv("LLM_API_BASE_URL", "https://api.openai.com/v1"),
+)
+LLM_API_BASE_URL = LLM_BASE_URL
 LLM_ORGANIZATION = os.getenv("LLM_ORGANIZATION", "") or None
 
-# 各质量档对应的模型名，可按所选厂商覆盖。
-LLM_MODEL_FAST = os.getenv("LLM_MODEL_FAST", "gpt-4o-mini")
-LLM_MODEL_BALANCED = os.getenv("LLM_MODEL_BALANCED", "gpt-4o-mini")
-LLM_MODEL_PREMIUM = os.getenv("LLM_MODEL_PREMIUM", "gpt-4o")
+LLM_MODEL_FAST = os.getenv("LLM_MODEL_FAST", os.getenv("LLM_MODEL", "gpt-4o-mini"))
+LLM_MODEL_BALANCED = os.getenv("LLM_MODEL_BALANCED", LLM_MODEL_FAST)
+LLM_MODEL_PREMIUM = os.getenv("LLM_MODEL_PREMIUM", LLM_MODEL_BALANCED)
+LLM_MODEL = LLM_MODEL_BALANCED
+LLM_MAX_TOKENS = int(os.getenv("LLM_MAX_TOKENS", "4096"))
+LLM_TEMPERATURE = float(os.getenv("LLM_TEMPERATURE", "0.7"))
+LLM_MAX_RETRIES = int(os.getenv("LLM_MAX_RETRIES", "1"))
+LLM_REQUEST_TIMEOUT = int(os.getenv("LLM_REQUEST_TIMEOUT", os.getenv("LLM_TIMEOUT_S", "60")))
+LLM_STREAM_TIMEOUT = int(os.getenv("LLM_STREAM_TIMEOUT", "120"))
 
 MODEL_GATEWAY = {
-    "providers": {
-        "openai_compatible": {
-            "class": "mentora.model_gateway.providers.openai_compatible.OpenAICompatibleProvider",
-            "options": {
-                "api_key": LLM_API_KEY,
-                "base_url": LLM_BASE_URL,
-                "organization": LLM_ORGANIZATION,
-            },
-        },
-    },
-    # 每个质量档给出「主选 + Fallback」候选序列，网关按序尝试。
     "routing": {
         "fast": [{"provider": "openai_compatible", "model": LLM_MODEL_FAST}],
         "balanced": [
@@ -161,7 +170,6 @@ MODEL_GATEWAY = {
             {"provider": "openai_compatible", "model": LLM_MODEL_BALANCED},
         ],
     },
-    # 单候选内瞬时错误的额外重试次数（总尝试 = 1 + 该值）。
-    "max_retries_per_attempt": int(os.getenv("LLM_MAX_RETRIES", "1")),
-    "timeout_s": float(os.getenv("LLM_TIMEOUT_S", "60")),
+    "max_retries_per_attempt": LLM_MAX_RETRIES,
+    "timeout_s": float(LLM_REQUEST_TIMEOUT),
 }
