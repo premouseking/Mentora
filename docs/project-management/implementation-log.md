@@ -135,10 +135,7 @@ feat: 搭建 Electron 桌面客户端框架骨架
 
 ## 2026-06-13：Electron GUI 冒烟验收
 
-关联：
-
-- [Electron GUI Smoke 验收设计](../design/specs/2026-06-13-electron-gui-smoke-design.md)
-- [Electron GUI Smoke 实施计划](../design/plans/2026-06-13-electron-gui-smoke.md)
+关联：`apps/desktop/scripts/smoke.mjs`、`pnpm smoke:desktop`
 
 状态：**已验收**
 
@@ -168,10 +165,7 @@ feat: 搭建 Electron 桌面客户端框架骨架
 
 ## 2026-06-13：桌面开发态
 
-关联：
-
-- [Electron GUI Smoke 验收设计](../design/specs/2026-06-13-electron-gui-smoke-design.md)
-- [Mentora 桌面图标设计](../design/specs/2026-06-13-mentora-desktop-icon-design.md)
+关联：`apps/desktop/build/icon.ico`、`apps/desktop/src/main/window.ts`
 
 状态：**部分可用**
 
@@ -186,7 +180,7 @@ feat: 搭建 Electron 桌面客户端框架骨架
 
 - 日常桌面开发仍用 `pnpm dev:desktop`（根脚本 concurrently 启动 Vite 与 desktop dev）。
 - 改 web 页面 → Vite HMR；改 main/preload → tsup 重建 → nodemon 重启 Electron。
-- 文档：`README.md`、`.env.example`、`CONTRIBUTING.md`、图标/GUI smoke 设计规格已同步。
+- 文档：`README.md`、`.env.example`、`CONTRIBUTING.md` 已同步桌面开发说明。
 
 ### 尚未完成 / 已知限制
 
