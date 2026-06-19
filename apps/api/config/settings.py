@@ -2,6 +2,17 @@ import os
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
+# 仓库根：apps/api -> apps -> smartStudy。.env 与 .env.example 均位于此处。
+REPO_ROOT = BASE_DIR.parent.parent
+
+# 启动时加载 .env，使本地开发无需手动注入环境变量。
+# 约束：不覆盖已存在的进程环境变量（CI / 容器注入优先），缺少 .env 时静默跳过。
+try:
+    from dotenv import load_dotenv
+
+    load_dotenv(REPO_ROOT / ".env", override=False)
+except ImportError:
+    pass
 
 SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "dev-only-secret")
 DEBUG = os.getenv("DJANGO_DEBUG", "true").lower() == "true"
@@ -23,6 +34,7 @@ INSTALLED_APPS = [
     "mentora.agent_runtime",
     "mentora.parsing",
     "mentora.retrieval",
+    "mentora.model_gateway",
 ]
 
 MIDDLEWARE = [
@@ -109,3 +121,47 @@ DEV_OWNER_ID = os.getenv("DEV_OWNER_ID", "dev-user")
 PGVECTOR_IVFFLAT_LISTS = 100
 # 向量搜索的探测数（查询时使用，越大召回越准但越慢）
 PGVECTOR_PROBES = 10
+
+# ── 模型网关 ─────────────────────────────────────────────
+#
+# 领域服务通过 mentora.model_gateway 调用大模型，不直接接触下方配置。
+# 默认 provider 为 OpenAI 兼容端点：DeepSeek / 通义千问 / Moonshot / 智谱 等
+# 均可通过 LLM_BASE_URL + 模型名接入，无需新增适配器。
+# 新增厂商或质量档只需扩展 providers / routing，无需改动网关与领域代码。
+
+LLM_API_KEY = os.getenv("LLM_API_KEY", "")
+LLM_BASE_URL = os.getenv("LLM_BASE_URL", "https://api.openai.com/v1")
+LLM_ORGANIZATION = os.getenv("LLM_ORGANIZATION", "") or None
+
+# 各质量档对应的模型名，可按所选厂商覆盖。
+LLM_MODEL_FAST = os.getenv("LLM_MODEL_FAST", "gpt-4o-mini")
+LLM_MODEL_BALANCED = os.getenv("LLM_MODEL_BALANCED", "gpt-4o-mini")
+LLM_MODEL_PREMIUM = os.getenv("LLM_MODEL_PREMIUM", "gpt-4o")
+
+MODEL_GATEWAY = {
+    "providers": {
+        "openai_compatible": {
+            "class": "mentora.model_gateway.providers.openai_compatible.OpenAICompatibleProvider",
+            "options": {
+                "api_key": LLM_API_KEY,
+                "base_url": LLM_BASE_URL,
+                "organization": LLM_ORGANIZATION,
+            },
+        },
+    },
+    # 每个质量档给出「主选 + Fallback」候选序列，网关按序尝试。
+    "routing": {
+        "fast": [{"provider": "openai_compatible", "model": LLM_MODEL_FAST}],
+        "balanced": [
+            {"provider": "openai_compatible", "model": LLM_MODEL_BALANCED},
+            {"provider": "openai_compatible", "model": LLM_MODEL_FAST},
+        ],
+        "premium": [
+            {"provider": "openai_compatible", "model": LLM_MODEL_PREMIUM},
+            {"provider": "openai_compatible", "model": LLM_MODEL_BALANCED},
+        ],
+    },
+    # 单候选内瞬时错误的额外重试次数（总尝试 = 1 + 该值）。
+    "max_retries_per_attempt": int(os.getenv("LLM_MAX_RETRIES", "1")),
+    "timeout_s": float(os.getenv("LLM_TIMEOUT_S", "60")),
+}
