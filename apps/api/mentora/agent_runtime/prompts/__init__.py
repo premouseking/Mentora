@@ -4,8 +4,6 @@ from .base import (
     PROMPT_VERSION,
     build_base_instructions,
     build_contextual_fragment,
-    build_instructions,
-    build_instructions_from_tools,
 )
 from .fragments import PromptContext
 from .manager import PromptManager
@@ -18,6 +16,4 @@ __all__ = [
     "PromptTemplate",
     "build_base_instructions",
     "build_contextual_fragment",
-    "build_instructions",
-    "build_instructions_from_tools",
 ]

@@ -3,7 +3,7 @@ ClarifierAgent：当用户意图模糊时提出澄清问题。
 
 约定：
 - 纯文本交互，不使用工具
-- 不检索资料（不属于知识问答范畴）
+- 单轮 gateway.chat，无 tool loop
 
 @module mentora/agent_runtime/agents/clarifier
 """
@@ -16,17 +16,11 @@ from mentora.model_gateway.gateway import ModelGateway
 
 
 class ClarifierAgent(Agent):
-    """学习意图澄清 Agent。
-
-    职责：
-    - 当用户表述模糊时提出 2-3 个澄清问题
-    - 帮助用户明确学习目标、已有基础、时间约束
-    - 不需要任何工具，纯文本交互
-    """
+    """学习意图澄清 Agent。"""
 
     role = "clarifier"
     system_prompt_ref = "clarifier"
-    tool_names: set[str] = set()  # 不使用工具
+    tool_names: set[str] = set()
 
     def __init__(
         self,
@@ -39,11 +33,6 @@ class ClarifierAgent(Agent):
         self._gateway = model_gateway
 
     async def run(self, input: AgentInput) -> AgentOutput:
-        """执行意图澄清。
-
-        ClarifierAgent 只做一轮对话，不循环调用工具。
-        """
-        # 直接发起单轮对话，不带 tools
         resp = await self._gateway.chat(
             task_type=self.role,
             messages=list(input.context.messages),

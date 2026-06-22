@@ -1,30 +1,26 @@
-"""
-混合检索服务：FTS（jieba + tsquery） + 模糊（pg_trgm） + 向量（pgvector） → RRF 融合。
+"""Async hybrid retrieval over PostgreSQL-backed projections."""
 
-约定：
-- 当前首版使用内存中的 EvidenceUnit 列表作为语料库
-- 等 WH 交付 Evidence ORM 模型后，替换 _corpus 为 PostgreSQL 查询
-- 检索结果按 RRF 分数降序排列
+from __future__ import annotations
 
-约束：
-- 不在检索结果中暴露资料正文的全部内容
-- 空查询或无效查询返回空列表
-
-@see docs/architecture/technical-solution.md §6
-@module mentora/retrieval/search
-"""
-
-import math
+import asyncio
+import time
 from dataclasses import dataclass, field
+from typing import Any
 
-from mentora.parsing.schemas import EvidenceUnit
-from mentora.retrieval.tokenizer import build_fts_query, segment
+from asgiref.sync import sync_to_async
+from django.conf import settings
+from django.contrib.postgres.search import SearchQuery, SearchRank, SearchVector, TrigramSimilarity
+from django.db import connection, transaction
+from pgvector.django import CosineDistance
+
+from mentora.retrieval.models import ChunkProjection, EvidenceUnit
 
 
 @dataclass
 class SearchResult:
-    """单条检索结果。"""
-    evidence: EvidenceUnit
+    """Single retrieval result."""
+
+    evidence: Any
     score: float = 0.0
     fts_score: float = 0.0
     trgm_score: float = 0.0
@@ -44,7 +40,8 @@ class SearchResult:
 
 @dataclass
 class SearchResultSet:
-    """检索结果集。"""
+    """Retrieval result set."""
+
     query: str
     results: list[SearchResult] = field(default_factory=list)
     total_candidates: int = 0
@@ -59,126 +56,194 @@ class SearchResultSet:
         }
 
 
-# ── in-memory corpus (will be replaced by PG queries) ──
-
-_corpus: list[EvidenceUnit] = []
-
-
-def load_corpus(units: list[EvidenceUnit]) -> None:
-    """加载 EvidenceUnit 列表作为检索语料库。"""
-    global _corpus
-    _corpus = units
-
-
-# ── RRF ──────────────────────────────────────────────
-
-
 def _rrf(
     rankings: list[dict[str, float]],
     k: int = 60,
     weights: list[float] | None = None,
 ) -> dict[str, float]:
-    """
-    Reciprocal Rank Fusion。
-
-    rankings: 每路排名是一个 {doc_id: score} 字典（原始分数，只做排序用）
-    weights: 各路权重，默认等权
-    """
+    """Reciprocal Rank Fusion over independent recall rankings."""
     if weights is None:
         weights = [1.0] * len(rankings)
 
-    # 按原始分数降序排列，得到 rank（从 1 开始）
     ranked: list[dict[str, int]] = []
     for rank_dict in rankings:
         sorted_ids = sorted(rank_dict.keys(), key=lambda did: rank_dict[did], reverse=True)
         ranked.append({did: idx + 1 for idx, did in enumerate(sorted_ids)})
 
     fused: dict[str, float] = {}
-    for rank_dict, w in zip(ranked, weights):
+    for rank_dict, weight in zip(ranked, weights):
         for doc_id, rank in rank_dict.items():
-            fused[doc_id] = fused.get(doc_id, 0.0) + w / (k + rank)
+            fused[doc_id] = fused.get(doc_id, 0.0) + weight / (k + rank)
 
     return fused
 
 
-# ── search ────────────────────────────────────────────
+def _scope_evidence(source_version_ids: list[str] | None):
+    qs = EvidenceUnit.objects.all()
+    if source_version_ids:
+        qs = qs.filter(source_version_id__in=source_version_ids)
+    return qs
 
 
-def search(
+def _scope_chunks(source_version_ids: list[str] | None):
+    qs = ChunkProjection.objects.filter(embedding__isnull=False)
+    if source_version_ids:
+        qs = qs.filter(source_version_id__in=source_version_ids)
+    return qs
+
+
+def _recall_fts_sync(
+    *,
     query: str,
-    top_k: int = 10,
-    fts_weight: float = 0.7,
-    trgm_weight: float = 0.3,
-) -> SearchResultSet:
-    """
-    混合检索入口（当前基于内存语料库）。
-
-    流程：
-    1. jieba 分词 → FTS 匹配（精确层，权重 0.7）
-    2. pg_trgm 子串匹配（模糊层，权重 0.3）
-    3. RRF 融合 → 返回 top_k
-
-    pgvector 向量检索在 PG 环境就绪后追加为第三路（语义层）。
-    """
-    import time
-    t0 = time.perf_counter()
-
-    if not query.strip() or not _corpus:
-        return SearchResultSet(query=query, elapsed_ms=(time.perf_counter() - t0) * 1000)
-
-    # 1. FTS 路：jieba 分词后精确匹配
-    fts_words = segment(query)
-    fts_ranking: dict[str, float] = {}
-    for unit in _corpus:
-        content_lower = unit.content.lower()
-        fts_score = 0.0
-        for word in fts_words:
-            word_lower = word.lower()
-            count = content_lower.count(word_lower)
-            if count > 0:
-                # TF 加权：出现次数多 → 分数高
-                fts_score += math.log1p(count)
-        if fts_score > 0:
-            fts_ranking[str(unit.id)] = fts_score
-
-    # 2. Trgm 路：子串匹配（模拟 pg_trgm similarity）
-    trgm_ranking: dict[str, float] = {}
-    q_lower = query.lower()
-    for unit in _corpus:
-        content_lower = unit.content.lower()
-        # 简单的词条重叠率模拟 pg_trgm
-        q_chars = set(q_lower.replace(" ", ""))
-        c_chars = set(content_lower.replace(" ", ""))
-        if q_chars:
-            overlap = len(q_chars & c_chars) / len(q_chars)
-            if overlap > 0.15:  # 弱相似度阈值
-                trgm_ranking[str(unit.id)] = overlap
-
-    # 3. RRF 融合
-    fused = _rrf(
-        [fts_ranking, trgm_ranking],
-        weights=[fts_weight, trgm_weight],
+    source_version_ids: list[str] | None,
+    limit: int,
+) -> dict[str, float]:
+    search_query = SearchQuery(query, config="simple", search_type="plain")
+    rows = (
+        _scope_evidence(source_version_ids)
+        .annotate(rank=SearchRank(SearchVector("content", config="simple"), search_query))
+        .filter(rank__gt=0.0)
+        .order_by("-rank")[:limit]
     )
+    return {str(row.id): float(row.rank) for row in rows}
 
-    # 排序 + 取 top_k
-    id_to_unit = {str(u.id): u for u in _corpus}
+
+def _recall_trgm_sync(
+    *,
+    query: str,
+    source_version_ids: list[str] | None,
+    limit: int,
+) -> dict[str, float]:
+    rows = (
+        _scope_evidence(source_version_ids)
+        .annotate(similarity=TrigramSimilarity("content", query))
+        .filter(similarity__gt=0.15)
+        .order_by("-similarity")[:limit]
+    )
+    return {str(row.id): float(row.similarity) for row in rows}
+
+
+def _recall_vector_sync(
+    *,
+    query_embedding: list[float] | None,
+    source_version_ids: list[str] | None,
+    limit: int,
+) -> dict[str, float]:
+    if not query_embedding:
+        return {}
+
+    probes = getattr(settings, "PGVECTOR_PROBES", 10)
+    with transaction.atomic():
+        with connection.cursor() as cursor:
+            cursor.execute("SET LOCAL ivfflat.probes = %s", [probes])
+        rows = list(
+            _scope_chunks(source_version_ids)
+            .annotate(distance=CosineDistance("embedding", query_embedding))
+            .order_by("distance")[:limit]
+        )
+
+    ranking: dict[str, float] = {}
+    for row in rows:
+        score = 1.0 / (1.0 + float(row.distance))
+        for evidence_id in row.evidence_ids:
+            key = str(evidence_id)
+            ranking[key] = max(ranking.get(key, 0.0), score)
+    return ranking
+
+
+async def _recall_fts(**kwargs) -> dict[str, float]:
+    return await sync_to_async(_recall_fts_sync, thread_sensitive=True)(**kwargs)
+
+
+async def _recall_trgm(**kwargs) -> dict[str, float]:
+    return await sync_to_async(_recall_trgm_sync, thread_sensitive=True)(**kwargs)
+
+
+async def _recall_vector(**kwargs) -> dict[str, float]:
+    return await sync_to_async(_recall_vector_sync, thread_sensitive=True)(**kwargs)
+
+
+def _fetch_evidence_by_ids_sync(evidence_ids: list[str]) -> list[EvidenceUnit]:
+    units = {str(unit.id): unit for unit in EvidenceUnit.objects.filter(id__in=evidence_ids)}
+    return [units[evidence_id] for evidence_id in evidence_ids if evidence_id in units]
+
+
+async def _fetch_evidence_by_ids(evidence_ids: list[str]) -> list[EvidenceUnit]:
+    return await sync_to_async(_fetch_evidence_by_ids_sync, thread_sensitive=True)(evidence_ids)
+
+
+async def _materialize_results(
+    fused: dict[str, float],
+    rankings: dict[str, dict[str, float]],
+    top_k: int,
+) -> list[SearchResult]:
     sorted_ids = sorted(fused.keys(), key=lambda did: fused[did], reverse=True)[:top_k]
+    units = await _fetch_evidence_by_ids(sorted_ids)
 
     results: list[SearchResult] = []
-    for did in sorted_ids:
-        unit = id_to_unit.get(did)
-        if unit is None:
-            continue
-        results.append(SearchResult(
-            evidence=unit,
-            score=fused[did],
-            fts_score=fts_ranking.get(did, 0.0),
-            trgm_score=trgm_ranking.get(did, 0.0),
-        ))
+    for unit in units:
+        doc_id = str(unit.id)
+        results.append(
+            SearchResult(
+                evidence=unit,
+                score=fused[doc_id],
+                fts_score=rankings.get("fts", {}).get(doc_id, 0.0),
+                trgm_score=rankings.get("trgm", {}).get(doc_id, 0.0),
+                vector_score=rankings.get("vector", {}).get(doc_id, 0.0),
+            )
+        )
+    return results
 
+
+def _empty_result(query: str, started_at: float) -> SearchResultSet:
+    return SearchResultSet(query=query, elapsed_ms=(time.perf_counter() - started_at) * 1000)
+
+
+async def async_search(
+    query: str,
+    top_k: int = 10,
+    *,
+    source_version_ids: list[str] | None = None,
+    query_embedding: list[float] | None = None,
+    fts_weight: float = 0.6,
+    trgm_weight: float = 0.25,
+    vector_weight: float = 0.15,
+) -> SearchResultSet:
+    """Run FTS, trigram, and optional vector recall concurrently."""
+    started_at = time.perf_counter()
+    if not query.strip():
+        return _empty_result(query, started_at)
+
+    recall_limit = max(top_k * 4, top_k)
+    fts_ranking, trgm_ranking, vector_ranking = await asyncio.gather(
+        _recall_fts(
+            query=query,
+            source_version_ids=source_version_ids,
+            limit=recall_limit,
+        ),
+        _recall_trgm(
+            query=query,
+            source_version_ids=source_version_ids,
+            limit=recall_limit,
+        ),
+        _recall_vector(
+            query_embedding=query_embedding,
+            source_version_ids=source_version_ids,
+            limit=recall_limit,
+        ),
+    )
+    fused = _rrf(
+        [fts_ranking, trgm_ranking, vector_ranking],
+        weights=[fts_weight, trgm_weight, vector_weight],
+    )
+    results = await _materialize_results(
+        fused,
+        {"fts": fts_ranking, "trgm": trgm_ranking, "vector": vector_ranking},
+        top_k,
+    )
     return SearchResultSet(
         query=query,
         results=results,
-        total_candidates=len(_corpus),
-        elapsed_ms=(time.perf_counter() - t0) * 1000,
+        total_candidates=len(fused),
+        elapsed_ms=(time.perf_counter() - started_at) * 1000,
     )

@@ -2,7 +2,7 @@
 知识检索工具：retrieve_evidence 实现。
 
 约定：
-- 调用 mentora.retrieval.search.search() 执行混合检索
+- 调用 mentora.retrieval.search.async_search() 执行混合检索
 - 返回证据片段、页码和坐标信息
 
 约束：
@@ -21,7 +21,7 @@ from mentora.agent_runtime.tools.base import Tool, ToolResult
 class RetrieveEvidenceTool(Tool):
     """检索资料证据工具。
 
-    调用 mentora.retrieval.search.search() 执行混合检索（FTS + Trgm + RRF）。
+    调用 mentora.retrieval.search.async_search() 执行混合检索（FTS + Trgm + RRF）。
     """
 
     async def execute(self, args: dict, ctx: ToolContext) -> ToolResult:
@@ -36,9 +36,9 @@ class RetrieveEvidenceTool(Tool):
             )
 
         try:
-            from mentora.retrieval.search import search
+            from mentora.retrieval.search import async_search
 
-            result_set = search(query=query, top_k=top_k)
+            result_set = await async_search(query=query, top_k=top_k)
             results = [r.to_dict() for r in result_set.results]
 
             return ToolResult(

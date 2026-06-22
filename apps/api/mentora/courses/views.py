@@ -67,24 +67,6 @@ def _format_history(inquiry_history: list[dict]) -> str:
     return "\n".join(lines)
 
 
-def _parse_json(request) -> dict:
-    """安全解析请求 JSON body。"""
-    if not request.body:
-        return {}
-    try:
-        return json.loads(request.body.decode("utf-8"))
-    except (json.JSONDecodeError, UnicodeDecodeError):
-        raise ValueError("无效 JSON")
-
-
-def _get_session(session_id: str) -> CourseCreationSession:
-    """按 UUID 获取会话，不存在时抛 ValueError。"""
-    try:
-        return CourseCreationSession.objects.get(id=session_id)
-    except CourseCreationSession.DoesNotExist:
-        raise ValueError(f"会话 {session_id} 不存在")
-
-
 # ── Session CRUD ──
 
 

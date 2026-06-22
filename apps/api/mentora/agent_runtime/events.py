@@ -95,13 +95,23 @@ class EventEmitter:
             "arguments": arguments,
         })
 
-    def tool_result(self, task_id: str, tool_name: str, success: bool, preview: str) -> None:
-        self._emit("agent.tool.result", {
+    def tool_result(
+        self,
+        task_id: str,
+        tool_name: str,
+        success: bool,
+        preview: str,
+        details: dict | None = None,
+    ) -> None:
+        payload = {
             "task_id": task_id,
             "tool_name": tool_name,
             "success": success,
             "preview": preview,
-        })
+        }
+        if details:
+            payload.update(details)
+        self._emit("agent.tool.result", payload)
 
     # ── agent.response_stream 事件（Phase 2 流式）──
 

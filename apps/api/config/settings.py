@@ -159,17 +159,6 @@ LLM_REQUEST_TIMEOUT = int(os.getenv("LLM_REQUEST_TIMEOUT", os.getenv("LLM_TIMEOU
 LLM_STREAM_TIMEOUT = int(os.getenv("LLM_STREAM_TIMEOUT", "120"))
 
 MODEL_GATEWAY = {
-    "routing": {
-        "fast": [{"provider": "openai_compatible", "model": LLM_MODEL_FAST}],
-        "balanced": [
-            {"provider": "openai_compatible", "model": LLM_MODEL_BALANCED},
-            {"provider": "openai_compatible", "model": LLM_MODEL_FAST},
-        ],
-        "premium": [
-            {"provider": "openai_compatible", "model": LLM_MODEL_PREMIUM},
-            {"provider": "openai_compatible", "model": LLM_MODEL_BALANCED},
-        ],
-    },
     "max_retries_per_attempt": LLM_MAX_RETRIES,
     "timeout_s": float(LLM_REQUEST_TIMEOUT),
 }

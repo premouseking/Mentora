@@ -4,12 +4,10 @@ Agent Runtime HTTP 视图：聊天 API（非流式 + 流式 SSE）。
 约定：
 - POST /api/chat/ 接收 { message, history? } 返回 { reply, status }
 - POST /api/chat/stream/ 接收 { message, history? } 返回 SSE 事件流
-- 使用 Orchestrator + TutorAgent 处理请求
-- 单例初始化 Orchestrator（Provider / Gateway / Agent 复用）
+- 使用 runtime 工厂统一初始化 Orchestrator
 
 约束：
 - LLM_API_KEY 未配置时返回 503
-- retrieve_evidence 工具为占位，暂时不影响纯文本对话
 
 @module mentora/agent_runtime/views
 """
@@ -23,127 +21,41 @@ from django.http import JsonResponse, StreamingHttpResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 
-from mentora.agent_runtime.agents.clarifier import ClarifierAgent
-from mentora.agent_runtime.agents.orchestrator import Orchestrator
-from mentora.agent_runtime.agents.planner import PlannerAgent
-from mentora.agent_runtime.agents.tutor import TutorAgent
-from mentora.agent_runtime.context.manager import ContextManager
-from mentora.agent_runtime.context.token_counter import TokenCounter
-from mentora.agent_runtime.prompts.manager import PromptManager
-from mentora.agent_runtime.schemas.task import BudgetConfig, OrchestratorTask
-from mentora.agent_runtime.tools.registry import ToolRegistry
+from mentora.agent_runtime.runtime import build_orchestrator
+from mentora.agent_runtime.schemas.task import OrchestratorTask
 from mentora.model_gateway.gateway import ModelGateway
-from mentora.model_gateway.providers.openai import OpenAIProvider
-from mentora.model_gateway.router import TaskRouter
-from mentora.model_gateway.structured_output import StructuredOutputValidator
+from mentora.agent_runtime.prompts.manager import PromptManager
 
-# ── 单例组件 ──
-
-_orchestrator: Orchestrator | None = None
+_orchestrator = None
 _gateway: ModelGateway | None = None
 _prompt_manager: PromptManager | None = None
 
 
-def _build_orchestrator() -> Orchestrator:
-    """构建 Orchestrator，注册 tutor / clarifier / planner 三个 Agent。"""
-    api_key = settings.LLM_API_KEY
-    if not api_key:
-        raise RuntimeError("LLM_API_KEY 未配置，无法初始化 OpenAIProvider")
-
-    provider = OpenAIProvider(
-        api_key=api_key,
-        base_url=settings.LLM_BASE_URL,
-        model=settings.LLM_MODEL_BALANCED,
-    )
-
-    router = TaskRouter(default_provider=provider)
-    gateway = ModelGateway(
-        router=router,
-        audit_enabled=True,
-        max_retries_per_attempt=settings.LLM_MAX_RETRIES,
-    )
-
-    prompt_manager = PromptManager()
-    tool_registry = ToolRegistry()
-
-    tutor = TutorAgent(
-        prompt_manager=prompt_manager,
-        tool_registry=tool_registry,
-        model_gateway=gateway,
-    )
-    clarifier = ClarifierAgent(
-        prompt_manager=prompt_manager,
-        tool_registry=tool_registry,
-        model_gateway=gateway,
-    )
-    planner = PlannerAgent(
-        prompt_manager=prompt_manager,
-        tool_registry=tool_registry,
-        model_gateway=gateway,
-    )
-
-    budget = BudgetConfig()
-    token_counter = TokenCounter()
-    context_mgr = ContextManager(budget=budget, counter=token_counter)
-
-    # 写入模块级单例（供 courses/views 等复用）
-    global _gateway, _prompt_manager
-    _gateway = gateway
-    _prompt_manager = prompt_manager
-
-    return Orchestrator(
-        agent_map={"tutor": tutor, "clarifier": clarifier, "planner": planner},
-        prompt_manager=prompt_manager,
-        context_manager=context_mgr,
-    )
-
-
-def _get_orchestrator() -> Orchestrator:
-    global _orchestrator
+def _ensure_runtime():
+    global _orchestrator, _gateway, _prompt_manager
     if _orchestrator is None:
-        _orchestrator = _build_orchestrator()
+        _orchestrator, _gateway, _prompt_manager = build_orchestrator()
     return _orchestrator
 
 
 def get_gateway() -> ModelGateway:
-    """获取单例 ModelGateway（供其他模块复用）。"""
-    global _gateway
-    if _gateway is None:
-        _build_orchestrator()
+    """获取单例 ModelGateway（供 courses 等模块复用）。"""
+    _ensure_runtime()
     assert _gateway is not None
     return _gateway
 
 
 def get_prompt_manager() -> PromptManager:
-    """获取单例 PromptManager（供其他模块复用）。"""
-    global _prompt_manager
-    if _prompt_manager is None:
-        _build_orchestrator()
+    """获取单例 PromptManager。"""
+    _ensure_runtime()
     assert _prompt_manager is not None
     return _prompt_manager
 
 
-# ── 视图 ──
-
 @csrf_exempt
 @require_http_methods(["POST"])
 def chat_api(request):
-    """
-    POST /api/chat/
-
-    请求体：
-    {
-        "message": "用户输入",
-        "history": [{"role": "user", "content": "..."}, ...]  // 可选
-    }
-
-    返回：
-    {
-        "reply": "Agent 回复",
-        "status": "completed" | "failed",
-        "error": "..."  // 仅失败时
-    }
-    """
+    """POST /api/chat/"""
     if not settings.LLM_API_KEY:
         return JsonResponse(
             {"error": "LLM_API_KEY 未配置，请在 .env 中设置"},
@@ -159,7 +71,6 @@ def chat_api(request):
     if not user_message:
         return JsonResponse({"error": "message 不能为空"}, status=400)
 
-    # 构建 OrchestratorTask
     task = OrchestratorTask(
         id=f"chat-{uuid.uuid4().hex[:12]}",
         mode="single",
@@ -170,11 +81,8 @@ def chat_api(request):
     )
 
     try:
-        import asyncio
-
-        orch = _get_orchestrator()
+        orch = _ensure_runtime()
         result = asyncio.run(orch.run(task))
-
         reply = result.final_output.final_message if result.final_output else ""
 
         return JsonResponse({
@@ -186,7 +94,6 @@ def chat_api(request):
                 else {}
             ),
         })
-
     except Exception as exc:
         return JsonResponse({
             "reply": "",
@@ -198,21 +105,7 @@ def chat_api(request):
 @csrf_exempt
 @require_http_methods(["POST"])
 def chat_stream(request):
-    """
-    POST /api/chat/stream/
-
-    请求体与非流式相同，返回 SSE 事件流：
-
-    data: {"type":"chunk","content":"..."}
-    data: {"type":"done"}
-    data: {"type":"error","message":"..."}
-
-    前端通过 fetch + ReadableStream 消费。
-
-    约束：
-    - 同步视图，内建 event loop 桥接异步 run_stream 生成器
-    - WSGI 模式下异步 StreamingHttpResponse 会被缓冲，因此手动迭代
-    """
+    """POST /api/chat/stream/"""
     if not settings.LLM_API_KEY:
         return StreamingHttpResponse(
             iter([f"data: {json.dumps({'type': 'error', 'message': 'LLM_API_KEY 未配置'}, ensure_ascii=False)}\n\n"]),
@@ -246,10 +139,9 @@ def chat_stream(request):
         max_tool_rounds=3,
     )
 
-    orch = _get_orchestrator()
+    orch = _ensure_runtime()
 
     def sync_event_stream():
-        """同步生成器：内建 event loop 逐 chunk 从异步生成器拉取。"""
         loop = asyncio.new_event_loop()
         agen = orch.run_stream(task)
         try:

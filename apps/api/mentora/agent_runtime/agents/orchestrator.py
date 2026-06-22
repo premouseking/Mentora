@@ -4,12 +4,10 @@ Orchestrator：Agent 调度器。
 约定：
 - 单 Agent 模式：直接路由到指定 Agent 执行
 - Pipeline 模式：按 PipelineStep 顺序串联执行
-- 所有 Agent 运行通过 RunManager 持久化
 - run_stream() 为异步生成器，逐 chunk 产出 SSE 事件字符串
 
 约束：
 - 不在此处实现业务逻辑
-- Pipeline 模式基础数据结构在 Phase 1 定义，完整实现在 Phase 2
 
 @module mentora/agent_runtime/agents/orchestrator
 """
@@ -58,8 +56,11 @@ class Orchestrator:
         try:
             if task.mode == "pipeline" and task.pipeline_steps:
                 outputs = await self._run_pipeline(task)
+                has_error = any(o.finish_reason == "error" for o in outputs)
+                status = "failed" if has_error else "completed"
             else:
                 outputs = await self._run_single(task)
+                status = "completed"
 
             final = outputs[-1] if outputs else None
             duration = (time.perf_counter() - t0) * 1000
@@ -68,15 +69,16 @@ class Orchestrator:
             result = OrchestratorResult(
                 task_id=task.id,
                 mode=task.mode,
-                status="completed",
+                status=status,
                 agent_outputs=outputs,
                 final_output=final,
                 total_duration_ms=duration,
                 total_tool_calls=total_calls,
             )
-            self._emitter.agent_run_completed(
-                task.id, task.agent_role, {"finish_reason": final.finish_reason if final else "unknown"}
-            )
+            if status == "completed":
+                self._emitter.agent_run_completed(
+                    task.id, task.agent_role, {"finish_reason": final.finish_reason if final else "unknown"}
+                )
             return result
 
         except Exception as e:
@@ -118,17 +120,38 @@ class Orchestrator:
             max_tool_rounds=task.max_tool_rounds,
         )
 
-        chunk_queue: asyncio.Queue[str | None] = asyncio.Queue()
+        event_queue: asyncio.Queue[dict | None] = asyncio.Queue()
         error_occurred: list[str] = []
 
         def emitter_callback(event_type: str, payload: dict) -> None:
             if event_type == "agent.response_stream":
                 text = payload.get("text_chunk", "")
-                is_final = payload.get("is_final", False)
-                if is_final:
-                    chunk_queue.put_nowait(None)  # sentinel
-                elif text:
-                    chunk_queue.put_nowait(text)
+                if text:
+                    event_queue.put_nowait({"type": "chunk", "content": text})
+            elif event_type == "agent.tool.call":
+                event_queue.put_nowait({
+                    "type": "status",
+                    "event": event_type,
+                    "tool_name": payload.get("tool_name", ""),
+                    "message": "正在检索资料",
+                    "arguments": payload.get("arguments", {}),
+                })
+            elif event_type == "agent.tool.result":
+                event_queue.put_nowait({
+                    "type": "status",
+                    "event": event_type,
+                    "tool_name": payload.get("tool_name", ""),
+                    "success": payload.get("success", False),
+                    "message": "资料检索完成" if payload.get("success") else "资料检索失败",
+                    "preview": payload.get("preview", ""),
+                })
+                citations = payload.get("citations") or []
+                if citations:
+                    event_queue.put_nowait({
+                        "type": "citations",
+                        "tool_name": payload.get("tool_name", ""),
+                        "citations": citations,
+                    })
             elif event_type == "agent.run.error":
                 error_occurred.append(payload.get("error_message", "未知错误"))
 
@@ -138,22 +161,21 @@ class Orchestrator:
             try:
                 await agent.run_stream(agent_input, emitter=emitter)
             except Exception as exc:
-                chunk_queue.put_nowait(f"__ERROR__:{exc}")
+                event_queue.put_nowait({"type": "error", "message": str(exc)})
             finally:
-                chunk_queue.put_nowait(None)  # ensure sentinel
+                event_queue.put_nowait(None)  # ensure sentinel
 
         agent_task = asyncio.create_task(run_agent())
 
         try:
             while True:
-                chunk = await chunk_queue.get()
-                if chunk is None:
+                event = await event_queue.get()
+                if event is None:
                     break
-                if isinstance(chunk, str) and chunk.startswith("__ERROR__:"):
-                    err_msg = chunk[len("__ERROR__:"):]
-                    yield f"data: {json.dumps({'type': 'error', 'message': err_msg}, ensure_ascii=False)}\n\n"
+                if event.get("type") == "error":
+                    yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
                     break
-                yield f"data: {json.dumps({'type': 'chunk', 'content': chunk}, ensure_ascii=False)}\n\n"
+                yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
 
             await agent_task
             if error_occurred:
@@ -276,5 +298,6 @@ class Orchestrator:
                 {"course_name": "当前课程", "source_titles": "，".join(task.context_sources) or "未指定"},
             )
         except KeyError:
-            # 模板未找到时返回基础提示词
-            return f"你是一个 {agent.role} 角色。请帮助用户完成以下任务。"
+            raise KeyError(
+                f"Prompt template not found for agent '{agent.system_prompt_ref}'"
+            ) from None

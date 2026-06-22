@@ -15,6 +15,7 @@ import pytest
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings")
 
 import asyncio
+import json
 from unittest.mock import MagicMock
 
 import django
@@ -31,6 +32,7 @@ from mentora.agent_runtime.schemas.context import AgentContext
 from mentora.agent_runtime.schemas.output import AgentOutput
 from mentora.agent_runtime.schemas.task import BudgetConfig, OrchestratorTask
 from mentora.agent_runtime.tools.base import Tool, ToolDefinition, ToolResult
+from mentora.agent_runtime.tools.knowledge_tools import RetrieveEvidenceTool
 from mentora.agent_runtime.tools.registry import ToolRegistry
 from mentora.model_gateway.gateway import ModelGateway
 from mentora.model_gateway.providers.fake import FakeProvider
@@ -133,7 +135,11 @@ def _build_orchestrator(
     """构建完整的 Orchestrator 实例。"""
     emitter, _ = emitter_events
     router = TaskRouter(default_provider=fake_provider)
-    gateway = ModelGateway(router=router, output_validator=StructuredOutputValidator())
+    gateway = ModelGateway(
+        router=router,
+        output_validator=StructuredOutputValidator(),
+        audit_enabled=False,
+    )
 
     tutor = TutorAgent(
         prompt_manager=prompt_manager,
@@ -147,6 +153,19 @@ def _build_orchestrator(
         context_manager=context_manager,
         emitter=emitter,
     )
+
+
+def _parse_sse_events(chunks: list[str]) -> list[dict]:
+    events = []
+    for chunk in chunks:
+        for line in chunk.splitlines():
+            if line.startswith("data: "):
+                events.append(json.loads(line[6:]))
+    return events
+
+
+async def _collect_async(agen) -> list:
+    return [item async for item in agen]
 
 
 # ── Test: 无工具调用（纯文本回复） ─────────────────
@@ -595,6 +614,73 @@ def test_tutor_run_stream_with_tool_call(prompt_manager, context_manager, tool_r
     assert output.tool_calls_made[0].tool_name == "retrieve_evidence"
 
 
+def test_orchestrator_stream_projects_tool_status_and_citations(
+    prompt_manager,
+    context_manager,
+    tool_registry,
+    emitter,
+):
+    fake = FakeProvider(
+        tool_call_scenarios=[
+            [_build_tool_call("call_1", "retrieve_evidence", '{"query": "photosynthesis"}')],
+        ],
+        text_responses=["Based on the source, photosynthesis converts light."],
+    )
+    orch = _build_orchestrator(fake, prompt_manager, context_manager, tool_registry, emitter)
+    task = OrchestratorTask(
+        id="stream-events",
+        agent_role="tutor",
+        user_message="Explain photosynthesis",
+    )
+
+    chunks = asyncio.run(_collect_async(orch.run_stream(task)))
+    events = _parse_sse_events(chunks)
+
+    assert events[0]["type"] == "status", events
+    assert events[0]["event"] == "agent.tool.call"
+    assert events[0]["tool_name"] == "retrieve_evidence"
+    assert events[0]["message"] == "正在检索资料"
+    citation_event = next(e for e in events if e["type"] == "citations")
+    assert citation_event["tool_name"] == "retrieve_evidence"
+    assert citation_event["citations"] == [
+        {
+            "content_preview": "Mock evidence for: photosynthesis",
+            "page_number": 1,
+        }
+    ]
+    assert any(e["type"] == "chunk" for e in events)
+    assert events[-1]["type"] == "done"
+
+
+@pytest.mark.asyncio
+async def test_retrieve_evidence_awaits_async_search(monkeypatch):
+    calls = []
+
+    class FakeEvidence:
+        def to_dict(self):
+            return {"content": "Async evidence", "page": 3}
+
+    class FakeResultSet:
+        total_candidates = 1
+        elapsed_ms = 12.5
+        results = [FakeEvidence()]
+
+    async def fake_async_search(*, query, top_k):
+        calls.append({"query": query, "top_k": top_k})
+        return FakeResultSet()
+
+    monkeypatch.setattr("mentora.retrieval.search.async_search", fake_async_search)
+
+    result = await RetrieveEvidenceTool().execute(
+        {"query": "mitosis", "top_k": 2},
+        ctx=object(),
+    )
+
+    assert result.success is True
+    assert calls == [{"query": "mitosis", "top_k": 2}]
+    assert result.result["results"] == [{"content": "Async evidence", "page": 3}]
+
+
 # ── Test: PlannerAgent ────────────────────────────────
 
 @pytest.mark.django_db
@@ -912,3 +998,32 @@ async def test_gateway_chat_stream():
     assert len(chunks) >= 1
     content = "".join(c.content or "" for c in chunks)
     assert "流式网关测试" in content
+
+
+# ── Test: runtime 工厂 ──
+
+
+def test_runtime_factory_registers_retrieve_evidence():
+    """runtime 工厂应注册 retrieve_evidence 工具。"""
+    from mentora.agent_runtime.runtime import build_tool_registry
+
+    registry = build_tool_registry()
+    tools = registry.get_for_agent("tutor")
+    assert len(tools) == 1
+    assert tools[0].name == "retrieve_evidence"
+
+
+@pytest.mark.django_db
+def test_runtime_build_orchestrator_with_fake():
+    from mentora.agent_runtime.runtime import build_orchestrator
+
+    orch, gateway, pm = build_orchestrator(
+        provider=FakeProvider(text_responses=["ok"]),
+        audit_enabled=False,
+    )
+    assert orch is not None
+    assert gateway is not None
+    assert pm is not None
+    assert "tutor" in orch._agents
+    assert "clarifier" in orch._agents
+    assert "planner" in orch._agents
