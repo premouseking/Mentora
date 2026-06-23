@@ -383,6 +383,46 @@ def _search_vector(
         return {}
 
 
+def _search_sentence(
+    query: str,
+    source_version_ids: list[str] | None = None,
+    top_k: int = 10,
+) -> list[dict]:
+    """
+    句子级语义检索。
+
+    生成 query embedding → 搜 SentenceProjection → 返回 {content, score, page, ...}。
+    供 agent 精确引用时调用，不参与 RRF 融合。
+    """
+    try:
+        from django.conf import settings
+
+        from mentora.retrieval.embedding_provider import get_provider
+        from mentora.retrieval.repository import search_sentences_by_vector
+
+        if not getattr(settings, "EMBEDDING_DOUBAO_API_KEY", ""):
+            return []
+
+        provider = get_provider()
+        query_embedding = provider.embed([query])[0]
+
+        sentences = list(
+            search_sentences_by_vector(query_embedding, source_version_ids, top_k)
+        )
+        return [
+            {
+                "sentence_id": str(s.id),
+                "content": s.content,
+                "evidence_unit_id": str(s.evidence_unit_id),
+                "position_index": s.position_index,
+                "score": round(1.0 / (1.0 + float(s.distance)), 4),
+            }
+            for s in sentences
+        ]
+    except Exception:
+        return []
+
+
 def _grep_search(
     query: str,
     top_k: int,

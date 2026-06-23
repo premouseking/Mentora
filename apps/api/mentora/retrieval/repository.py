@@ -155,6 +155,39 @@ def get_sentences_by_evidence_ids(
     ).order_by("evidence_unit_id", "position_index")
 
 
+def search_sentences_by_vector(
+    query_embedding: list[float],
+    source_version_ids: list[str] | None = None,
+    top_k: int = 30,
+) -> QuerySet[SentenceProjection]:
+    """
+    pgvector 余弦相似度检索句子级投影。
+
+    约束：只搜已有 embedding 的句子；作用域通过 evidence_unit_id 中转过滤。
+    """
+    from django.conf import settings
+    from django.db import connection, transaction
+
+    from mentora.retrieval.models import EvidenceUnit
+
+    probes = getattr(settings, "PGVECTOR_PROBES", 10)
+    qs = SentenceProjection.objects.filter(embedding__isnull=False)
+
+    if source_version_ids:
+        scope_evidence_ids = EvidenceUnit.objects.filter(
+            source_version_id__in=source_version_ids,
+        ).values_list("id", flat=True)
+        qs = qs.filter(evidence_unit_id__in=scope_evidence_ids)
+
+    with transaction.atomic():
+        with connection.cursor() as cursor:
+            cursor.execute("SET LOCAL ivfflat.probes = %s", [probes])
+        return (
+            qs.annotate(distance=CosineDistance("embedding", query_embedding))
+            .order_by("distance")[:top_k]
+        )
+
+
 # ── EvidenceSnapshot ──────────────────────────────────
 
 

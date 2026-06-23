@@ -16,7 +16,7 @@
 from celery import shared_task
 
 from mentora.retrieval.embedding_provider import get_provider
-from mentora.retrieval.models import ChunkProjection
+from mentora.retrieval.models import ChunkProjection, SentenceProjection
 
 
 @shared_task(
@@ -86,5 +86,66 @@ def generate_chunk_embeddings(
     return {
         "processed": processed,
         "skipped": skipped,
+        "errors": errors,
+    }
+
+
+@shared_task(
+    bind=True,
+    max_retries=3,
+    default_retry_delay=30,
+    autoretry_for=(IOError, OSError, RuntimeError),
+)
+def generate_sentence_embeddings(
+    self,
+    source_version_id: str | None = None,
+    batch_size: int = 100,
+) -> dict:
+    """
+    为指定 source_version 下未生成 embedding 的句子批量生成向量。
+
+    Chunk embedding 完成后调用，补齐句子级语义检索能力。
+    """
+    qs = SentenceProjection.objects.filter(embedding__isnull=True)
+    if source_version_id is not None:
+        from mentora.retrieval.models import EvidenceUnit
+
+        scope_evidence_ids = EvidenceUnit.objects.filter(
+            source_version_id=source_version_id,
+        ).values_list("id", flat=True)
+        qs = qs.filter(evidence_unit_id__in=scope_evidence_ids)
+
+    sentence_ids = list(qs.values_list("id", flat=True))
+    if not sentence_ids:
+        return {"processed": 0, "skipped": 0, "errors": 0}
+
+    provider = get_provider()
+    processed = 0
+    errors = 0
+
+    for i in range(0, len(sentence_ids), batch_size):
+        batch_ids = sentence_ids[i:i + batch_size]
+        batch = list(
+            SentenceProjection.objects.filter(id__in=batch_ids)
+            .only("id", "content")
+        )
+        if not batch:
+            continue
+
+        texts = [s.content for s in batch]
+        try:
+            embeddings = provider.embed(texts)
+        except Exception:
+            errors += len(batch)
+            continue
+
+        for sent, embedding in zip(batch, embeddings):
+            sent.embedding = embedding
+        SentenceProjection.objects.bulk_update(batch, ["embedding"])
+        processed += len(batch)
+
+    return {
+        "processed": processed,
+        "skipped": len(sentence_ids) - processed - errors,
         "errors": errors,
     }
