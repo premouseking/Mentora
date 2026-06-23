@@ -243,6 +243,7 @@ def _search_pg(
             score=fused[did],
             fts_score=fts_ranking.get(did, 0.0),
             trgm_score=trgm_ranking.get(did, 0.0),
+            vector_score=vector_ranking.get(did, 0.0),
         ))
 
     return SearchResultSet(
