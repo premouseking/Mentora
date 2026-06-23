@@ -235,3 +235,39 @@ class SentenceProjection(models.Model):
     def __str__(self) -> str:
         preview = self.content[:60]
         return f"Sentence({self.evidence_unit_id})[{self.position_index}] {preview}"
+
+
+class EvidenceSnapshot(models.Model):
+    """
+    不可变证据快照，冻结一次模型调用引用的 EvidenceUnit 集合。
+
+    约定：
+    - 在每次 agent_runtime 模型调用前创建，记录当时引用的 evidence ID 列表
+    - 历史回答通过 snapshot_id → get_evidence_by_ids() 回溯到当时的原文
+    - 资料重解析后旧 EvidenceUnit 可能被替换，snapshot 确保引用可追溯
+
+    参考：LightRead TaskSnapshotModel 的不可变快照模式
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    evidence_ids = models.JSONField(
+        default=list,
+        help_text="冻结的证据 ID 列表（有序）。",
+    )
+    scope_revision_id = models.CharField(
+        max_length=128,
+        db_index=True,
+        help_text="课程知识作用域修订 ID，关联 CourseProfileRevision。",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "retrieval_evidence_snapshot"
+        verbose_name = "证据快照"
+        verbose_name_plural = verbose_name
+        indexes = [
+            models.Index(fields=["scope_revision_id", "-created_at"]),
+        ]
+
+    def __str__(self) -> str:
+        return f"EvidenceSnapshot({self.id}) [{len(self.evidence_ids)} ids]"

@@ -153,3 +153,26 @@ def get_sentences_by_evidence_ids(
     return SentenceProjection.objects.filter(
         evidence_unit_id__in=evidence_unit_ids,
     ).order_by("evidence_unit_id", "position_index")
+
+
+# ── EvidenceSnapshot ──────────────────────────────────
+
+
+def create_snapshot(
+    evidence_ids: list[str],
+    scope_revision_id: str,
+) -> "EvidenceSnapshot":
+    """创建证据快照，冻结模型调用引用的 EvidenceUnit 集合。"""
+    from mentora.retrieval.models import EvidenceSnapshot
+
+    return EvidenceSnapshot.objects.create(
+        evidence_ids=evidence_ids,
+        scope_revision_id=scope_revision_id,
+    )
+
+
+def get_snapshot_by_id(snapshot_id: str) -> "EvidenceSnapshot | None":
+    """按 ID 获取快照。"""
+    from mentora.retrieval.models import EvidenceSnapshot
+
+    return EvidenceSnapshot.objects.filter(id=snapshot_id).first()
