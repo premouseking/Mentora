@@ -321,14 +321,18 @@ def _search_vector(
 
     生成 query embedding → 搜 ChunkProjection → 映射回 EvidenceUnit ID。
     provider 不可用或无 API key 时返回空 dict（优雅降级）。
+
+    若 Chunk 已建但 embedding 缺失（新资料刚解析完），同步补齐首
+    批 embedding 后重搜，确保新资料即时可被语义检索。
     """
     try:
         from django.conf import settings
 
         from mentora.retrieval.embedding_provider import get_provider
+        from mentora.retrieval.models import ChunkProjection
         from mentora.retrieval.repository import search_chunks_by_vector
 
-        # 无 API key 时快速降级，避免 API 超时等待
+        # 无 API key 时快速降级
         if not getattr(settings, "EMBEDDING_DOUBAO_API_KEY", ""):
             return {}
 
@@ -336,13 +340,39 @@ def _search_vector(
         query_embedding = provider.embed([query])[0]
         sv_ids = source_version_ids or []
 
-        chunks = search_chunks_by_vector(query_embedding, sv_ids, top_k=30)
+        chunks = list(search_chunks_by_vector(query_embedding, sv_ids, top_k=30))
+        if chunks:
+            ranking: dict[str, float] = {}
+            for chunk in chunks:
+                score = 1.0 / (1.0 + float(chunk.distance))
+                for eid in chunk.evidence_ids:
+                    eid_str = str(eid)
+                    if eid_str not in ranking or score > ranking[eid_str]:
+                        ranking[eid_str] = score
+            return ranking
+
+        # 无 embedding → 检查是否有 Chunk 但未生成 embedding
+        missing_qs = ChunkProjection.objects.filter(embedding__isnull=True)
+        if sv_ids:
+            missing_qs = missing_qs.filter(source_version_id__in=sv_ids)
+        missing = list(missing_qs[:20])  # 同步补齐首批，避免长时间阻塞
+        if not missing:
+            return {}
+
+        # 同步生成 embedding
+        texts = [c.content for c in missing]
+        embeddings = provider.embed(texts)
+        for chunk, emb in zip(missing, embeddings):
+            chunk.embedding = emb
+        ChunkProjection.objects.bulk_update(missing, ["embedding"])
+
+        # 重搜
+        chunks = list(search_chunks_by_vector(query_embedding, sv_ids, top_k=30))
         if not chunks:
             return {}
 
         ranking: dict[str, float] = {}
         for chunk in chunks:
-            # CosineDistance 越小越相似，转为分数（越大越好）
             score = 1.0 / (1.0 + float(chunk.distance))
             for eid in chunk.evidence_ids:
                 eid_str = str(eid)
@@ -350,7 +380,6 @@ def _search_vector(
                     ranking[eid_str] = score
         return ranking
     except Exception:
-        # API key 未配置 / 网络不可用 / 无 embedding 数据 → 降级
         return {}
 
 
