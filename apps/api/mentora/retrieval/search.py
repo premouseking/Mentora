@@ -398,6 +398,7 @@ def _search_sentence(
         from django.conf import settings
 
         from mentora.retrieval.embedding_provider import get_provider
+        from mentora.retrieval.models import EvidenceUnit, SentenceProjection
         from mentora.retrieval.repository import search_sentences_by_vector
 
         if not getattr(settings, "EMBEDDING_DOUBAO_API_KEY", ""):
@@ -405,6 +406,38 @@ def _search_sentence(
 
         provider = get_provider()
         query_embedding = provider.embed([query])[0]
+
+        sentences = list(
+            search_sentences_by_vector(query_embedding, source_version_ids, top_k)
+        )
+        if sentences:
+            return [
+                {
+                    "sentence_id": str(s.id),
+                    "content": s.content,
+                    "evidence_unit_id": str(s.evidence_unit_id),
+                    "position_index": s.position_index,
+                    "score": round(1.0 / (1.0 + float(s.distance)), 4),
+                }
+                for s in sentences
+            ]
+
+        # 无 embedding → 补齐再搜
+        missing_qs = SentenceProjection.objects.filter(embedding__isnull=True)
+        if source_version_ids:
+            scope_eids = EvidenceUnit.objects.filter(
+                source_version_id__in=source_version_ids,
+            ).values_list("id", flat=True)
+            missing_qs = missing_qs.filter(evidence_unit_id__in=scope_eids)
+        missing = list(missing_qs[:20])
+        if not missing:
+            return []
+
+        texts = [s.content for s in missing]
+        embeddings = provider.embed(texts)
+        for sent, emb in zip(missing, embeddings):
+            sent.embedding = emb
+        SentenceProjection.objects.bulk_update(missing, ["embedding"])
 
         sentences = list(
             search_sentences_by_vector(query_embedding, source_version_ids, top_k)
