@@ -230,6 +230,12 @@ class SentenceProjection(models.Model):
         verbose_name_plural = verbose_name
         indexes = [
             models.Index(fields=["evidence_unit_id"]),
+            IvfflatIndex(
+                name="sentence_embedding_ivfflat_idx",
+                fields=["embedding"],
+                lists=50,
+                opclasses=["vector_cosine_ops"],
+            ),
         ]
 
     def __str__(self) -> str:
