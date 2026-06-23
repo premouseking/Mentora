@@ -111,6 +111,8 @@ def _rrf(
 def search(
     query: str,
     top_k: int = 10,
+    *,
+    mode: str = "fts",
     fts_weight: float = 0.5,
     trgm_weight: float = 0.2,
     vector_weight: float = 0.3,
@@ -119,10 +121,13 @@ def search(
     """
     混合检索入口。优先 PG 原生检索，DB 不可用时回退内存版。
 
-    vector_weight=0 时跳过向量路（适用于未配置 API key 的场景）。
+    mode="fts"（默认）：FTS + Trgm + Vector RRF 三路融合
+    mode="grep"：PostgreSQL regex 精确匹配（数字/公式/符号）
     """
     try:
         connection.ensure_connection()
+        if mode == "grep":
+            return _grep_search(query, top_k, source_version_ids)
         return _search_pg(
             query, top_k, fts_weight, trgm_weight, vector_weight, source_version_ids,
         )
@@ -347,6 +352,62 @@ def _search_vector(
     except Exception:
         # API key 未配置 / 网络不可用 / 无 embedding 数据 → 降级
         return {}
+
+
+def _grep_search(
+    query: str,
+    top_k: int,
+    source_version_ids: list[str] | None = None,
+) -> SearchResultSet:
+    """
+    PostgreSQL regex 精确搜索，用于数字/公式/符号等 FTS 无法处理的关键词。
+
+    `~` 运算符直接匹配原始文本，不做分词。用 similarity() 排序。
+    """
+    t0 = time.perf_counter()
+
+    if not query.strip():
+        return SearchResultSet(query=query, elapsed_ms=(time.perf_counter() - t0) * 1000)
+
+    sv_filter = ""
+    sv_params: list = []
+    if source_version_ids:
+        sv_filter = "AND source_version_id = ANY(%s)"
+        sv_params = [source_version_ids]
+
+    with connection.cursor() as cursor:
+        cursor.execute(f"SELECT count(*) FROM retrieval_evidence_unit WHERE 1=1 {sv_filter}", sv_params)
+        total = cursor.fetchone()[0]
+
+    with connection.cursor() as cursor:
+        cursor.execute(
+            f"""
+            SELECT id, content, page_number, similarity(content, %s) AS sim
+            FROM retrieval_evidence_unit
+            WHERE content ~ %s
+            {sv_filter}
+            ORDER BY sim DESC
+            LIMIT %s
+            """,
+            [query, query] + sv_params + [top_k],
+        )
+        results: list[SearchResult] = []
+        for row in cursor.fetchall():
+            results.append(SearchResult(
+                evidence=type("_PgEvidence", (), {
+                    "id": str(row[0]),
+                    "content": row[1],
+                    "page_number": row[2],
+                })(),
+                score=float(row[3]),
+            ))
+
+    return SearchResultSet(
+        query=query,
+        results=results,
+        total_candidates=total,
+        elapsed_ms=(time.perf_counter() - t0) * 1000,
+    )
 
 
 # ── in-memory fallback ────────────────────────────────

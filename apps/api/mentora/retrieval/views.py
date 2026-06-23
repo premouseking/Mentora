@@ -38,7 +38,13 @@ def search_view(request):
     sv_param = request.GET.get("source_version_ids", "")
     source_version_ids = [s.strip() for s in sv_param.split(",") if s.strip()] or None
 
-    result_set = search(query, top_k=top_k, source_version_ids=source_version_ids)
+    mode = request.GET.get("mode", "fts")
+
+    result_set = search(
+        query, top_k=top_k,
+        mode=mode,
+        source_version_ids=source_version_ids,
+    )
 
     return JsonResponse(result_set.to_dict())
 
