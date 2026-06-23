@@ -138,6 +138,19 @@ PGVECTOR_IVFFLAT_LISTS = 100
 # 向量搜索的探测数（查询时使用，越大召回越准但越慢）
 PGVECTOR_PROBES = 10
 
+# ── Embedding Provider ────────────────────────────────────
+
+# 当前使用：doubao（豆包 Embedding，火山引擎）
+EMBEDDING_PROVIDER = os.getenv("EMBEDDING_PROVIDER", "doubao")
+EMBEDDING_DOUBAO_API_KEY = os.getenv("VOLCANO_ENGINE_API_KEY", "")
+EMBEDDING_DOUBAO_MODEL = os.getenv("EMBEDDING_DOUBAO_MODEL", "doubao-embedding")
+# MRL 降维：2048 → 1024，平衡性能与存储
+EMBEDDING_DOUBAO_DIMENSIONS = int(os.getenv("EMBEDDING_DOUBAO_DIMENSIONS", "1024"))
+EMBEDDING_DOUBAO_BASE_URL = os.getenv(
+    "EMBEDDING_DOUBAO_BASE_URL",
+    "https://ark.cn-beijing.volces.com/api/v3",
+)
+
 # ── LLM 配置（通过环境变量注入，参考 .env.example）─────
 
 LLM_API_KEY = os.getenv("LLM_API_KEY", "")
