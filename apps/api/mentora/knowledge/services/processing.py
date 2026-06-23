@@ -158,8 +158,9 @@ def _execute_processing(
         for chunk in build_chunks(units):
             chunk.save()
 
-        from mentora.retrieval.tasks import generate_chunk_embeddings
+        from mentora.retrieval.tasks import generate_chunk_embeddings, generate_sentence_embeddings
         generate_chunk_embeddings.delay(str(source_version.id))
+        generate_sentence_embeddings.delay(str(source_version.id))
 
         source_version.processing_status = ProcessingStatus.COMPLETED
         source_version.artifact_ref = artifact_key
