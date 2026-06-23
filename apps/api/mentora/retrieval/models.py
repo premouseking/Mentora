@@ -277,3 +277,37 @@ class EvidenceSnapshot(models.Model):
 
     def __str__(self) -> str:
         return f"EvidenceSnapshot({self.id}) [{len(self.evidence_ids)} ids]"
+
+
+class BenchmarkResult(models.Model):
+    """
+    检索基准运行结果持久化，用于追踪回归。
+
+    约定：
+    - 每次 benchmark run() 完成后写入一条记录
+    - summary 存汇总指标，details 存逐查询明细
+    - 按 name 分组可对比不同 benchmark 类型的历史趋势
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    name = models.CharField(
+        max_length=64,
+        db_index=True,
+        help_text="Benchmark 名称：runner / vector / compare",
+    )
+    corpus_size = models.IntegerField()
+    summary = models.JSONField(help_text="汇总指标：avg_p_at_5, avg_p_at_10, avg_recall 等")
+    details = models.JSONField(help_text="逐查询明细列表")
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        db_table = "retrieval_benchmark_result"
+        verbose_name = "基准结果"
+        verbose_name_plural = verbose_name
+        ordering = ["-created_at"]
+
+    def __str__(self) -> str:
+        return (
+            f"Benchmark({self.name}) P@5={self.summary.get('avg_p_at_5', '-')} "
+            f"P@10={self.summary.get('avg_p_at_10', '-')}"
+        )
