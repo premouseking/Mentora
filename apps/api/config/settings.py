@@ -151,6 +151,12 @@ EMBEDDING_DOUBAO_BASE_URL = os.getenv(
     "https://ark.cn-beijing.volces.com/api/v3",
 )
 
+# ── Reranker ─────────────────────────────────────────────
+
+# Qwen3-Reranker-4B via SiliconFlow
+RERANKER_API_KEY = os.getenv("SILICONFLOW_API_KEY", "")
+RERANKER_MODEL = os.getenv("RERANKER_MODEL", "Qwen/Qwen3-Reranker-4B")
+
 # ── LLM 配置（通过环境变量注入，参考 .env.example）─────
 
 LLM_API_KEY = os.getenv("LLM_API_KEY", "")

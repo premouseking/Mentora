@@ -217,6 +217,48 @@ def _search_pg(
         weights.append(vector_weight)
     fused = _rrf(rankings, weights=weights)
 
+    # 按 RRF 分数排序，取候选
+    sorted_ids = sorted(fused.keys(), key=lambda did: fused[did], reverse=True)
+
+    # ── Reranker ────────────────────────────────
+    from mentora.retrieval.reranker import get_reranker
+
+    reranker = get_reranker()
+    if reranker is not None and len(sorted_ids) > top_k:
+        rerank_count = min(len(sorted_ids), top_k * 3)
+        candidate_ids = sorted_ids[:rerank_count]
+        # 获取候选原文
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT id, content, page_number
+                FROM retrieval_evidence_unit
+                WHERE id::text = ANY(%s)
+                """,
+                [candidate_ids],
+            )
+            candidate_map = {
+                str(r[0]): _make_evidence(str(r[0]), r[1], r[2])
+                for r in cursor.fetchall()
+            }
+        candidate_docs = [
+            candidate_map[did].content
+            for did in candidate_ids
+            if did in candidate_map
+        ]
+        try:
+            reranked = reranker.rerank(query, candidate_docs, top_k)
+            sorted_ids = [
+                candidate_ids[item["index"]]
+                for item in reranked
+                if item["index"] < len(candidate_ids)
+            ][:top_k]
+        except Exception:
+            # reranker 不可用时降级为 RRF 原始排序
+            sorted_ids = sorted_ids[:top_k]
+    else:
+        sorted_ids = sorted_ids[:top_k]
+
     # 拿到数据对象
     from dataclasses import dataclass as _dc
 
@@ -226,9 +268,11 @@ def _search_pg(
         content: str = ""
         page_number: int = 0
 
+    def _make_evidence(eid: str, content: str = "", page: int = 0) -> _PgEvidence:
+        return _PgEvidence(id=eid, content=content, page_number=page)
+
     id_to_unit: dict[str, _PgEvidence] = {}
-    if fused:
-        ids = list(fused.keys())[:top_k]
+    if sorted_ids:
         with connection.cursor() as cursor:
             cursor.execute(
                 """
@@ -236,14 +280,11 @@ def _search_pg(
                 FROM retrieval_evidence_unit
                 WHERE id::text = ANY(%s)
                 """,
-                [ids],
+                [sorted_ids],
             )
             for row in cursor.fetchall():
                 unit = _PgEvidence(id=str(row[0]), content=row[1], page_number=row[2])
                 id_to_unit[str(unit.id)] = unit
-
-    # 排序 + top_k
-    sorted_ids = sorted(fused.keys(), key=lambda did: fused[did], reverse=True)[:top_k]
 
     results: list[SearchResult] = []
     for did in sorted_ids:
