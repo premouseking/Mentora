@@ -1,0 +1,110 @@
+"""知识库 HTTP 视图。"""
+
+import json
+import uuid
+
+from django.http import JsonResponse
+from django.views.decorators.csrf import csrf_exempt
+from django.views.decorators.http import require_http_methods
+
+from mentora.knowledge.models import Source
+from mentora.knowledge.services.upload import (
+    DEV_OWNER_ID,
+    complete_upload,
+    create_upload_session,
+)
+
+
+def _parse_json_body(request) -> dict:
+    if not request.body:
+        return {}
+    return json.loads(request.body.decode("utf-8"))
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def upload_create(request):
+    """
+    POST /api/uploads/
+
+    创建上传会话，返回预签名 PUT URL。客户端应携带 uploadId 以便 complete 关联。
+    """
+    try:
+        body = _parse_json_body(request)
+    except json.JSONDecodeError:
+        return JsonResponse({"error": "无效 JSON"}, status=400)
+
+    upload_id = body.get("uploadId")
+    if upload_id is not None:
+        try:
+            uuid.UUID(str(upload_id))
+        except ValueError:
+            return JsonResponse({"error": "uploadId 格式无效"}, status=400)
+
+    result = create_upload_session(
+        owner_id=body.get("ownerId", DEV_OWNER_ID),
+        upload_id=str(upload_id) if upload_id else None,
+        byte_size=body.get("size"),
+        filename=body.get("filename", "original.pdf"),
+        media_type=body.get("mediaType", "application/pdf"),
+    )
+    return JsonResponse(result)
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def upload_complete(request):
+    """
+    POST /api/uploads/complete/
+
+    校验上传完成，创建 SourceVersion 并触发解析。
+    """
+    try:
+        body = _parse_json_body(request)
+    except json.JSONDecodeError:
+        return JsonResponse({"error": "无效 JSON"}, status=400)
+
+    upload_id = body.get("uploadId")
+    sha256 = body.get("sha256")
+    size = body.get("size")
+
+    if not upload_id or not sha256 or size is None:
+        return JsonResponse({"error": "缺少 uploadId、sha256 或 size"}, status=400)
+
+    try:
+        result = complete_upload(
+            upload_id=str(upload_id),
+            content_sha256=str(sha256),
+            byte_size=int(size),
+            owner_id=body.get("ownerId", DEV_OWNER_ID),
+            sync_processing=body.get("sync", True),
+        )
+    except ValueError as exc:
+        return JsonResponse({"error": str(exc)}, status=400)
+
+    return JsonResponse(result)
+
+
+@require_http_methods(["GET"])
+def list_sources(request):
+    """GET /api/library/sources/ — 列出开发用户资源库资料。"""
+    owner_id = request.GET.get("ownerId", DEV_OWNER_ID)
+    sources = Source.objects.filter(owner_id=owner_id).select_related("latest_version")
+    items = []
+    for source in sources.order_by("-created_at"):
+        latest = source.latest_version
+        items.append(
+            {
+                "id": str(source.id),
+                "displayTitle": source.display_title,
+                "status": source.status,
+                "latestVersion": None if latest is None else {
+                    "id": str(latest.id),
+                    "versionNumber": latest.version_number,
+                    "processingStatus": latest.processing_status,
+                    "byteSize": latest.byte_size,
+                    "originalFilename": latest.original_filename,
+                },
+            }
+        )
+    return JsonResponse({"items": items, "count": len(items)})

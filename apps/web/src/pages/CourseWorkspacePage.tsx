@@ -1,7 +1,9 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   BrainCircuit,
   BookOpen,
+  ChevronDown,
+  ChevronRight,
   Lightbulb,
   MoveLeft,
   PenLine,
@@ -73,45 +75,70 @@ function DetachedSidePanel({
   onOpenPanel: (section: SectionKey) => void;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
+  // null = flex mode; number[] = fraction per section (always sums to 1)
   const [heights, setHeights] = useState<number[] | null>(null);
-  const initialHeightsRef = useRef<number[] | null>(null);
   const dragIdx = useRef<number | null>(null);
-  const onMoveRef = useRef<((e: MouseEvent) => void) | null>(null);
+  const dragStartY = useRef(0);
+  const dragStartRatios = useRef<number[]>([]);
+  const dragAreaHeight = useRef(0);
 
+  /* ── Collapse / expand ── */
+  const [collapsedSections, setCollapsedSections] = useState<Set<SectionKey>>(new Set());
+
+  const toggleCollapse = useCallback((key: SectionKey) => {
+    setCollapsedSections((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }, []);
+
+  // Sort: expanded first (original order), collapsed last (original order)
+  const sortedSections = sections
+    .map((s, i) => ({ section: s, originalIndex: i }))
+    .sort((a, b) => {
+      const aCollapsed = collapsedSections.has(a.section);
+      const bCollapsed = collapsedSections.has(b.section);
+      if (aCollapsed === bCollapsed) return a.originalIndex - b.originalIndex;
+      return aCollapsed ? 1 : -1;
+    })
+    .map(({ section }) => section);
+
+  const expandedSections = sortedSections.filter((s) => !collapsedSections.has(s));
+  const collapsedList = sortedSections.filter((s) => collapsedSections.has(s));
+
+  // Reset heights when sections or collapse change
   useEffect(() => {
     setHeights(null);
-    initialHeightsRef.current = null;
-  }, [sections.length]);
+    dragStartRatios.current = [];
+    dragAreaHeight.current = 0;
+  }, [sections.length, collapsedSections.size]);
 
+  /* ── Resize between expanded sections ── */
   const onMoveHandler = useCallback((e: MouseEvent) => {
-    if (dragIdx.current === null || !containerRef.current) return;
+    if (dragIdx.current === null || dragAreaHeight.current <= 0) return;
     e.preventDefault();
     const idx = dragIdx.current;
-    const rect = containerRef.current.getBoundingClientRect();
-    const count = sections.length;
-    const handleH = 6;
-    const totalH = rect.height - (count - 1) * handleH;
-    const y = e.clientY - rect.top;
-
-    const base = initialHeightsRef.current ?? sections.map(() => Math.floor(totalH / count));
+    const base = dragStartRatios.current;
+    const dy = (e.clientY - dragStartY.current) / dragAreaHeight.current;
+    const minRatio = 80 / dragAreaHeight.current;
     const next = [...base];
-    let acc = 0;
-    for (let i = 0; i < count; i++) {
-      if (i === idx) {
-        const rawH = y - acc;
-        next[i] = Math.max(80, Math.min(totalH - (count - 1) * 80, rawH));
-      }
-      acc += next[i];
-      if (i < count - 1) acc += handleH;
+    // Only adjust the two adjacent sections — they cancel each other out
+    const newAbove = base[idx] + dy;
+    const newBelow = base[idx + 1] - dy;
+    if (newAbove < minRatio) {
+      next[idx] = minRatio;
+      next[idx + 1] = base[idx] + base[idx + 1] - minRatio;
+    } else if (newBelow < minRatio) {
+      next[idx] = base[idx] + base[idx + 1] - minRatio;
+      next[idx + 1] = minRatio;
+    } else {
+      next[idx] = newAbove;
+      next[idx + 1] = newBelow;
     }
-    const sumOthers = next.slice(0, -1).reduce((a, b) => a + b, 0) + (count - 1) * handleH;
-    next[count - 1] = Math.max(80, totalH - sumOthers + (count - 1) * handleH);
-
     setHeights(next);
-    initialHeightsRef.current = next;
-  }, [sections.length]);
-
-  onMoveRef.current = onMoveHandler;
+  }, []);
 
   const onUpHandler = useCallback(() => {
     dragIdx.current = null;
@@ -120,6 +147,13 @@ function DetachedSidePanel({
     document.removeEventListener("mousemove", onMoveHandler);
     document.removeEventListener("mouseup", onUpHandler);
   }, [onMoveHandler]);
+
+  /* ── Section icon helper ── */
+  function sectionIcon(section: SectionKey) {
+    if (section === "ai") return <BrainCircuit size={14} />;
+    if (section === "mistakes") return <XCircle size={14} />;
+    return <span>{SECTION_ICONS[section]}</span>;
+  }
 
   const renderSectionContent = (section: SectionKey) => {
     switch (section) {
@@ -173,49 +207,84 @@ function DetachedSidePanel({
     <>
       <div className="resize-handle cw-resize" onMouseDown={onResizeStart} role="separator" aria-orientation="vertical" tabIndex={-1} />
       <aside className="detached-side-panel" ref={containerRef} style={{ width, flexShrink: 0 }}>
-        {sections.map((section, i) => (
-            <div key={section}>
-              {i > 0 && (
-                <div
-                  className="fe-resize-handle"
-                  onMouseDown={() => {
-                    if (containerRef.current) {
-                      const els = containerRef.current.querySelectorAll<HTMLElement>(".fe-section");
-                      const ch = Array.from(els).map((el) => el.getBoundingClientRect().height);
-                      if (ch.length === sections.length) {
-                        initialHeightsRef.current = ch;
-                        setHeights(ch);
-                      }
-                    }
-                    dragIdx.current = i - 1;
-                    document.body.style.cursor = "row-resize";
-                    document.body.style.userSelect = "none";
-                    document.addEventListener("mousemove", onMoveHandler);
-                    document.addEventListener("mouseup", onUpHandler);
-                  }}
-                />
-              )}
-              <div
-                className="fe-section"
-                style={heights ? { flex: "0 0 auto", height: heights[i] } : { flex: 1 }}
-              >
-                <div className={`fe-section-title${i > 0 ? " sub" : ""}`}>
-                  {section === "ai" ? <BrainCircuit size={14} /> : section === "mistakes" ? <XCircle size={14} /> : <span>{SECTION_ICONS[section]}</span>}
-                  <span>{SECTION_LABELS[section]}</span>
-                  <button
-                    className="fe-ai-popout"
-                    onClick={() => onMoveBack(section)}
-                    title="移回左侧"
-                  >
-                    <MoveLeft size={14} />
-                  </button>
+        {/* Expanded section area — resize handles + sections are direct children */}
+        {expandedSections.length > 0 && (
+          <div className="fe-expanded-area">
+            {expandedSections.map((section, i) => {
+              const style = heights
+                ? { flex: `0 0 ${(heights[i] * 100).toFixed(2)}%` }
+                : { flex: 1, minHeight: 80 };
+              return (
+              <React.Fragment key={section}>
+                {i > 0 && (
+                  <div
+                    className="fe-resize-handle"
+                    onMouseDown={(e) => {
+                      const area = containerRef.current?.querySelector<HTMLElement>(".fe-expanded-area");
+                      if (!area) return;
+                      const areaH = area.getBoundingClientRect().height;
+                      if (areaH <= 0) return;
+                      const els = area.querySelectorAll<HTMLElement>(":scope > .fe-section");
+                      const pixelHeights = Array.from(els).map((el) => el.getBoundingClientRect().height);
+                      if (pixelHeights.length < 2) return;
+                      const total = pixelHeights.reduce((a, b) => a + b, 0);
+                      const ratios = pixelHeights.map((h) => h / total);
+                      dragStartRatios.current = ratios;
+                      dragStartY.current = e.clientY;
+                      dragAreaHeight.current = areaH;
+                      setHeights(ratios);
+                      dragIdx.current = i - 1;
+                      document.body.style.cursor = "row-resize";
+                      document.body.style.userSelect = "none";
+                      document.addEventListener("mousemove", onMoveHandler);
+                      document.addEventListener("mouseup", onUpHandler);
+                    }}
+                  />
+                )}
+                <div className="fe-section" style={style}>
+                  <div className={`fe-section-title${i > 0 ? " sub" : ""}`}>
+                    <button className="fe-collapse-toggle" onClick={() => toggleCollapse(section)} title="收起">
+                      <ChevronDown size={12} />
+                    </button>
+                    {sectionIcon(section)}
+                    <span>{SECTION_LABELS[section]}</span>
+                    <button className="fe-ai-popout" onClick={() => onMoveBack(section)} title="移回左侧">
+                      <MoveLeft size={14} />
+                    </button>
+                  </div>
+                  <div className="fe-section-content">
+                    {renderSectionContent(section)}
+                  </div>
                 </div>
-                <div className="fe-section-content">
-                  {renderSectionContent(section)}
+              </React.Fragment>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Collapsed section area — pinned to bottom */}
+        {collapsedList.length > 0 && (
+          <div className="fe-collapsed-area">
+            {collapsedList.map((section) => (
+              <div key={section} className="fe-section collapsed" style={{ flex: "0 0 auto", height: 26 }}>
+                  <div className="fe-section-title collapsed-title">
+                    <button
+                      className="fe-collapse-toggle"
+                      onClick={() => toggleCollapse(section)}
+                      title="展开"
+                    >
+                      <ChevronRight size={12} />
+                    </button>
+                    {sectionIcon(section)}
+                    <span>{SECTION_LABELS[section]}</span>
+                    <button className="fe-ai-popout" onClick={() => onMoveBack(section)} title="移回左侧">
+                      <MoveLeft size={14} />
+                    </button>
+                  </div>
                 </div>
-              </div>
-            </div>
-          ))}
+            ))}
+          </div>
+        )}
       </aside>
     </>
   );
@@ -356,6 +425,7 @@ export function CourseWorkspacePage() {
   const swipeStart = useRef<{ y: number; moved: boolean; active: boolean }>({ y: 0, moved: false, active: false });
   const handleL2PointerDown = useCallback((e: React.PointerEvent) => {
     swipeStart.current = { y: e.clientY, moved: false, active: true };
+    e.currentTarget.setPointerCapture(e.pointerId);
   }, []);
   const handleL2PointerMove = useCallback(
     (e: React.PointerEvent) => {
@@ -388,6 +458,7 @@ export function CourseWorkspacePage() {
   const psSwipeStart = useRef<{ y: number; moved: boolean; active: boolean }>({ y: 0, moved: false, active: false });
   const handlePSPointerDown = useCallback((e: React.PointerEvent) => {
     psSwipeStart.current = { y: e.clientY, moved: false, active: true };
+    e.currentTarget.setPointerCapture(e.pointerId);
   }, []);
   const handlePSPointerMove = useCallback(
     (e: React.PointerEvent) => {
@@ -561,7 +632,7 @@ export function CourseWorkspacePage() {
         {/* File Explorer (left sidebar - shows non-detached sections) */}
         {hasLeftSections && (
           <>
-            <div style={{ width: explorerWidth, flexShrink: 0 }}>
+            <div style={{ width: explorerWidth, flexShrink: 0, overflow: "hidden", display: "flex", flexDirection: "column" }}>
               <FileExplorer
                 files={courseFiles}
                 aiItems={aiExplanations}
@@ -624,6 +695,13 @@ export function CourseWorkspacePage() {
               ))}
             </div>
           )}
+
+          {/* Bottom trigger → open phase summary — inside cw-content only */}
+          {!quizOpen && !phaseSummaryOpen && (
+            <div className="cw-bottom-trigger" onClick={handleBottomClick}>
+              <div className="cw-bottom-trigger-bar" />
+            </div>
+          )}
         </div>
 
         {/* Detached sections on the right side — single column, sections split vertically */}
@@ -656,15 +734,8 @@ export function CourseWorkspacePage() {
           onPointerMove={showFileOverlay ? undefined : handleL2PointerMove}
           onPointerUp={showFileOverlay ? undefined : handleL2PointerUp}
         >
-          {quizOpen && <QuizPanel question={sampleQuestion} />}
+          {quizOpen && <QuizPanel question={sampleQuestion} onClose={() => setQuizOpen(false)} />}
         </div>
-
-        {/* Bottom trigger → open phase summary */}
-        {!quizOpen && !phaseSummaryOpen && (
-          <div className="cw-bottom-trigger" onClick={handleBottomClick}>
-            <div className="cw-bottom-trigger-bar" />
-          </div>
-        )}
 
         {/* Phase summary overlay */}
         <div
@@ -674,7 +745,7 @@ export function CourseWorkspacePage() {
           onPointerMove={handlePSPointerMove}
           onPointerUp={handlePSPointerUp}
         >
-          {phaseSummaryOpen && <PhaseSummary />}
+          {phaseSummaryOpen && <PhaseSummary onClose={() => setPhaseSummaryOpen(false)} />}
         </div>
       </div>
     </AppShell>

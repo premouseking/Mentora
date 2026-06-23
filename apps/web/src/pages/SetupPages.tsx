@@ -1,24 +1,60 @@
-import { useMemo, useState } from "react";
-import { Check, CircleHelp } from "lucide-react";
+import { useEffect, useState } from "react";
+import { ArrowLeft, Check, FolderOpen, Link as LinkIcon, Upload } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
 import { SetupShell } from "../components/AppShell";
+import { useCourseCreation } from "../components/CourseCreationContext";
+import { createCourseSession, updateCourseSession } from "../services/courseApi";
+
+/* ── 步骤 1：描述目标 ── */
 
 export function DescribeGoalPage() {
   const navigate = useNavigate();
-  const [goal, setGoal] = useState("");
+  const { addItem, setSessionId } = useCourseCreation();
+  const savedGoal = sessionStorage.getItem("mentora-course-goal") || "";
+  const [goal, setGoal] = useState(savedGoal);
+  const [submitting, setSubmitting] = useState(false);
   const canContinue = goal.trim().length >= 4;
 
-  function submitGoal(event: React.FormEvent) {
+  useEffect(() => {
+    if (savedGoal) {
+      addItem({ key: "goal", title: "学习目标", value: savedGoal, source: "你的输入" });
+    }
+  }, []);
+
+  async function submitGoal(event: React.FormEvent) {
     event.preventDefault();
-    if (!canContinue) return;
-    sessionStorage.setItem("mentora-course-goal", goal.trim());
-    navigate("/courses/new/clarify");
+    if (!canContinue || submitting) return;
+    const value = goal.trim();
+    setSubmitting(true);
+
+    try {
+      const session = await createCourseSession(value);
+      sessionStorage.setItem("mentora-course-goal", value);
+      sessionStorage.setItem("mentora-session-id", session.id);
+      setSessionId(session.id);
+      addItem({ key: "goal", title: "学习目标", value, source: "你的输入" });
+      navigate("/courses/new/info");
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "创建会话失败";
+      alert(msg);
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   return (
-    <SetupShell current={1}>
-      <form className="goal-form" onSubmit={submitGoal}>
+    <SetupShell
+      current={1}
+      footer={
+        <div className="setup-footer" style={{ justifyContent: "flex-end" }}>
+          <button className="button primary" disabled={!canContinue || submitting} form="goal-form" type="submit">
+            {submitting ? "创建中…" : "下一步"}
+          </button>
+        </div>
+      }
+    >
+      <form className="goal-form" id="goal-form" onSubmit={submitGoal}>
         <div className="setup-heading">
           <h1>你现在想学什么？</h1>
           <p>尽量描述你的学习目标、应用场景，以及希望达到的能力。</p>
@@ -44,16 +80,12 @@ export function DescribeGoalPage() {
             完成一个项目
           </button>
         </div>
-        <div className="setup-footer">
-          <span className="autosave-state">内容会自动保存</span>
-          <button className="button primary" disabled={!canContinue} type="submit">
-            下一步
-          </button>
-        </div>
       </form>
     </SetupShell>
   );
 }
+
+/* ── 步骤 2：补充信息 ── */
 
 const levelOptions = [
   { id: "beginner", title: "完全新手", description: "几乎没有接触过" },
@@ -62,83 +94,211 @@ const levelOptions = [
   { id: "uncertain", title: "不太确定", description: "可以先由系统诊断" },
 ];
 
-export function ClarifyPage() {
+const paceOptions = [
+  { id: "intensive", title: "集中多学", description: "有时间时可以连续学习多个任务" },
+  { id: "short", title: "短时间推进", description: "每天只能抽少量时间学习" },
+  { id: "steady", title: "相对稳定", description: "每天有固定时间投入" },
+  { id: "uncertain", title: "暂不确定", description: "保持灵活，后续再调整" },
+];
+
+type SourceItem = {
+  id: string;
+  name: string;
+  type: "PDF" | "DOCX" | "LINK" | "OFFICIAL";
+  purpose: string;
+};
+
+function readSources(): SourceItem[] {
+  const stored = sessionStorage.getItem("mentora-course-sources-info");
+  if (!stored) return [];
+  try { return JSON.parse(stored) as SourceItem[]; } catch { return []; }
+}
+
+export function AddInfoPage() {
   const navigate = useNavigate();
-  const storedGoal = sessionStorage.getItem("mentora-course-goal");
-  const goal = storedGoal || "两周后完成计算机组成原理考试复习";
-  const [level, setLevel] = useState("basic");
-  const selectedLevel = useMemo(
-    () => levelOptions.find((option) => option.id === level) ?? levelOptions[1],
-    [level],
-  );
+  const { addItem, sessionId } = useCourseCreation();
+  const storedGoal = sessionStorage.getItem("mentora-course-goal") || "";
+  const savedLevel = sessionStorage.getItem("mentora-course-level") || "basic";
+  const savedPace = sessionStorage.getItem("mentora-course-pace") || "intensive";
+  const savedSchool = sessionStorage.getItem("mentora-course-school") || "华中科技大学";
+
+  const [level, setLevel] = useState(savedLevel);
+  const [pace, setPace] = useState(savedPace);
+  const [school, setSchool] = useState(savedSchool);
+  const [sources] = useState<SourceItem[]>(readSources);
+  const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    if (storedGoal) addItem({ key: "goal", title: "学习目标", value: storedGoal, source: "你的输入" });
+  }, []);
+
+  async function submit() {
+    const lev = levelOptions.find((o) => o.id === level);
+    const pc = paceOptions.find((o) => o.id === pace);
+    if (!lev || !pc || submitting) return;
+    setSubmitting(true);
+
+    sessionStorage.setItem("mentora-course-level", lev.title);
+    sessionStorage.setItem("mentora-course-pace", pc.title);
+    sessionStorage.setItem("mentora-course-school", school.trim());
+    addItem({ key: "level", title: "当前基础", value: lev.title, source: "你的回答" });
+    addItem({ key: "pace", title: "推进方式", value: pc.title, source: "你的输入" });
+    if (school.trim()) {
+      addItem({ key: "school", title: "学校", value: school.trim(), source: "你的输入" });
+    }
+    if (sources.length > 0) {
+      addItem({ key: "sources", title: "课程资料", value: `${sources.length} 项`, source: "资料选择" });
+    }
+
+    // 有 sessionId 则同步到后端
+    if (sessionId) {
+      try {
+        await updateCourseSession(sessionId, { level: lev.title, pace: pc.title, school: school.trim() });
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : "更新会话失败";
+        alert(msg);
+      }
+    }
+
+    setSubmitting(false);
+    navigate("/courses/new/materials");
+  }
 
   return (
-    <SetupShell current={2}>
-      <div className="clarify-panel">
-        <div className="ai-context">
-          <span className="ai-dot" />
-          <div>
-            <strong>Mentora AI</strong>
-            <p>为了制定合适的阶段方案，我还需要确认 1 个关键信息。</p>
-          </div>
+    <SetupShell
+      current={2}
+      footer={
+        <div className="setup-footer">
+          <button className="button secondary" onClick={() => navigate("/courses/new")} type="button">
+            <ArrowLeft size={15} /> 上一步
+          </button>
+          <button
+            className="button primary"
+            disabled={submitting}
+            onClick={() => { submit(); }}
+            type="button"
+          >
+            {submitting ? "保存中…" : "下一步"}
+          </button>
+        </div>
+      }
+    >
+      <div className="addinfo-page">
+        <div className="setup-heading compact-heading">
+          <h1>补充信息</h1>
+          <p>以下信息帮助 AI 更准确地生成学习方案。</p>
         </div>
 
-        <section className="question-block">
-          <p className="question-index">当前问题</p>
-          <h1>你目前对「计算机组成原理」的知识水平是？</h1>
+        <section className="info-block">
+          <h2>当前基础</h2>
           <div className="choice-grid">
-            {levelOptions.map((option) => (
+            {levelOptions.map((opt) => (
               <button
-                aria-pressed={level === option.id}
-                className={level === option.id ? "choice selected" : "choice"}
-                key={option.id}
-                onClick={() => setLevel(option.id)}
+                key={opt.id}
+                aria-pressed={level === opt.id}
+                className={level === opt.id ? "choice selected" : "choice"}
+                onClick={() => setLevel(opt.id)}
                 type="button"
               >
-                <strong>{option.title}</strong>
-                <span>{option.description}</span>
-                <i>{level === option.id ? <Check size={14} /> : null}</i>
+                <strong>{opt.title}</strong>
+                <span>{opt.description}</span>
+                <i>{level === opt.id ? <Check size={14} /> : null}</i>
               </button>
             ))}
           </div>
         </section>
 
-        <section className="known-summary">
-          <div className="summary-title">
-            <div>
-              <strong>已了解</strong>
-              <span>可以随时返回修改</span>
-            </div>
-            <button type="button">编辑</button>
+        <section className="info-block">
+          <h2>推进方式</h2>
+          <div className="choice-grid">
+            {paceOptions.map((opt) => (
+              <button
+                key={opt.id}
+                aria-pressed={pace === opt.id}
+                className={pace === opt.id ? "choice selected" : "choice"}
+                onClick={() => setPace(opt.id)}
+                type="button"
+              >
+                <strong>{opt.title}</strong>
+                <span>{opt.description}</span>
+                <i>{pace === opt.id ? <Check size={14} /> : null}</i>
+              </button>
+            ))}
           </div>
-          <dl>
-            <div>
-              <dt>目标</dt>
-              <dd>{goal}</dd>
-            </div>
-            <div>
-              <dt>基础</dt>
-              <dd>{selectedLevel.title}</dd>
-            </div>
-          </dl>
         </section>
 
-        <div className="clarify-footer">
-          <button className="text-button" type="button">
-            <CircleHelp size={16} />
-            我还想补充说明
+        <section className="info-block">
+          <h2>学校</h2>
+          <p className="info-desc">填写所在学校，帮助 AI 了解你的学习背景。</p>
+          <input
+            className="input"
+            onChange={(e) => setSchool(e.target.value)}
+            placeholder="请输入学校名称"
+            type="text"
+            value={school}
+          />
+        </section>
+      </div>
+    </SetupShell>
+  );
+}
+
+/* ── 步骤 3：资料上传 ── */
+
+export function MaterialUploadPage() {
+  const navigate = useNavigate();
+  const { addItem } = useCourseCreation();
+
+  function skip() {
+    navigate("/courses/new/inquiry");
+  }
+
+  function handleUpload() {
+    // TODO: 实际上传逻辑，接入 AI 解读
+    addItem({ key: "sources", title: "参考资料", value: "已上传", source: "资料上传" });
+    navigate("/courses/new/inquiry");
+  }
+
+  return (
+    <SetupShell
+      current={3}
+      footer={
+        <div className="setup-footer">
+          <button className="button secondary" onClick={() => navigate("/courses/new/info")} type="button">
+            <ArrowLeft size={15} /> 上一步
           </button>
-          <button
-            className="button primary"
-            onClick={() => {
-              sessionStorage.setItem("mentora-course-level", selectedLevel.title);
-              navigate("/courses/new/sources");
-            }}
-            type="button"
-          >
-            下一步：添加资料
-          </button>
+          <div className="footer-buttons">
+            <button className="button secondary" onClick={skip} type="button">
+              跳过
+            </button>
+            <button className="button primary" onClick={handleUpload} type="button">
+              上传并继续
+            </button>
+          </div>
         </div>
+      }
+    >
+      <div className="addinfo-page">
+        <div className="setup-heading compact-heading">
+          <h1>资料上传</h1>
+          <p>上传学习资料，AI 会解读内容并生成更精准的学习方案。</p>
+        </div>
+
+        <section className="info-block">
+          <h2>添加资料</h2>
+          <p className="info-desc">支持 PDF、Word、图片等格式，可同时上传多个文件。</p>
+          <div className="source-quick-actions">
+            <button className="source-quick-btn" type="button">
+              <FolderOpen size={18} /> 从资源库选择
+            </button>
+            <button className="source-quick-btn" type="button">
+              <Upload size={18} /> 上传文件
+            </button>
+            <button className="source-quick-btn" type="button">
+              <LinkIcon size={18} /> 添加链接
+            </button>
+          </div>
+        </section>
       </div>
     </SetupShell>
   );

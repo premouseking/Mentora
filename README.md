@@ -26,10 +26,12 @@ infra/
 
 ## 本地开发
 
+详见 [本地基础设施指南](docs/dev/local-infrastructure.md)。
+
 1. 将 `.env.example` 复制为 `.env`。
 2. 运行 `pnpm infra:up`。
-3. 参照 `apps/api/README.md` 启动 API 和 worker。
-4. 运行 `pnpm install`，然后运行 `pnpm dev:web`。
+3. 参照 `apps/api/README.md` 启动 API：`pnpm api:migrate`、`pnpm api:seed`。
+4. 运行 `pnpm install`，然后运行 `pnpm dev:web` 或 `pnpm dev:desktop`。
 
 当前骨架暴露以下入口：
 

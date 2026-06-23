@@ -8,6 +8,8 @@ import {
   FolderClosed,
   GripVertical,
   History,
+  PanelLeftClose,
+  PanelLeftOpen,
   Send,
   Settings,
   Sparkles,
@@ -16,6 +18,7 @@ import {
 import { Link, NavLink } from "react-router-dom";
 
 import { DesktopTitleBar } from "./DesktopTitleBar";
+import { CourseInfoBar } from "./CourseInfoBar";
 
 const navItems = [
   { to: "/courses", label: "课程", icon: BookOpen },
@@ -26,27 +29,86 @@ const navItems = [
   { to: "/lab/parsing", label: "解析实验室", icon: Beaker },
 ];
 
-const setupSteps = ["描述目标", "补充信息", "添加资料", "确认需求", "确认方案"];
+const setupSteps = ["描述目标", "补充信息", "资料上传", "信息追问", "确认方案"];
 
 const MIN_SIDEBAR = 160;
 const MAX_SIDEBAR = 320;
 const MIN_PANEL = 260;
 const MAX_PANEL = 600;
 const SIDEBAR_DEFAULT = 196;
+const COLLAPSED_SIDEBAR = 68;
 const PANEL_DEFAULT = 360;
+const SIDEBAR_COLLAPSED_KEY = "mentora-sidebar-collapsed";
+const SIDEBAR_WIDTH_KEY = "mentora-sidebar-width";
 
-function AppSidebar({ width }: { width: number }) {
+function clampSidebarWidth(value: number) {
+  return Math.min(MAX_SIDEBAR, Math.max(MIN_SIDEBAR, value));
+}
+
+function readStoredSidebarWidth() {
+  const raw = localStorage.getItem(SIDEBAR_WIDTH_KEY);
+  if (!raw) return SIDEBAR_DEFAULT;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) ? clampSidebarWidth(parsed) : SIDEBAR_DEFAULT;
+}
+
+function readStoredCollapsed() {
+  return localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === "true";
+}
+
+function AppSidebar({
+  width,
+  collapsed,
+  labelsVisible,
+  animating,
+  resizing,
+  onToggleCollapsed,
+  onTransitionEnd,
+}: {
+  width: number;
+  collapsed: boolean;
+  labelsVisible: boolean;
+  animating: boolean;
+  resizing: boolean;
+  onToggleCollapsed: () => void;
+  onTransitionEnd: (event: React.TransitionEvent<HTMLElement>) => void;
+}) {
+  const showLabels = labelsVisible && !collapsed;
+
   return (
-    <aside className="sidebar" style={{ width }}>
+    <aside
+      className={[
+        "sidebar",
+        collapsed && "collapsed",
+        showLabels && "sidebar-labels-visible",
+        animating && "sidebar-animating",
+        resizing && "sidebar-resizing",
+      ]
+        .filter(Boolean)
+        .join(" ")}
+      onTransitionEnd={onTransitionEnd}
+      style={{ width: collapsed ? COLLAPSED_SIDEBAR : width }}
+    >
+      <button
+        aria-expanded={!collapsed}
+        aria-label={collapsed ? "展开侧边栏" : "折叠侧边栏"}
+        className="sidebar-toggle"
+        onClick={onToggleCollapsed}
+        title={collapsed ? "展开侧边栏" : "折叠侧边栏"}
+        type="button"
+      >
+        {collapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
+      </button>
       <nav className="primary-nav" aria-label="主导航">
         {navItems.map(({ to, label, icon: Icon }) => (
           <NavLink
             className={({ isActive }) => `nav-item${isActive ? " active" : ""}`}
             key={to}
+            title={!showLabels ? label : undefined}
             to={to}
           >
             <Icon size={19} strokeWidth={1.9} />
-            <span>{label}</span>
+            <span className="nav-item-label">{label}</span>
           </NavLink>
         ))}
       </nav>
@@ -58,16 +120,25 @@ function AppSidebar({ width }: { width: number }) {
 
 function ResizeHandle({
   onResize,
+  onResizeStart,
+  onResizeEnd,
 }: {
   onResize: (delta: number) => void;
+  onResizeStart?: () => void;
+  onResizeEnd?: () => void;
 }) {
   const activeRef = useRef(false);
+  const lastXRef = useRef(0);
   const onResizeRef = useRef(onResize);
+  const onResizeEndRef = useRef(onResizeEnd);
   onResizeRef.current = onResize;
+  onResizeEndRef.current = onResizeEnd;
 
   const onMove = (e: MouseEvent) => {
     if (!activeRef.current) return;
-    onResizeRef.current(e.movementX);
+    const delta = e.clientX - lastXRef.current;
+    lastXRef.current = e.clientX;
+    if (delta !== 0) onResizeRef.current(delta);
   };
 
   const onUp = () => {
@@ -77,12 +148,15 @@ function ResizeHandle({
     document.body.style.userSelect = "";
     document.removeEventListener("mousemove", onMove);
     document.removeEventListener("mouseup", onUp);
+    onResizeEndRef.current?.();
   };
 
-  function onDown() {
+  function onDown(e: React.MouseEvent) {
     activeRef.current = true;
+    lastXRef.current = e.clientX;
     document.body.style.cursor = "col-resize";
     document.body.style.userSelect = "none";
+    onResizeStart?.();
     document.addEventListener("mousemove", onMove);
     document.addEventListener("mouseup", onUp);
   }
@@ -115,7 +189,30 @@ function ResizeHandle({
 interface ChatMessage {
   role: "user" | "assistant";
   content: string;
+  statuses?: ChatStatus[];
+  citations?: ChatCitation[];
 }
+
+interface ChatStatus {
+  event: string;
+  message: string;
+  toolName?: string;
+  success?: boolean;
+}
+
+interface ChatCitation {
+  content_preview: string;
+  page_number?: number | null;
+  evidence_id?: string;
+  source_title?: string;
+}
+
+type ChatStreamEvent =
+  | { type: "chunk"; content: string }
+  | { type: "status"; event: string; message: string; tool_name?: string; success?: boolean }
+  | { type: "citations"; tool_name?: string; citations: ChatCitation[] }
+  | { type: "error"; message: string }
+  | { type: "done" };
 
 function AiChatPanel({
   width,
@@ -135,27 +232,114 @@ function AiChatPanel({
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
-  function handleSend() {
+  const [sending, setSending] = useState(false);
+
+  function updateLastAssistant(update: (message: ChatMessage) => ChatMessage) {
+    setMessages((prev) => {
+      const updated = [...prev];
+      const last = updated[updated.length - 1];
+      if (!last || last.role !== "assistant") return prev;
+      updated[updated.length - 1] = update(last);
+      return updated;
+    });
+  }
+
+  async function handleSend() {
     const text = input.trim();
     if (!text) return;
     setMessages((prev) => [...prev, { role: "user", content: text }]);
     setInput("");
-    setTimeout(() => {
-      setMessages((prev) => [
-        ...prev,
-        {
-          role: "assistant",
-          content:
-            "这是一个示例回复。后续将接入真实的 AI 对话能力，为你提供个性化的学习建议和帮助。",
-        },
-      ]);
-      requestAnimationFrame(() => {
-        listRef.current?.scrollTo({
-          top: listRef.current.scrollHeight,
-          behavior: "smooth",
-        });
+    setSending(true);
+
+    // 先添加一条空的 assistant 消息，流式填充
+    setMessages((prev) => [...prev, { role: "assistant", content: "" }]);
+
+    try {
+      const resp = await fetch("/api/chat/stream/", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message: text,
+          history: messages.map((m) => ({ role: m.role, content: m.content })),
+        }),
       });
-    }, 800);
+
+      if (!resp.ok) {
+        // 非流式错误
+        const errorText = await resp.text();
+        throw new Error(errorText || `HTTP ${resp.status}`);
+      }
+
+      const reader = resp.body!.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        // 保留最后一个可能不完整的行
+        buffer = lines.pop() || "";
+
+        for (const line of lines) {
+          if (!line.startsWith("data: ")) continue;
+          try {
+            const data = JSON.parse(line.slice(6)) as ChatStreamEvent;
+            if (data.type === "chunk") {
+              updateLastAssistant((last) => ({
+                ...last,
+                content: last.content + data.content,
+              }));
+            } else if (data.type === "status") {
+              updateLastAssistant((last) => ({
+                ...last,
+                statuses: [
+                  ...(last.statuses ?? []),
+                  {
+                    event: data.event,
+                    message: data.message,
+                    toolName: data.tool_name,
+                    success: data.success,
+                  },
+                ],
+              }));
+            } else if (data.type === "citations") {
+              updateLastAssistant((last) => ({
+                ...last,
+                citations: [...(last.citations ?? []), ...data.citations],
+              }));
+            } else if (data.type === "error") {
+              setMessages((prev) => {
+                const updated = [...prev];
+                const last = updated[updated.length - 1];
+                updated[updated.length - 1] = {
+                  ...last,
+                  content: last.content || `错误: ${data.message}`,
+                };
+                return updated;
+              });
+            }
+          } catch {
+            // 跳过无法解析的行
+          }
+        }
+      }
+    } catch (err: any) {
+      setMessages((prev) => {
+        const updated = [...prev];
+        const last = updated[updated.length - 1];
+        const errorMsg = err?.message || "连接失败";
+        updated[updated.length - 1] = {
+          ...last,
+          content: last.content || `抱歉，AI 服务出错: ${errorMsg}`,
+        };
+        return updated;
+      });
+    } finally {
+      setSending(false);
+    }
   }
 
   function handleKeyDown(e: React.KeyboardEvent) {
@@ -197,7 +381,36 @@ function AiChatPanel({
                 <Sparkles size={13} />
               </span>
             )}
-            <div className="ai-chat-bubble">{msg.content}</div>
+            <div className="ai-chat-bubble">
+              {msg.content && <div className="ai-chat-content">{msg.content}</div>}
+              {msg.statuses?.length ? (
+                <div className="ai-chat-status-list">
+                  {msg.statuses.map((status, index) => (
+                    <div
+                      className={`ai-chat-status ${status.success === false ? "failed" : ""}`}
+                      key={`${status.event}-${index}`}
+                    >
+                      <span className="ai-chat-status-dot" />
+                      <span>{status.message}</span>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+              {msg.citations?.length ? (
+                <div className="ai-chat-citations" aria-label="引用来源">
+                  {msg.citations.map((citation, index) => (
+                    <div className="ai-chat-citation" key={`${citation.evidence_id ?? "source"}-${index}`}>
+                      <Check size={12} />
+                      <span>
+                        {citation.source_title ? `${citation.source_title}: ` : ""}
+                        {citation.content_preview}
+                        {citation.page_number ? ` · p.${citation.page_number}` : ""}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+            </div>
           </div>
         ))}
       </div>
@@ -216,7 +429,7 @@ function AiChatPanel({
             className="ai-chat-send"
             type="button"
             onClick={handleSend}
-            disabled={!input.trim()}
+            disabled={!input.trim() || sending}
             aria-label="发送"
           >
             <Send size={16} />
@@ -231,11 +444,48 @@ function AiChatPanel({
 
 export function AppShell({ children }: { children: ReactNode }) {
   const [aiPanelOpen, setAiPanelOpen] = useState(false);
-  const [sidebarWidth, setSidebarWidth] = useState(SIDEBAR_DEFAULT);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(readStoredCollapsed);
+  const [sidebarLabelsVisible, setSidebarLabelsVisible] = useState(
+    () => !readStoredCollapsed(),
+  );
+  const [sidebarAnimating, setSidebarAnimating] = useState(false);
+  const [sidebarResizing, setSidebarResizing] = useState(false);
+  const [sidebarWidth, setSidebarWidth] = useState(readStoredSidebarWidth);
   const [panelWidth, setPanelWidth] = useState(PANEL_DEFAULT);
+  const sidebarWidthRef = useRef(sidebarWidth);
+  const sidebarCollapsedRef = useRef(sidebarCollapsed);
+  sidebarWidthRef.current = sidebarWidth;
+  sidebarCollapsedRef.current = sidebarCollapsed;
 
   function clamp(val: number, min: number, max: number) {
     return Math.min(max, Math.max(min, val));
+  }
+
+  function toggleSidebarCollapsed() {
+    setSidebarAnimating(true);
+    setSidebarCollapsed((prev) => {
+      const next = !prev;
+      setSidebarLabelsVisible(!next);
+      localStorage.setItem(SIDEBAR_COLLAPSED_KEY, String(next));
+      return next;
+    });
+  }
+
+  function handleSidebarTransitionEnd(event: React.TransitionEvent<HTMLElement>) {
+    if (event.target !== event.currentTarget || event.propertyName !== "width") return;
+    setSidebarAnimating(false);
+    if (!sidebarCollapsedRef.current) {
+      setSidebarLabelsVisible(true);
+    }
+  }
+
+  function handleSidebarResize(delta: number) {
+    setSidebarWidth((w) => clampSidebarWidth(w + delta));
+  }
+
+  function handleSidebarResizeEnd() {
+    setSidebarResizing(false);
+    localStorage.setItem(SIDEBAR_WIDTH_KEY, String(sidebarWidthRef.current));
   }
 
   return (
@@ -245,12 +495,22 @@ export function AppShell({ children }: { children: ReactNode }) {
         onToggleAi={() => setAiPanelOpen((v) => !v)}
       />
       <div className="app-body">
-        <AppSidebar width={sidebarWidth} />
-        <ResizeHandle
-          onResize={(d) =>
-            setSidebarWidth((w) => clamp(w + d, MIN_SIDEBAR, MAX_SIDEBAR))
-          }
+        <AppSidebar
+          animating={sidebarAnimating}
+          collapsed={sidebarCollapsed}
+          labelsVisible={sidebarLabelsVisible}
+          onToggleCollapsed={toggleSidebarCollapsed}
+          onTransitionEnd={handleSidebarTransitionEnd}
+          resizing={sidebarResizing}
+          width={sidebarWidth}
         />
+        {!sidebarCollapsed && (
+          <ResizeHandle
+            onResize={handleSidebarResize}
+            onResizeEnd={handleSidebarResizeEnd}
+            onResizeStart={() => setSidebarResizing(true)}
+          />
+        )}
         <section className="page-surface">{children}</section>
         {aiPanelOpen && (
           <>
@@ -290,13 +550,21 @@ function SetupProgress({ current }: { current: number }) {
 
 export function SetupShell({
   current,
+  hideInfoBar = false,
+  footer,
+  leftAside,
   children,
 }: {
   current: number;
+  hideInfoBar?: boolean;
+  footer?: ReactNode;
+  leftAside?: ReactNode;
   children: ReactNode;
 }) {
+  const [infoBarExpanded, setInfoBarExpanded] = useState(false);
+
   return (
-    <div className="desktop-app setup-app">
+    <div className={`desktop-app setup-app${hideInfoBar ? " no-info-bar" : ""}`}>
       <DesktopTitleBar />
       <header className="setup-header">
         <Link className="back-link" to="/courses">
@@ -308,7 +576,17 @@ export function SetupShell({
           取消
         </Link>
       </header>
-      <main className="setup-main">{children}</main>
+      <main className="setup-main">
+        {leftAside && <div className="setup-left-aside">{leftAside}</div>}
+        <div className="setup-content-box">{children}</div>
+        {footer && <div className="setup-nav-area">{footer}</div>}
+      </main>
+      {!hideInfoBar && (
+        <CourseInfoBar
+          mode={infoBarExpanded ? "expanded" : "collapsed"}
+          onToggle={() => setInfoBarExpanded((v) => !v)}
+        />
+      )}
     </div>
   );
 }

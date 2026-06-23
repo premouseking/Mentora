@@ -2,11 +2,13 @@ import {
   ArrowRight,
   BookOpen,
   Check,
+  ChevronDown,
   ChevronRight,
   Clock3,
   Lightbulb,
   Target,
   TrendingUp,
+  X,
 } from "lucide-react";
 
 /* ── Mock data ── */
@@ -39,13 +41,23 @@ const aiSuggestions = [
   "目前的掌握速度略高于预估，可以考虑将下一阶段的「流水线冒险」任务调整为标准深度。",
 ];
 
-export function PhaseSummary() {
+export function PhaseSummary({ onClose }: { onClose: () => void }) {
   const masteredCount = completedTasks.filter((t) => t.mastered).length;
   const totalChecks = completedTasks.reduce((sum, t) => sum + parseInt(t.check.split("/")[1], 10), 0);
   const correctChecks = completedTasks.reduce((sum, t) => sum + parseInt(t.check.split("/")[0], 10), 0);
 
   return (
     <div className="phase-summary">
+      {/* Top hint bar — stop pointer events from reaching overlay swipe */}
+      <div className="quiz-swipe-hint" onPointerDown={(e) => e.stopPropagation()}>
+        <div className="quiz-swipe-hint-left">
+          <ChevronDown size={14} />
+          <span>下拉收起</span>
+        </div>
+        <button className="quiz-hint-close" onClick={onClose} title="关闭">
+          <X size={14} />
+        </button>
+      </div>
       <div className="ps-body">
         {/* ── Phase header ── */}
         <div className="ps-phase-badge">

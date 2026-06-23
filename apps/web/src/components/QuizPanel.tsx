@@ -4,8 +4,10 @@ import type { QuizQuestion } from "../data/quiz";
 
 export function QuizPanel({
   question,
+  onClose,
 }: {
   question: QuizQuestion;
+  onClose: () => void;
 }) {
   const [selected, setSelected] = useState<number | null>(null);
   const [submitted, setSubmitted] = useState(false);
@@ -29,11 +31,18 @@ export function QuizPanel({
 
   return (
     <div className="quiz-panel">
-      {/* Swipe hint */}
-      <div className="quiz-swipe-hint">
-        <div className="quiz-swipe-indicator" />
-        <span>上划收起</span>
-        <ChevronUp size={14} />
+      {/* Top hint bar — stop pointer events from reaching overlay swipe */}
+      <div className="quiz-swipe-hint" onPointerDown={(e) => e.stopPropagation()}>
+        <div className="quiz-swipe-hint-left">
+          <ChevronUp size={14} />
+          <span>上划收起</span>
+          <span className="quiz-hint-sep">|</span>
+          <kbd className="quiz-kbd">Tab</kbd>
+          <span>回顾一下</span>
+        </div>
+        <button className="quiz-hint-close" onClick={onClose} title="关闭">
+          <X size={14} />
+        </button>
       </div>
 
       <div className="quiz-header">

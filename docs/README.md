@@ -5,13 +5,10 @@
 ```text
 docs/
   architecture/          架构设计、ADR、模块边界、端到端方案
-  design/                产品 UX、mockup、功能规格与实现计划
-    specs/               功能设计规格（评审输入）
-    plans/               功能实现计划（按任务拆分）
+  design/                产品 UX、mockup 与概念图
     mockups/             桌面界面 mockup
     concepts/            概念图
   project-management/    团队流程、backlog、模板、实现日志
-    plans/               团队/阶段级工程计划
     project-start/       立项报告模板与交付物
     templates/           任务与决策记录模板
 ```

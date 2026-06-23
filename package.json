@@ -25,6 +25,12 @@
     "smoke:desktop": "pnpm --dir apps/desktop smoke",
     "dist:desktop": "pnpm --dir apps/desktop dist",
     "infra:up": "docker compose -f infra/docker/docker-compose.dev.yml up -d",
-    "infra:down": "docker compose -f infra/docker/docker-compose.dev.yml down"
+    "infra:down": "docker compose -f infra/docker/docker-compose.dev.yml down",
+    "api:docker:build": "docker compose -f infra/docker/docker-compose.dev.yml --profile app build api",
+    "api:docker:up": "docker compose -f infra/docker/docker-compose.dev.yml --profile app up -d api",
+    "api:migrate": "cd apps/api && python manage.py migrate",
+    "api:seed": "cd apps/api && python manage.py seed_dev",
+    "api:smoke:upload": "cd apps/api && python manage.py smoke_upload_resource --fixture normal.pdf",
+    "dev:api": "cd apps/api && python manage.py runserver 127.0.0.1:8000"
   }
 }

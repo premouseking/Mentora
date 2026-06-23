@@ -757,11 +757,6 @@ AI 澄清
 
 - `docs/design/concepts/desktop-stage-summary-v1.png`
 
-规格与实现计划：
-
-- `docs/design/specs/2026-06-13-stage-summary-plan-adjustment-design.md`
-- `docs/design/plans/2026-06-13-stage-summary-plan-adjustment.md`
-
 已实现：
 
 - 阶段检查完成后的总结页面；

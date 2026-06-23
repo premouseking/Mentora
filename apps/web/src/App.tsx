@@ -1,4 +1,4 @@
-import { Navigate, Route, Routes } from "react-router-dom";
+import { Navigate, Outlet, Route, Routes } from "react-router-dom";
 
 import { AuthGate } from "./components/AuthGate";
 import { AppShell } from "./components/AppShell";
@@ -11,11 +11,11 @@ import { LibraryPage } from "./pages/LibraryPage";
 import { ParsingLabPage } from "./pages/ParsingLabPage";
 import { StageSummaryPage } from "./pages/StageSummaryPage";
 import {
+  AiInquiryPage,
   ConfirmPlanPage,
-  ConfirmProfilePage,
-  SelectSourcesPage,
 } from "./pages/SetupContinuationPages";
-import { ClarifyPage, DescribeGoalPage } from "./pages/SetupPages";
+import { AddInfoPage, DescribeGoalPage, MaterialUploadPage } from "./pages/SetupPages";
+import { CourseCreationProvider } from "./components/CourseCreationContext";
 
 function PlaceholderPage({ title }: { title: string }) {
   return (
@@ -41,11 +41,14 @@ export function App() {
           path="/courses/:courseId/phases/:phaseId/summary"
           element={<StageSummaryPage />}
         />
-        <Route path="/courses/new" element={<DescribeGoalPage />} />
-        <Route path="/courses/new/clarify" element={<ClarifyPage />} />
-        <Route path="/courses/new/sources" element={<SelectSourcesPage />} />
-        <Route path="/courses/new/profile" element={<ConfirmProfilePage />} />
-        <Route path="/courses/new/plan" element={<ConfirmPlanPage />} />
+        {/* 课程创建流程共享 Context，确保跨步骤状态持久 */}
+        <Route element={<CourseCreationProvider><Outlet /></CourseCreationProvider>}>
+          <Route path="/courses/new" element={<DescribeGoalPage />} />
+          <Route path="/courses/new/info" element={<AddInfoPage />} />
+          <Route path="/courses/new/materials" element={<MaterialUploadPage />} />
+          <Route path="/courses/new/inquiry" element={<AiInquiryPage />} />
+          <Route path="/courses/new/plan" element={<ConfirmPlanPage />} />
+        </Route>
         <Route path="/library" element={<LibraryPage />} />
         <Route path="/history" element={<HistoryPage />} />
         <Route path="/lab/parsing" element={<ParsingLabPage />} />
