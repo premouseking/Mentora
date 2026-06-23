@@ -34,7 +34,11 @@ def search_view(request):
     except ValueError:
         top_k = 10
 
-    result_set = search(query, top_k=top_k)
+    # 作用域过滤：逗号分隔的 source_version_id 列表
+    sv_param = request.GET.get("source_version_ids", "")
+    source_version_ids = [s.strip() for s in sv_param.split(",") if s.strip()] or None
+
+    result_set = search(query, top_k=top_k, source_version_ids=source_version_ids)
 
     return JsonResponse(result_set.to_dict())
 

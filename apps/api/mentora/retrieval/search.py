@@ -153,9 +153,19 @@ def _search_pg(
     if not query.strip():
         return SearchResultSet(query=query, elapsed_ms=(time.perf_counter() - t0) * 1000)
 
-    # 统计总数
+    # 作用域过滤子句：source_version_ids 为空时不过滤
+    sv_filter = ""
+    sv_params: list = []
+    if source_version_ids:
+        sv_filter = "AND source_version_id = ANY(%s)"
+        sv_params = [source_version_ids]
+
+    # 统计总数（作用域内）
     with connection.cursor() as cursor:
-        cursor.execute("SELECT count(*) FROM retrieval_evidence_unit")
+        cursor.execute(
+            f"SELECT count(*) FROM retrieval_evidence_unit WHERE 1=1 {sv_filter}",
+            sv_params,
+        )
         total = cursor.fetchone()[0]
 
     # ── FTS 路 ─────────────────────────────────
@@ -164,14 +174,15 @@ def _search_pg(
     if fts_query_str:
         with connection.cursor() as cursor:
             cursor.execute(
-                """
+                f"""
                 SELECT id, ts_rank(search_vector, query) AS rank
                 FROM retrieval_evidence_unit,
                      plainto_tsquery('simple', %s) query
                 WHERE search_vector @@ query
+                {sv_filter}
                 ORDER BY rank DESC
                 """,
-                [fts_query_str],
+                [fts_query_str] + sv_params,
             )
             for row in cursor.fetchall():
                 fts_ranking[str(row[0])] = float(row[1])
@@ -180,14 +191,15 @@ def _search_pg(
     trgm_ranking: dict[str, float] = {}
     with connection.cursor() as cursor:
         cursor.execute(
-            """
+            f"""
             SELECT id, similarity(content, %s) AS sim
             FROM retrieval_evidence_unit
             WHERE content %% %s
+            {sv_filter}
             ORDER BY sim DESC
             LIMIT 50
             """,
-            [query, query],
+            [query, query] + sv_params,
         )
         for row in cursor.fetchall():
             trgm_ranking[str(row[0])] = float(row[1])
