@@ -30,7 +30,7 @@ import {
 } from "lucide-react";
 
 import { AppShell } from "../components/AppShell";
-import { fetchSources, type SourceItem } from "../services/documentApi";
+import { fetchSources, deleteSource, reparseSource, type SourceItem } from "../services/documentApi";
 import { uploadFile, type UploadProgress } from "../services/uploadService";
 import {
   libraryFolders,
@@ -74,7 +74,18 @@ function ParseIcon({ state }: { state: ParseState }) {
 
 /* ── detail panel ──────────────────────────────────── */
 
-function LibraryDetailPanel({ item, onClose }: { item: LibraryItem; onClose: () => void }) {
+function LibraryDetailPanel({ item, onClose, onDelete, onReparse }: { item: LibraryItem; onClose: () => void; onDelete?: () => void; onReparse?: () => void }) {
+  const [reparsing, setReparsing] = useState(false);
+
+  async function handleReparse() {
+    setReparsing(true);
+    try {
+      await (onReparse as () => Promise<void>)?.();
+    } finally {
+      setReparsing(false);
+    }
+  }
+
   return (
     <aside className="library-detail-panel" role="complementary" aria-label="资料详情">
       <header className="library-detail-header">
@@ -134,9 +145,12 @@ function LibraryDetailPanel({ item, onClose }: { item: LibraryItem; onClose: () 
           <h3>操作</h3>
           <div className="library-detail-actions">
             <button className="button secondary compact" type="button"><Eye size={15} /> 预览</button>
-            <button className="button secondary compact" type="button"><RefreshCw size={15} /> 重新解析</button>
+            <button className="button secondary compact" type="button" onClick={handleReparse} disabled={reparsing}>
+              {reparsing ? <Loader size={15} className="spin" /> : <RefreshCw size={15} />}
+              {reparsing ? "解析中…" : "重新解析"}
+            </button>
             {item.usedBy.length === 0 && (
-              <button className="button secondary compact danger" type="button"><Trash2 size={15} /> 删除</button>
+              <button className="button secondary compact danger" type="button" onClick={onDelete}><Trash2 size={15} /> 删除</button>
             )}
             {item.usedBy.length > 0 && (
               <p className="library-detail-empty-text">此资料正被 {item.usedBy.length} 门课程使用，删除前请先从课程资料中移除。</p>
@@ -416,6 +430,7 @@ export function LibraryPage() {
   const [items, setItems] = useState<LibraryItem[]>([]);
   const [folders, setFolders] = useState<LibraryFolder[]>(libraryFolders);
   const [loading, setLoading] = useState(true);
+  const sourceIdMap = useRef<Map<string, string>>(new Map());
 
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState<LibraryItemType | "all">("all");
@@ -429,7 +444,14 @@ export function LibraryPage() {
   const loadSources = useCallback(async () => {
     try {
       const sources = await fetchSources();
-      setItems(sources.map(sourceToLibraryItem));
+      const map = new Map<string, string>();
+      const mapped = sources.map((s) => {
+        const item = sourceToLibraryItem(s);
+        map.set(item.id, s.id);  // LibraryItem.id → source.id
+        return item;
+      });
+      sourceIdMap.current = map;
+      setItems(mapped);
     } catch {
       // 保留现有数据
     } finally {
@@ -460,6 +482,29 @@ export function LibraryPage() {
 
   function getFolderCount(folderId: string | null): number {
     return items.filter((item) => item.folderId === folderId).length;
+  }
+
+  async function handleDeleteItem(itemId: string) {
+    const sourceId = sourceIdMap.current.get(itemId);
+    if (!sourceId) return;
+    try {
+      await deleteSource(sourceId);
+      setItems((prev) => prev.filter((i) => i.id !== itemId));
+      setSelectedItem(null);
+    } catch {
+      // 删除失败静默
+    }
+  }
+
+  async function handleReparseItem(itemId: string) {
+    const sourceId = sourceIdMap.current.get(itemId);
+    if (!sourceId) return;
+    try {
+      await reparseSource(sourceId);
+      loadSources();  // 刷新列表（更新解析状态）
+    } catch {
+      // 重新解析失败静默
+    }
   }
 
   const activeFolderName = activeFolder ? folders.find((f) => f.id === activeFolder)?.name ?? "" : "";
@@ -677,7 +722,7 @@ export function LibraryPage() {
               </div>
 
               {selectedItem && (
-                <LibraryDetailPanel item={selectedItem} onClose={() => setSelectedItem(null)} />
+                <LibraryDetailPanel item={selectedItem} onClose={() => setSelectedItem(null)} onDelete={() => handleDeleteItem(selectedItem.id)} onReparse={() => handleReparseItem(selectedItem.id)} />
               )}
             </div>
           </div>

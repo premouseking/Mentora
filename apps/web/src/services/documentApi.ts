@@ -87,3 +87,21 @@ export function sourcesToFileNodes(items: SourceItem[]): { id: string; name: str
     extension: ".pdf",
   }));
 }
+
+/* ── 删除 ── */
+
+export async function deleteSource(sourceId: string): Promise<void> {
+  const res = await fetch(`${API}/library/sources/${encodeURIComponent(sourceId)}/delete/`, {
+    method: "DELETE",
+  });
+  if (!res.ok) throw new Error("删除失败");
+}
+
+/* ── 重新解析 ── */
+
+export async function reparseSource(sourceId: string): Promise<void> {
+  const res = await fetch(`${API}/library/sources/${encodeURIComponent(sourceId)}/reparse/`, {
+    method: "POST",
+  });
+  if (!res.ok) throw new Error("重新解析失败");
+}

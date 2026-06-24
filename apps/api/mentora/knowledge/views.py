@@ -150,3 +150,49 @@ def source_detail(request, source_version_id):
         },
         "bundle": bundle_data,
     })
+
+
+@csrf_exempt
+@require_http_methods(["DELETE"])
+def source_delete(request, source_id):
+    """DELETE /api/library/sources/<source_id>/ — 删除资料及关联的版本和解析数据。"""
+    try:
+        source = Source.objects.get(id=source_id)
+    except Source.DoesNotExist:
+        return JsonResponse({"error": "资料不存在"}, status=404)
+
+    source.delete()  # CASCADE: SourceVersion → UploadSession, ProcessingRun
+    return JsonResponse({"status": "deleted"})
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def source_reparse(request, source_id):
+    """POST /api/library/sources/<source_id>/reparse/ — 重新解析资料。"""
+    from mentora.knowledge.models import ProcessingRun, ProcessingRunStatus, ProcessingStatus
+    from mentora.knowledge.services.processing import run_processing_for_version
+
+    try:
+        source = Source.objects.get(id=source_id)
+    except Source.DoesNotExist:
+        return JsonResponse({"error": "资料不存在"}, status=404)
+
+    version = source.latest_version
+    if version is None:
+        return JsonResponse({"error": "资料没有版本记录"}, status=400)
+
+    # 清理旧解析数据
+    ProcessingRun.objects.filter(source_version=version).delete()
+    from mentora.retrieval.models import ChunkProjection, EvidenceUnit
+    EvidenceUnit.objects.filter(source_version_id=str(version.id)).delete()
+    ChunkProjection.objects.filter(source_version_id=str(version.id)).delete()
+
+    # 重新触发解析（sync）
+    version.processing_status = ProcessingStatus.PENDING
+    version.save(update_fields=["processing_status"])
+    result = run_processing_for_version(str(version.id), sync=True)
+
+    return JsonResponse({
+        "status": result.status,
+        "processingStatus": version.processing_status,
+    })
