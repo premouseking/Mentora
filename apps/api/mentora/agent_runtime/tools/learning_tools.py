@@ -66,3 +66,45 @@ class CreateLearningPlanTool(Tool):
                 success=False,
                 error=str(e),
             )
+
+
+class GetLearningProgressTool(Tool):
+    """查询学习进度工具。
+
+    返回当前课程的学习计划与进度摘要（phase/unit 完成状态、预估时间）。
+    PlannerAgent 用于判断下一步学习内容，TutorAgent 用于个性化回答。
+    """
+
+    async def execute(self, args: dict, ctx: ToolContext) -> ToolResult:
+        course_session_id = args.get("course_session_id", "")
+
+        if not course_session_id:
+            return ToolResult(
+                tool_name="get_learning_progress",
+                success=False,
+                error="缺少 course_session_id 参数",
+            )
+
+        try:
+            from mentora.learning.services import get_progress
+
+            result = await sync_to_async(get_progress)(course_session_id)
+
+            if result is None:
+                return ToolResult(
+                    tool_name="get_learning_progress",
+                    success=False,
+                    error="该课程尚无学习计划",
+                )
+
+            return ToolResult(
+                tool_name="get_learning_progress",
+                success=True,
+                result=result,
+            )
+        except Exception as e:
+            return ToolResult(
+                tool_name="get_learning_progress",
+                success=False,
+                error=str(e),
+            )

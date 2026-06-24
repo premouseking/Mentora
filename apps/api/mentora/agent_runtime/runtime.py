@@ -23,7 +23,10 @@ from mentora.agent_runtime.prompts.manager import PromptManager
 from mentora.agent_runtime.schemas.task import BudgetConfig
 from mentora.agent_runtime.tools.base import ToolDefinition
 from mentora.agent_runtime.tools.knowledge_tools import RetrieveEvidenceTool
-from mentora.agent_runtime.tools.learning_tools import CreateLearningPlanTool
+from mentora.agent_runtime.tools.learning_tools import (
+    CreateLearningPlanTool,
+    GetLearningProgressTool,
+)
 from mentora.agent_runtime.tools.registry import ToolRegistry
 from mentora.model_gateway.gateway import ModelGateway
 from mentora.model_gateway.providers.base import BaseProvider
@@ -85,11 +88,33 @@ CREATE_LEARNING_PLAN_DEFINITION = ToolDefinition(
 )
 
 
+GET_LEARNING_PROGRESS_DEFINITION = ToolDefinition(
+    name="get_learning_progress",
+    description=(
+        "查询当前课程的学习进度。"
+        "返回 phase/unit 级别的完成状态与预估时间，"
+        "用于判断下一步学习内容或个性化回答。"
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "course_session_id": {
+                "type": "string",
+                "description": "课程会话 ID",
+            },
+        },
+        "required": ["course_session_id"],
+    },
+    agent_roles={"planner", "tutor"},
+)
+
+
 def build_tool_registry() -> ToolRegistry:
     """注册领域工具。"""
     registry = ToolRegistry()
     registry.register(RetrieveEvidenceTool(), RETRIEVE_EVIDENCE_DEFINITION)
     registry.register(CreateLearningPlanTool(), CREATE_LEARNING_PLAN_DEFINITION)
+    registry.register(GetLearningProgressTool(), GET_LEARNING_PROGRESS_DEFINITION)
     return registry
 
 

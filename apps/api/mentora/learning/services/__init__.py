@@ -225,3 +225,63 @@ def get_active_plan(course_session_id: str) -> dict | None:
         "profile_revision_id": revision.profile_revision_id,
         "phases": phases,
     }
+
+
+def get_progress(course_session_id: str) -> dict | None:
+    """
+    获取学习进度摘要。
+
+    后续 LearningTask 物化 + 掌握度落地后，completed 字段查真实数据。
+    """
+    plan = get_active_plan(course_session_id)
+    if not plan:
+        return None
+
+    total_minutes = 0
+    completed_minutes = 0
+    phase_summaries = []
+
+    for phase in plan["phases"]:
+        p_total = 0
+        p_completed = 0
+        unit_summaries = []
+
+        for unit in phase["units"]:
+            unit_minutes = unit["estimated_minutes"]
+            # 后续从 LearningTask + mastery 查真实进度
+            unit_completed = False
+            unit_score = None
+
+            unit_summaries.append({
+                "unit_id": unit["id"],
+                "title": unit.get("title", ""),
+                "position": unit["position"],
+                "target_depth": unit["target_depth"],
+                "estimated_minutes": unit_minutes,
+                "completed": unit_completed,
+                "score_pct": unit_score,
+                "task_count": len(unit["tasks"]),
+            })
+
+            p_total += unit_minutes
+            if unit_completed:
+                p_completed += unit_minutes
+
+        total_minutes += p_total
+        completed_minutes += p_completed
+
+        phase_summaries.append({
+            "phase_id": phase["id"],
+            "title": phase["title"],
+            "estimated_minutes": p_total,
+            "completed": p_total > 0 and p_completed == p_total,
+            "units": unit_summaries,
+        })
+
+    return {
+        "plan_id": plan["plan_id"],
+        "total_estimated_minutes": total_minutes,
+        "completed_minutes": completed_minutes,
+        "progress_pct": round(completed_minutes / max(total_minutes, 1) * 100),
+        "phases": phase_summaries,
+    }
