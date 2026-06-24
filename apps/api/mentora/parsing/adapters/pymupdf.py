@@ -162,14 +162,17 @@ class PyMuPDFAdapter:
         for block in blocks:
             block_type = block.get("type", -1)
 
-            # 图片块
+            # 图片块：记录 xref 供 processing 管道提取
             if block_type == 1:
                 bbox = self._to_pdf_bbox(block.get("bbox"), page_height)
+                xref = self._find_image_xref(fitz_page, block)
+                extra = {"xref": xref} if xref is not None else None
                 elements.append(
                     ParsedElement(
                         type=ElementType.IMAGE,
                         text="",
                         bbox=bbox,
+                        extra=extra,
                     )
                 )
                 continue
@@ -187,6 +190,25 @@ class PyMuPDFAdapter:
         # 多列阅读顺序恢复
         elements, reorder_warnings = reorder_elements(elements, page_width)
         return elements, table_warnings + reorder_warnings
+
+    @staticmethod
+    def _find_image_xref(page, block: dict) -> int | None:
+        """根据图片 block 匹配 PDF 内嵌图片的 xref 编号。"""
+        block_bbox = block.get("bbox")
+        if not block_bbox:
+            return None
+        bx0, by0, bx1, by1 = block_bbox
+        for img in page.get_image_info():
+            i_bbox = img.get("bbox")
+            if not i_bbox:
+                continue
+            ix0, iy0, ix1, iy1 = i_bbox
+            # bbox 重叠度 > 50%
+            overlap_x = max(0, min(bx1, ix1) - max(bx0, ix0))
+            overlap_y = max(0, min(by1, iy1) - max(by0, iy0))
+            if overlap_x * overlap_y > 0:
+                return img.get("xref")
+        return None
 
     def _merge_tables(
         self,

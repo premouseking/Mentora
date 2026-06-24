@@ -39,6 +39,7 @@ def persist_evidence_units(
                 bbox_json=bbox_json,
                 element_indices=unit.element_indices,
                 token_count=unit.token_count,
+                structure_type=unit.structure_type,
             )
         )
 

@@ -68,6 +68,9 @@ class ParsedElement(BaseModel):
     confidence: float | None = Field(
         default=None, ge=0.0, le=1.0, description="提取置信度，0-1"
     )
+    extra: dict | None = Field(
+        default=None, description="扩展数据，图片元素存储 {xref, width, height}"
+    )
 
 
 class Page(BaseModel):
@@ -158,6 +161,14 @@ class EvidenceUnit(BaseModel):
         description="引用的 ParsedElement 序号（0-based，在 ParsedBundle.pages 拍平后的索引）",
     )
     token_count: int | None = Field(default=None, ge=0, description="Token 估算值")
+    structure_type: str = Field(
+        default="paragraph",
+        description="结构类型：paragraph/heading/table/formula/image/list_item",
+    )
+    artifact_ref: str = Field(
+        default="",
+        description="对象存储引用，图片类型存图片 URL",
+    )
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
