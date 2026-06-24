@@ -93,6 +93,7 @@ class ModelGateway:
                         latency_ms=self._elapsed_ms(started),
                         success=True,
                     )
+                    self._router.mark_success(provider.name)
                     return chat_resp
                 except StructuredOutputError as exc:
                     structured_error_seen = True
@@ -112,6 +113,7 @@ class ModelGateway:
                     continue
                 except Exception as exc:  # noqa: BLE001 - provider boundary
                     last_error = exc
+                    self._router.mark_failure(provider.name)
                     await self._create_attempt_audit(
                         req=req,
                         attempt_number=attempt_number,

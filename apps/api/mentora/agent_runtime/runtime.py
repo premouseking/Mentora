@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from django.conf import settings
 
+from mentora.agent_runtime.agents.assessor import AssessorAgent
 from mentora.agent_runtime.agents.clarifier import ClarifierAgent
 from mentora.agent_runtime.agents.orchestrator import Orchestrator
 from mentora.agent_runtime.agents.planner import PlannerAgent
@@ -22,13 +23,42 @@ from mentora.agent_runtime.events import EventEmitter
 from mentora.agent_runtime.prompts.manager import PromptManager
 from mentora.agent_runtime.schemas.task import BudgetConfig
 from mentora.agent_runtime.tools.base import ToolDefinition
+from mentora.agent_runtime.tools.assessment_tools import (
+    GenerateItemTool,
+    SubmitAnswerTool,
+)
+from mentora.agent_runtime.tools.course_tools import QueryCourseScopeTool
 from mentora.agent_runtime.tools.knowledge_tools import RetrieveEvidenceTool
+from mentora.agent_runtime.tools.learning_tools import (
+    CreateLearningPlanTool,
+    GetLearningProgressTool,
+)
 from mentora.agent_runtime.tools.registry import ToolRegistry
 from mentora.model_gateway.gateway import ModelGateway
 from mentora.model_gateway.providers.base import BaseProvider
 from mentora.model_gateway.providers.openai import OpenAIProvider
 from mentora.model_gateway.router import TaskRouter
 from mentora.model_gateway.structured_output import StructuredOutputValidator
+
+QUERY_COURSE_SCOPE_DEFINITION = ToolDefinition(
+    name="query_course_scope",
+    description=(
+        "查询当前课程的建课信息与资料范围。"
+        "返回课程目标、学习水平、进度、已激活的资料版本列表，"
+        "用于限定 retrieve_evidence 的检索范围。"
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "course_session_id": {
+                "type": "string",
+                "description": "课程会话 ID",
+            },
+        },
+        "required": ["course_session_id"],
+    },
+    agent_roles={"planner", "tutor", "assessor"},
+)
 
 RETRIEVE_EVIDENCE_DEFINITION = ToolDefinition(
     name="retrieve_evidence",
@@ -51,11 +81,125 @@ RETRIEVE_EVIDENCE_DEFINITION = ToolDefinition(
     agent_roles={"tutor", "planner"},
 )
 
+CREATE_LEARNING_PLAN_DEFINITION = ToolDefinition(
+    name="create_learning_plan",
+    description=(
+        "将生成的学习计划持久化到数据库。"
+        "接收完整的计划 JSON（含 phases/units/tasks），"
+        "自动创建 Plan → Revision → Phase → Unit → TaskTemplate 结构。"
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "course_session_id": {
+                "type": "string",
+                "description": "课程会话 ID（从 query_course_scope 结果获取）",
+            },
+            "plan_snapshot": {
+                "type": "object",
+                "description": "计划快照 JSON，包含 phases 数组，每个 phase 含 units，每个 unit 含 tasks",
+            },
+            "profile_revision_id": {
+                "type": "string",
+                "description": "课程画像修订 ID（可选）",
+            },
+            "knowledge_scope_revision_id": {
+                "type": "string",
+                "description": "知识作用域修订 ID（可选）",
+            },
+        },
+        "required": ["course_session_id", "plan_snapshot"],
+    },
+    agent_roles={"planner"},
+)
+
+
+GET_LEARNING_PROGRESS_DEFINITION = ToolDefinition(
+    name="get_learning_progress",
+    description=(
+        "查询当前课程的学习进度。"
+        "返回 phase/unit 级别的完成状态与预估时间，"
+        "用于判断下一步学习内容或个性化回答。"
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "course_session_id": {
+                "type": "string",
+                "description": "课程会话 ID",
+            },
+        },
+        "required": ["course_session_id"],
+    },
+    agent_roles={"planner", "tutor"},
+)
+
+
+GENERATE_ITEM_DEFINITION = ToolDefinition(
+    name="generate_item",
+    description=(
+        "创建评估题目并组建测验会话。"
+        "接收题目列表（每题含题干、选项、正确答案），"
+        "自动创建 AssessmentItem + AssessmentSession，学生可立即作答。"
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "course_session_id": {
+                "type": "string",
+                "description": "课程会话 ID",
+            },
+            "items": {
+                "type": "array",
+                "description": "题目列表",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "question_type": {"type": "string", "description": "题型: single_choice/multi_choice/short_answer"},
+                        "question_text": {"type": "string", "description": "题干"},
+                        "correct_answer": {"type": "string", "description": "正确答案"},
+                        "difficulty": {"type": "integer", "description": "难度 1-5"},
+                        "options_json": {"type": "array", "description": "选项列表"},
+                        "explanation": {"type": "string", "description": "解析"},
+                        "topic_id": {"type": "string", "description": "关联 topic ID"},
+                        "source_evidence_ids": {"type": "array", "items": {"type": "string"}},
+                    },
+                    "required": ["question_text", "correct_answer"],
+                },
+            },
+            "unit_id": {"type": "string", "description": "关联学习单元 ID（可选）"},
+        },
+        "required": ["course_session_id", "items"],
+    },
+    agent_roles={"assessor"},
+)
+
+SUBMIT_ANSWER_DEFINITION = ToolDefinition(
+    name="submit_answer",
+    description="记录学生作答并自动判分",
+    parameters={
+        "type": "object",
+        "properties": {
+            "session_id": {"type": "string", "description": "测验会话 ID"},
+            "item_id": {"type": "string", "description": "题目 ID"},
+            "user_answer": {"type": "string", "description": "学生作答内容"},
+            "duration_seconds": {"type": "integer", "description": "作答耗时（秒）"},
+        },
+        "required": ["session_id", "item_id", "user_answer"],
+    },
+    agent_roles={"assessor"},
+)
+
 
 def build_tool_registry() -> ToolRegistry:
     """注册领域工具。"""
     registry = ToolRegistry()
+    registry.register(QueryCourseScopeTool(), QUERY_COURSE_SCOPE_DEFINITION)
     registry.register(RetrieveEvidenceTool(), RETRIEVE_EVIDENCE_DEFINITION)
+    registry.register(CreateLearningPlanTool(), CREATE_LEARNING_PLAN_DEFINITION)
+    registry.register(GetLearningProgressTool(), GET_LEARNING_PROGRESS_DEFINITION)
+    registry.register(GenerateItemTool(), GENERATE_ITEM_DEFINITION)
+    registry.register(SubmitAnswerTool(), SUBMIT_ANSWER_DEFINITION)
     return registry
 
 
@@ -124,12 +268,18 @@ def build_orchestrator(
         tool_registry=tool_registry,
         model_gateway=gateway,
     )
+    assessor = AssessorAgent(
+        prompt_manager=prompt_manager,
+        tool_registry=tool_registry,
+        model_gateway=gateway,
+    )
 
     orch = Orchestrator(
         agent_map={
             "tutor": tutor,
             "clarifier": clarifier,
             "planner": planner,
+            "assessor": assessor,
         },
         prompt_manager=prompt_manager,
         context_manager=context_manager,

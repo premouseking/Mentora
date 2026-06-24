@@ -34,3 +34,7 @@ class ProviderTimeout(ProviderError):
 
 class StructuredOutputError(GatewayError):
     """模型输出无法解析或未通过 Pydantic schema 校验。"""
+
+
+class NoHealthyProviderError(GatewayError):
+    """所有 Provider 均不健康（连续失败超过阈值，处于冷却期）。"""
