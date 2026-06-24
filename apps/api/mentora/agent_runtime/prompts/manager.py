@@ -13,6 +13,7 @@ class PromptManager:
 
     def __init__(self, templates_dir: Path | str | None = None):
         self._cache: dict[str, PromptTemplate] = {}
+        self._render_cache: dict[str, str] = {}
         if templates_dir is None:
             templates_dir = Path(__file__).resolve().parent / "templates"
         self._templates_dir = Path(templates_dir)
@@ -42,26 +43,42 @@ class PromptManager:
         *,
         include_base: bool = True,
     ) -> str:
+        variables = self._normalize_variables(variables or {})
+        cache_key = self._make_cache_key(name, variables, include_base)
+        if cache_key in self._render_cache:
+            return self._render_cache[cache_key]
+
         template = self.get(name)
         rendered = template.system
-        for key, value in self._normalize_variables(variables or {}).items():
+        for key, value in variables.items():
             rendered = rendered.replace(f"{{{{ {key} }}}}", value)
             rendered = rendered.replace(f"{{{{{key}}}}}", value)
         rendered = rendered.strip()
 
         if not include_base:
+            self._render_cache[cache_key] = rendered
             return rendered
 
         base = build_base_instructions()
         if not rendered:
+            self._render_cache[cache_key] = base
             return base
-        return f'{base}\n\n<task_prompt name="{name}">\n{rendered}\n</task_prompt>'
+        result = f'{base}\n\n<task_prompt name="{name}">\n{rendered}\n</task_prompt>'
+        self._render_cache[cache_key] = result
+        return result
+
+    def _make_cache_key(
+        self, name: str, variables: dict[str, str], include_base: bool
+    ) -> str:
+        var_str = ",".join(f"{k}={v}" for k, v in sorted(variables.items()))
+        return f"{name}:{include_base}:{var_str}"
 
     def list_templates(self) -> list[str]:
         return list(self._cache.keys())
 
     def reload(self) -> None:
         self._cache.clear()
+        self._render_cache.clear()
         self._load_all()
 
     @staticmethod
