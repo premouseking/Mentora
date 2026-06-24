@@ -43,19 +43,24 @@ from mentora.model_gateway.structured_output import StructuredOutputValidator
 QUERY_COURSE_SCOPE_DEFINITION = ToolDefinition(
     name="query_course_scope",
     description=(
-        "查询当前课程的建课信息与资料范围。"
+        "查询课程信息与资料范围。"
         "返回课程目标、学习水平、进度、已激活的资料版本列表，"
         "用于限定 retrieve_evidence 的检索范围。"
+        "正式课程传 course_id，建课未确认时传 course_session_id。"
     ),
     parameters={
         "type": "object",
         "properties": {
+            "course_id": {
+                "type": "string",
+                "description": "正式课程 ID（优先，建课确认后使用）",
+            },
             "course_session_id": {
                 "type": "string",
-                "description": "课程会话 ID",
+                "description": "建课会话 ID（建课未确认时使用）",
             },
         },
-        "required": ["course_session_id"],
+        "required": [],
     },
     agent_roles={"planner", "tutor", "assessor"},
 )
