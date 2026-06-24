@@ -187,3 +187,55 @@ def activate_course(course_id: str) -> dict:
         "profile_revision_id": str(profile.id),
         "status": profile.status,
     }
+
+
+@transaction.atomic
+def revise_profile(
+    course_id: str,
+    *,
+    goal: str | None = None,
+    level: str | None = None,
+    pace: str | None = None,
+    school: str | None = None,
+    topics_json: dict | None = None,
+    plan_revision_id: str | None = None,
+) -> dict:
+    """克隆当前生效画像为新草稿，用户确认后调用 activate_course 激活。
+
+    继承旧画像所有字段，仅覆盖传入的非 None 参数。
+    """
+    course = Course.objects.get(id=course_id)
+    old = CourseProfileRevision.objects.get(
+        id=course.active_profile_revision_id,
+    )
+
+    # 标记旧版本 superseded
+    old.status = CourseProfileRevision.Status.SUPERSEDED
+    old.save(update_fields=["status"])
+
+    new = CourseProfileRevision.objects.create(
+        course=course,
+        parent_revision_id=old.id,
+        goal=goal if goal is not None else old.goal,
+        level=level if level is not None else old.level,
+        pace=pace if pace is not None else old.pace,
+        school=school if school is not None else old.school,
+        topics_json=topics_json if topics_json is not None else old.topics_json,
+        plan_revision_id=plan_revision_id if plan_revision_id is not None
+        else old.plan_revision_id,
+        lock_version=old.lock_version + 1,
+        status=CourseProfileRevision.Status.DRAFT,
+    )
+
+    course.active_profile_revision_id = new.id
+    course.save(update_fields=["active_profile_revision_id"])
+
+    return {
+        "course_id": str(course.id),
+        "superseded_revision_id": str(old.id),
+        "profile_revision_id": str(new.id),
+        "status": new.status,
+        "goal": new.goal,
+        "level": new.level,
+        "pace": new.pace,
+    }
