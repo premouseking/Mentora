@@ -108,3 +108,45 @@ def list_sources(request):
             }
         )
     return JsonResponse({"items": items, "count": len(items)})
+
+
+@require_http_methods(["GET"])
+def source_detail(request, source_version_id):
+    """GET /api/library/sources/<source_version_id>/ — 获取资料版本详情与解析正文。"""
+    from mentora.common.storage import ObjectStorageError, ObjectStorageService
+    from mentora.knowledge.models import SourceVersion
+
+    try:
+        version = SourceVersion.objects.select_related("source").get(id=source_version_id)
+    except SourceVersion.DoesNotExist:
+        return JsonResponse({"error": "资料版本不存在"}, status=404)
+
+    bundle_data = None
+    if version.artifact_ref:
+        try:
+            storage = ObjectStorageService()
+            raw = storage.get_object_bytes(version.artifact_ref)
+            bundle_data = json.loads(raw.decode("utf-8"))
+        except (ObjectStorageError, json.JSONDecodeError):
+            pass
+
+    return JsonResponse({
+        "source": {
+            "id": str(version.source.id),
+            "displayTitle": version.source.display_title,
+            "status": version.source.status,
+        },
+        "version": {
+            "id": str(version.id),
+            "versionNumber": version.version_number,
+            "processingStatus": version.processing_status,
+            "byteSize": version.byte_size,
+            "originalFilename": version.original_filename,
+            "mediaType": version.media_type,
+            "parserName": version.parser_name,
+            "parserVersion": version.parser_version,
+            "errorCode": version.error_code,
+            "errorMessage": version.error_message,
+        },
+        "bundle": bundle_data,
+    })

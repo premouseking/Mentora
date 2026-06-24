@@ -16,10 +16,16 @@ import { FileExplorer } from "../components/FileExplorer";
 import type { SectionKey } from "../components/FileExplorer";
 import { PhaseSummary } from "../components/PhaseSummary";
 import { QuizPanel } from "../components/QuizPanel";
-import { courseFiles } from "../data/files";
+import type { FileNode } from "../data/files";
 import { aiExplanations } from "../data/aiExplanations";
 import { mistakeItems } from "../data/mistakes";
 import { sampleQuestion } from "../data/quiz";
+import {
+  fetchSources,
+  fetchSourceDetail,
+  sourcesToFileNodes,
+  type BundleRaw,
+} from "../services/documentApi";
 
 const MIN_EXPLORER = 170;
 const MAX_EXPLORER = 360;
@@ -61,6 +67,7 @@ function DetachedSidePanel({
   onResizeStart,
   onMoveBack,
   onOpenPanel,
+  files,
 }: {
   sections: SectionKey[];
   selectedFileId: string | null;
@@ -73,6 +80,7 @@ function DetachedSidePanel({
   onResizeStart: () => void;
   onMoveBack: (section: SectionKey) => void;
   onOpenPanel: (section: SectionKey) => void;
+  files: FileNode[];
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   // null = flex mode; number[] = fraction per section (always sums to 1)
@@ -158,7 +166,7 @@ function DetachedSidePanel({
   const renderSectionContent = (section: SectionKey) => {
     switch (section) {
       case "file":
-        return courseFiles.map((n) => (
+        return files.map((n) => (
           <button
             key={n.id}
             className={`fe-row${selectedFileId === n.id ? " selected" : ""}`}
@@ -290,6 +298,40 @@ function DetachedSidePanel({
   );
 }
 
+/* ── Document page renderer ── */
+function DocumentRenderer({ bundle }: { bundle: BundleRaw }) {
+  return (
+    <div className="document-reader">
+      {bundle.pages.map((page) => (
+        <div key={page.page_number} className="doc-page">
+          <div className="doc-page-number">第 {page.page_number} 页</div>
+          {page.elements.map((el, i) => {
+            if (el.type === "heading") {
+              const lvl = Math.min(el.heading_level ?? 1, 3);
+              const sizes = [22, 18, 16];
+              return (
+                <div key={i} className="doc-heading" style={{ fontSize: sizes[lvl - 1], fontWeight: 700 }}>
+                  {el.text}
+                </div>
+              );
+            }
+            if (el.type === "paragraph") {
+              return <p key={i} className="doc-paragraph">{el.text}</p>;
+            }
+            if (el.type === "list_item") {
+              return <div key={i} className="doc-list-item">• {el.text}</div>;
+            }
+            if (el.type === "image") {
+              return <div key={i} className="doc-image-placeholder">[图片]</div>;
+            }
+            return <p key={i} className="doc-paragraph">{el.text || `[${el.type}]`}</p>;
+          })}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 /* ── Content preview panel ── */
 function ContentPanel({
   section,
@@ -299,6 +341,9 @@ function ContentPanel({
   width,
   onClose,
   onResizeStart,
+  fileBundle,
+  fileBundleTitle,
+  fileLoading,
 }: {
   section: SectionKey;
   selectedFileId: string | null;
@@ -307,6 +352,9 @@ function ContentPanel({
   width?: number;
   onClose: () => void;
   onResizeStart?: () => void;
+  fileBundle?: BundleRaw | null;
+  fileBundleTitle?: string;
+  fileLoading?: boolean;
 }) {
   const icon = SECTION_ICONS[section];
   const label = SECTION_LABELS[section];
@@ -314,11 +362,8 @@ function ContentPanel({
   const getTitle = () => {
     switch (section) {
       case "file":
-        if (!selectedFileId) return label;
-        for (const n of courseFiles)
-          for (const fn of [n, ...(n.children ?? [])])
-            if (fn.id === selectedFileId && fn.type === "file") return fn.name;
-        return selectedFileId;
+        if (fileBundleTitle) return fileBundleTitle;
+        return selectedFileId ? `文件 ${selectedFileId.slice(0, 8)}…` : label;
       case "ai":
         return selectedAiId ? aiExplanations.find((a) => a.id === selectedAiId)?.title ?? label : label;
       case "mistakes":
@@ -335,9 +380,20 @@ function ContentPanel({
         </button>
       </div>
       <div className="cw-split-content">
-        <p className="cw-preview-text">
-          「{getTitle()}」的内容预览将在这里显示。
-        </p>
+        {section === "file" && fileLoading && (
+          <p className="cw-preview-text">加载中…</p>
+        )}
+        {section === "file" && !fileLoading && fileBundle && (
+          <DocumentRenderer bundle={fileBundle} />
+        )}
+        {section === "file" && !fileLoading && !fileBundle && selectedFileId && (
+          <p className="cw-preview-text">无法加载文档内容。</p>
+        )}
+        {section !== "file" && (
+          <p className="cw-preview-text">
+            「{getTitle()}」的内容预览将在这里显示。
+          </p>
+        )}
       </div>
       {onResizeStart && (
         <div className="cw-split-handle" onMouseDown={onResizeStart} />
@@ -359,8 +415,21 @@ export function CourseWorkspacePage() {
   const [openPanels, setOpenPanels] = useState<SectionKey[]>([]);
   const [panelWidths, setPanelWidths] = useState<number[]>([]);
 
+  /* ── Document data ── */
+  const [fileNodes, setFileNodes] = useState<FileNode[]>([]);
+  const [selectedFileBundle, setSelectedFileBundle] = useState<BundleRaw | null>(null);
+  const [selectedFileName, setSelectedFileName] = useState("");
+  const [fileLoading, setFileLoading] = useState(false);
+
   const l2Ref = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+
+  /* ── Fetch sources on mount ── */
+  useEffect(() => {
+    fetchSources()
+      .then((items) => setFileNodes(sourcesToFileNodes(items)))
+      .catch(() => setFileNodes([]));
+  }, []);
 
   /* ── Open / close panel ── */
   const openPanel = useCallback((section: SectionKey) => {
@@ -373,7 +442,12 @@ export function CourseWorkspacePage() {
 
   const closePanel = useCallback((section: SectionKey) => {
     setOpenPanels((prev) => prev.filter((s) => s !== section));
-    if (section === "file") setSelectedFile(null);
+    if (section === "file") {
+      setSelectedFile(null);
+      setSelectedFileBundle(null);
+      setSelectedFileName("");
+      setFileLoading(false);
+    }
     if (section === "ai") setSelectedAi(null);
     if (section === "mistakes") setSelectedMistake(null);
   }, []);
@@ -402,6 +476,18 @@ export function CourseWorkspacePage() {
   /* ── Wrapper: select + open panel ── */
   const handleSelectFile = useCallback((id: string) => {
     setSelectedFile(id);
+    setFileLoading(true);
+    setSelectedFileBundle(null);
+    setSelectedFileName("");
+    fetchSourceDetail(id)
+      .then((data) => {
+        if (data.bundle) {
+          setSelectedFileBundle(data.bundle);
+          setSelectedFileName(data.source.displayTitle || data.version.originalFilename || "未命名");
+        }
+        setFileLoading(false);
+      })
+      .catch(() => setFileLoading(false));
     openPanel("file");
   }, [openPanel]);
 
@@ -634,7 +720,7 @@ export function CourseWorkspacePage() {
           <>
             <div style={{ width: explorerWidth, flexShrink: 0, overflow: "hidden", display: "flex", flexDirection: "column" }}>
               <FileExplorer
-                files={courseFiles}
+                files={fileNodes}
                 aiItems={aiExplanations}
                 mistakeItems={mistakeItems}
                 selectedFileId={selectedFile}
@@ -677,6 +763,9 @@ export function CourseWorkspacePage() {
               selectedAiId={selectedAi}
               selectedMistakeId={selectedMistake}
               onClose={() => closePanel(openPanels[0])}
+              fileBundle={selectedFileBundle}
+              fileBundleTitle={selectedFileName}
+              fileLoading={fileLoading}
             />
           ) : (
             /* Multi-panel split */
@@ -691,6 +780,9 @@ export function CourseWorkspacePage() {
                   width={panelWidths[i]}
                   onClose={() => closePanel(section)}
                   onResizeStart={i < openPanels.length - 1 ? () => startSplitResize(i) : undefined}
+                  fileBundle={selectedFileBundle}
+                  fileBundleTitle={selectedFileName}
+                  fileLoading={fileLoading}
                 />
               ))}
             </div>
@@ -717,6 +809,7 @@ export function CourseWorkspacePage() {
           onResizeStart={startSideResize}
           onMoveBack={toggleDetach}
           onOpenPanel={openPanel}
+          files={fileNodes}
         />
 
         {/* Quiz overlay */}
