@@ -3,6 +3,11 @@ from django.urls import path
 
 from mentora.agent_runtime.views import chat_api, chat_stream
 from mentora.courses.views import (
+    course_activate,
+    course_confirm,
+    course_detail,
+    course_profile_revise,
+    course_scope_extend,
     inquiry_next,
     plan_generate,
     session_create,
@@ -29,6 +34,12 @@ urlpatterns = [
     path("api/courses/sessions/<uuid:session_id>/update/", session_update, name="session-update"),
     path("api/courses/sessions/<uuid:session_id>/inquiry/", inquiry_next, name="inquiry-next"),
     path("api/courses/sessions/<uuid:session_id>/plan/", plan_generate, name="plan-generate"),
+    # 课程管理
+    path("api/courses/confirm/", course_confirm, name="course-confirm"),
+    path("api/courses/<uuid:course_id>/", course_detail, name="course-detail"),
+    path("api/courses/<uuid:course_id>/profile/", course_profile_revise, name="course-profile-revise"),
+    path("api/courses/<uuid:course_id>/scope/", course_scope_extend, name="course-scope-extend"),
+    path("api/courses/<uuid:course_id>/activate/", course_activate, name="course-activate"),
     # 上传
     path("api/uploads/", upload_create, name="upload-create"),
     path("api/uploads/complete/", upload_complete, name="upload-complete"),
