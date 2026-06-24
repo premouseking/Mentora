@@ -27,6 +27,7 @@ from mentora.agent_runtime.tools.assessment_tools import (
     GenerateItemTool,
     SubmitAnswerTool,
 )
+from mentora.agent_runtime.tools.course_tools import QueryCourseScopeTool
 from mentora.agent_runtime.tools.knowledge_tools import RetrieveEvidenceTool
 from mentora.agent_runtime.tools.learning_tools import (
     CreateLearningPlanTool,
@@ -38,6 +39,26 @@ from mentora.model_gateway.providers.base import BaseProvider
 from mentora.model_gateway.providers.openai import OpenAIProvider
 from mentora.model_gateway.router import TaskRouter
 from mentora.model_gateway.structured_output import StructuredOutputValidator
+
+QUERY_COURSE_SCOPE_DEFINITION = ToolDefinition(
+    name="query_course_scope",
+    description=(
+        "查询当前课程的建课信息与资料范围。"
+        "返回课程目标、学习水平、进度、已激活的资料版本列表，"
+        "用于限定 retrieve_evidence 的检索范围。"
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "course_session_id": {
+                "type": "string",
+                "description": "课程会话 ID",
+            },
+        },
+        "required": ["course_session_id"],
+    },
+    agent_roles={"planner", "tutor", "assessor"},
+)
 
 RETRIEVE_EVIDENCE_DEFINITION = ToolDefinition(
     name="retrieve_evidence",
@@ -173,6 +194,7 @@ SUBMIT_ANSWER_DEFINITION = ToolDefinition(
 def build_tool_registry() -> ToolRegistry:
     """注册领域工具。"""
     registry = ToolRegistry()
+    registry.register(QueryCourseScopeTool(), QUERY_COURSE_SCOPE_DEFINITION)
     registry.register(RetrieveEvidenceTool(), RETRIEVE_EVIDENCE_DEFINITION)
     registry.register(CreateLearningPlanTool(), CREATE_LEARNING_PLAN_DEFINITION)
     registry.register(GetLearningProgressTool(), GET_LEARNING_PROGRESS_DEFINITION)
