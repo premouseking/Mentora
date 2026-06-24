@@ -1,0 +1,80 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 780 380" font-family="system-ui, -apple-system, sans-serif">
+  <defs>
+    <marker id="a" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6 Z" fill="#64748B"/></marker>
+    <linearGradient id="pg" x1="0%" y1="0%" x2="100%" y2="0%"><stop offset="0%" stop-color="#2563EB"/><stop offset="100%" stop-color="#1D4ED8"/></linearGradient>
+    <linearGradient id="pg2" x1="0%" y1="0%" x2="100%" y2="0%"><stop offset="0%" stop-color="#7C3AED"/><stop offset="100%" stop-color="#6D28D9"/></linearGradient>
+    <linearGradient id="pg3" x1="0%" y1="0%" x2="100%" y2="0%"><stop offset="0%" stop-color="#059669"/><stop offset="100%" stop-color="#047857"/></linearGradient>
+    <linearGradient id="pg4" x1="0%" y1="0%" x2="100%" y2="0%"><stop offset="0%" stop-color="#D97706"/><stop offset="100%" stop-color="#B45309"/></linearGradient>
+    <linearGradient id="pg5" x1="0%" y1="0%" x2="100%" y2="0%"><stop offset="0%" stop-color="#DC2626"/><stop offset="100%" stop-color="#B91C1C"/></linearGradient>
+    <linearGradient id="pg6" x1="0%" y1="0%" x2="100%" y2="0%"><stop offset="0%" stop-color="#0891B2"/><stop offset="100%" stop-color="#0E7490"/></linearGradient>
+    <filter id="shadow"><feDropShadow dx="0" dy="1" stdDeviation="2" flood-color="#000" flood-opacity="0.08"/></filter>
+  </defs>
+
+  <!-- title -->
+  <text x="390" y="26" text-anchor="middle" font-size="14" fill="#1E293B" font-weight="700">Mentora 分阶段交付路线图</text>
+
+  <!-- timeline axis -->
+  <line x1="80" y1="100" x2="740" y2="100" stroke="#CBD5E1" stroke-width="3"/>
+  <circle cx="80" cy="100" r="5" fill="#2563EB"/>
+  <circle cx="740" cy="100" r="5" fill="#64748B"/>
+
+  <!-- Phase 1 -->
+  <rect x="80" y="60" width="220" height="22" rx="6" fill="url(#pg)" filter="url(#shadow)"/>
+  <text x="190" y="75" text-anchor="middle" font-size="11" fill="#FFF" font-weight="700">阶段一 · 工程基线+PDF链路</text>
+  <rect x="80" y="82" width="160" height="18" rx="4" fill="#DBEAFE"/>
+  <text x="160" y="95" text-anchor="middle" font-size="9" fill="#1E40AF" font-weight="600">🔄 进行中 — M0 验收节点</text>
+  <text x="190" y="138" text-anchor="middle" font-size="9" fill="#475569">桌面壳 · 上传 · 解析 · 作用域 · 引用问答</text>
+
+  <!-- Phase 2 -->
+  <rect x="300" y="60" width="160" height="22" rx="6" fill="url(#pg2)" filter="url(#shadow)"/>
+  <text x="380" y="75" text-anchor="middle" font-size="11" fill="#FFF" font-weight="700">阶段二 · 扫描+知识地图</text>
+  <rect x="300" y="82" width="70" height="18" rx="4" fill="#EDE9FE"/>
+  <text x="335" y="95" text-anchor="middle" font-size="9" fill="#5B21B6" font-weight="600">⬜ 待开始</text>
+  <text x="380" y="138" text-anchor="middle" font-size="9" fill="#475569">扫描PDF · Office系列 · 主题模型 · 知识地图</text>
+
+  <!-- Phase 3 -->
+  <rect x="460" y="60" width="140" height="22" rx="6" fill="url(#pg3)" filter="url(#shadow)"/>
+  <text x="530" y="75" text-anchor="middle" font-size="11" fill="#FFF" font-weight="700">阶段三 · 完整建课</text>
+  <rect x="460" y="82" width="70" height="18" rx="4" fill="#D1FAE5"/>
+  <text x="495" y="95" text-anchor="middle" font-size="9" fill="#065F46" font-weight="600">⬜ 待开始</text>
+  <text x="530" y="138" text-anchor="middle" font-size="9" fill="#475569">澄清→画像→计划→原子启动</text>
+
+  <!-- Phase 4 -->
+  <rect x="600" y="60" width="140" height="22" rx="6" fill="url(#pg4)" filter="url(#shadow)"/>
+  <text x="670" y="75" text-anchor="middle" font-size="11" fill="#FFF" font-weight="700">阶段四 · 学习闭环</text>
+  <rect x="600" y="82" width="70" height="18" rx="4" fill="#FEF3C7"/>
+  <text x="635" y="95" text-anchor="middle" font-size="9" fill="#92400E" font-weight="600">⬜ 待开始</text>
+  <text x="670" y="138" text-anchor="middle" font-size="9" fill="#475569">学习包 · 任务执行 · 追问</text>
+
+  <!-- Phase 5 -->
+  <rect x="200" y="170" width="160" height="22" rx="6" fill="url(#pg5)" filter="url(#shadow)"/>
+  <text x="280" y="185" text-anchor="middle" font-size="11" fill="#FFF" font-weight="700">阶段五 · 测评闭环</text>
+  <rect x="200" y="192" width="70" height="18" rx="4" fill="#FEE2E2"/>
+  <text x="235" y="205" text-anchor="middle" font-size="9" fill="#991B1B" font-weight="600">⬜ 待开始</text>
+  <text x="280" y="238" text-anchor="middle" font-size="9" fill="#475569">测验 · 评分 · 掌握度 · AI 动态出题</text>
+
+  <!-- Phase 6 -->
+  <rect x="380" y="170" width="180" height="22" rx="6" fill="url(#pg6)" filter="url(#shadow)"/>
+  <text x="470" y="185" text-anchor="middle" font-size="11" fill="#FFF" font-weight="700">阶段六 · 发布候选</text>
+  <rect x="380" y="192" width="70" height="18" rx="4" fill="#CFFAFE"/>
+  <text x="415" y="205" text-anchor="middle" font-size="9" fill="#155E75" font-weight="600">⬜ 待开始</text>
+  <text x="470" y="238" text-anchor="middle" font-size="9" fill="#475569">安装包 · 自动更新 · Smoke Test</text>
+
+  <!-- dependency arrows (phases 1-2-3-4) -->
+  <line x1="230" y1="71" x2="298" y2="71" stroke="#64748B" stroke-width="1.5" marker-end="url(#a)"/>
+  <line x1="380" y1="71" x2="458" y2="71" stroke="#64748B" stroke-width="1.5" marker-end="url(#a)"/>
+  <line x1="530" y1="71" x2="598" y2="71" stroke="#64748B" stroke-width="1.5" marker-end="url(#a)"/>
+
+  <!-- Phase 4→5 dependency -->
+  <line x1="670" y1="82" x2="710" y2="150" stroke="#94A3B8" stroke-width="1" stroke-dasharray="4,3"/>
+  <line x1="710" y1="150" x2="360" y2="181" stroke="#94A3B8" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#a)"/>
+
+  <!-- Phase 5→6 -->
+  <line x1="280" y1="181" x2="378" y2="181" stroke="#64748B" stroke-width="1.5" marker-end="url(#a)"/>
+
+  <!-- legend -->
+  <rect x="80" y="270" width="640" height="70" rx="8" fill="#F8FAFC" stroke="#E2E8F0" stroke-width="1"/>
+  <text x="400" y="294" text-anchor="middle" font-size="11" fill="#475569" font-weight="600">依赖关系</text>
+  <text x="400" y="314" text-anchor="middle" font-size="10" fill="#64748B">阶段一 → 二（扩展解析格式）  →  阶段一～三 → 四（建课完成后进入学习闭环）  →  四 → 五（积累真题后测评）  →  五 → 六（功能齐备后发布）</text>
+  <text x="400" y="332" text-anchor="middle" font-size="9" fill="#94A3B8">阶段二（知识地图）与阶段三（建课）可并行推进 · 阶段五（测评）可作为阶段四的增量叠加</text>
+</svg>
