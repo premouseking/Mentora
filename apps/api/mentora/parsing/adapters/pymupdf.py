@@ -295,9 +295,15 @@ class PyMuPDFAdapter:
         if rect is None or len(rect) < 4:
             return None
         x0, y_top, x1, y_bottom = rect[0], rect[1], rect[2], rect[3]
+        # 容错：某些 PDF 元素坐标异常，交换确保 x1 >= x0, y1 >= y0
+        x0, x1 = min(x0, x1), max(x0, x1)
+        y0 = max(0.0, page_height - y_bottom)
+        y1 = min(page_height, page_height - y_top)
+        if x1 <= x0 or y1 <= y0:
+            return None
         return BoundingBox(
             x0=x0,
-            y0=page_height - y_bottom,
+            y0=y0,
             x1=x1,
-            y1=page_height - y_top,
+            y1=y1,
         )

@@ -5027,6 +5027,11 @@ p {
   background: var(--surface);
 }
 
+.cw-content > .cw-split-pane {
+  position: absolute;
+  inset: 0;
+}
+
 /* Top trigger bar */
 
 .cw-top-trigger {
