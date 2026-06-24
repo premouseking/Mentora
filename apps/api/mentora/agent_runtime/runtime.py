@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from django.conf import settings
 
+from mentora.agent_runtime.agents.assessor import AssessorAgent
 from mentora.agent_runtime.agents.clarifier import ClarifierAgent
 from mentora.agent_runtime.agents.orchestrator import Orchestrator
 from mentora.agent_runtime.agents.planner import PlannerAgent
@@ -245,12 +246,18 @@ def build_orchestrator(
         tool_registry=tool_registry,
         model_gateway=gateway,
     )
+    assessor = AssessorAgent(
+        prompt_manager=prompt_manager,
+        tool_registry=tool_registry,
+        model_gateway=gateway,
+    )
 
     orch = Orchestrator(
         agent_map={
             "tutor": tutor,
             "clarifier": clarifier,
             "planner": planner,
+            "assessor": assessor,
         },
         prompt_manager=prompt_manager,
         context_manager=context_manager,
