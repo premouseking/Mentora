@@ -61,6 +61,7 @@ export interface PlanPhase {
 
 export interface PlanResponse {
   phases: PlanPhase[];
+  revision_id: string;
 }
 
 export class ApiError extends Error {
@@ -185,5 +186,13 @@ export async function generatePlan(
     method: "POST",
     signal,
     timeoutMs: 90_000, // 方案生成 90s 超时
+  });
+}
+
+/* ── 开始学习 ── */
+
+export async function startCourse(id: string): Promise<{ status: string; revision_id: string }> {
+  return request(`${BASE}/${encodeURIComponent(id)}/start/`, {
+    method: "POST",
   });
 }

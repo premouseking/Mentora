@@ -286,6 +286,7 @@ export function ConfirmPlanPage() {
   const [error, setError] = useState("");
   const [activePhaseId, setActivePhaseId] = useState("");
   const [planExpanded, setPlanExpanded] = useState(false);
+  const [starting, setStarting] = useState(false);
 
   const activePhase = useMemo(
     () => phases.find((phase) => phase.id === activePhaseId) ?? phases[0],
@@ -314,6 +315,10 @@ export function ConfirmPlanPage() {
         if (mapped.length > 0) {
           setActivePhaseId(mapped[0].id);
         }
+        // 存储 revision_id 供「开始学习」使用
+        if (resp.revision_id) {
+          sessionStorage.setItem("mentora-revision-id", resp.revision_id);
+        }
       } catch (err: unknown) {
         setError(err instanceof Error ? err.message : "方案生成失败");
       } finally {
@@ -327,8 +332,16 @@ export function ConfirmPlanPage() {
     setPlanExpanded(true);
   }
 
-  function startCourse() {
-    sessionStorage.setItem("mentora-course-started", "true");
+  async function startCourse() {
+    if (!sessionId || starting) return;
+    setStarting(true);
+    try {
+      const { startCourse: apiStartCourse } = await import("../services/courseApi");
+      await apiStartCourse(sessionId);
+    } catch {
+      // API 调用失败也允许进入学习（方案已在前端展示）
+    }
+    sessionStorage.setItem("mentora-course-started", sessionId);
     navigate("/courses");
   }
 

@@ -7,6 +7,7 @@ from mentora.courses.views import (
     plan_generate,
     session_create,
     session_detail,
+    session_start,
     session_update,
 )
 from mentora.knowledge.views import list_sources, source_detail, upload_complete, upload_create
@@ -29,6 +30,7 @@ urlpatterns = [
     path("api/courses/sessions/<uuid:session_id>/update/", session_update, name="session-update"),
     path("api/courses/sessions/<uuid:session_id>/inquiry/", inquiry_next, name="inquiry-next"),
     path("api/courses/sessions/<uuid:session_id>/plan/", plan_generate, name="plan-generate"),
+    path("api/courses/sessions/<uuid:session_id>/start/", session_start, name="session-start"),
     # 上传
     path("api/uploads/", upload_create, name="upload-create"),
     path("api/uploads/complete/", upload_complete, name="upload-complete"),

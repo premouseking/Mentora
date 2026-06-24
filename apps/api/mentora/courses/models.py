@@ -23,7 +23,8 @@ class SessionStatus(models.TextChoices):
     COLLECTING = "collecting", "收集基础信息中"
     INQUIRING = "inquiring", "AI 追问中"
     GENERATING_PLAN = "generating_plan", "生成方案中"
-    COMPLETED = "completed", "已完成"
+    COMPLETED = "completed", "方案已生成"
+    STARTED = "started", "已开始学习"
 
 
 class CourseCreationSession(models.Model):
