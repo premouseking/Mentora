@@ -110,6 +110,56 @@ def run_processing_for_version(
     return run
 
 
+def _extract_and_upload_images(
+    bundle,
+    pdf_path: str,
+    source_version_id: str,
+    storage,
+) -> None:
+    """从 PDF 提取内嵌图片并上传到对象存储，回填 artifact_ref 到 IMAGE 元素。"""
+    from mentora.parsing.schemas import ElementType
+    import hashlib
+
+    try:
+        doc = fitz.open(pdf_path)
+    except Exception:
+        return
+
+    try:
+        for page_idx, page_data in enumerate(bundle.pages):
+            for elem in page_data.elements:
+                if elem.type != ElementType.IMAGE:
+                    continue
+                if not elem.extra or "xref" not in elem.extra:
+                    continue
+                xref = elem.extra["xref"]
+                try:
+                    img_dict = doc.extract_image(xref)
+                except Exception:
+                    continue
+
+                img_bytes = img_dict.get("image")
+                if not img_bytes:
+                    continue
+
+                ext = img_dict.get("ext", "png")
+                img_hash = hashlib.sha256(img_bytes).hexdigest()[:12]
+                object_key = (
+                    f"images/{source_version_id}/p{page_idx + 1}_{img_hash}.{ext}"
+                )
+                try:
+                    storage.put_object(
+                        object_key,
+                        img_bytes,
+                        content_type=f"image/{ext}",
+                    )
+                    elem.extra["artifact_ref"] = object_key
+                except Exception:
+                    elem.extra["artifact_ref"] = ""
+    finally:
+        doc.close()
+
+
 def _execute_processing(
     run: ProcessingRun,
     source_version: SourceVersion,
@@ -134,6 +184,9 @@ def _execute_processing(
         bundle = parse(tmp_path, parser_version)
         bundle.source_version_id = str(source_version.id)
         bundle.content_hash = source_version.content_sha256
+
+        # 提取内嵌图片并上传到对象存储
+        _extract_and_upload_images(bundle, tmp_path, str(source_version.id), storage)
 
         artifact_key = storage.artifact_key_for_bundle(str(bundle.id))
         bundle.artifact_ref = artifact_key
