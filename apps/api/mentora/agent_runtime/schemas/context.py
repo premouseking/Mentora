@@ -41,3 +41,4 @@ class ToolContext(BaseModel):
     agent_role: str = Field(description="当前 Agent 角色")
     run_id: str = Field(description="SubAgentRun ID")
     owner_id: str = Field(default="", description="用户 ID")
+    course_id: str | None = Field(default=None, description="当前课程 ID，供工具自动限定作用域")
