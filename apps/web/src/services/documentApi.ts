@@ -5,7 +5,7 @@
  * - 资料列表按 DEV_OWNER_ID 过滤
  * - 详情接口返回 ParsedBundle 正文供文档阅读页渲染
  */
-const API = "http://localhost:8000/api";
+const API = "/api";
 
 /* ── shared types ──────────────────────────────────── */
 
