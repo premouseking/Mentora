@@ -22,6 +22,10 @@ from mentora.agent_runtime.events import EventEmitter
 from mentora.agent_runtime.prompts.manager import PromptManager
 from mentora.agent_runtime.schemas.task import BudgetConfig
 from mentora.agent_runtime.tools.base import ToolDefinition
+from mentora.agent_runtime.tools.assessment_tools import (
+    GenerateItemTool,
+    SubmitAnswerTool,
+)
 from mentora.agent_runtime.tools.knowledge_tools import RetrieveEvidenceTool
 from mentora.agent_runtime.tools.learning_tools import (
     CreateLearningPlanTool,
@@ -109,12 +113,70 @@ GET_LEARNING_PROGRESS_DEFINITION = ToolDefinition(
 )
 
 
+GENERATE_ITEM_DEFINITION = ToolDefinition(
+    name="generate_item",
+    description=(
+        "创建评估题目并组建测验会话。"
+        "接收题目列表（每题含题干、选项、正确答案），"
+        "自动创建 AssessmentItem + AssessmentSession，学生可立即作答。"
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "course_session_id": {
+                "type": "string",
+                "description": "课程会话 ID",
+            },
+            "items": {
+                "type": "array",
+                "description": "题目列表",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "question_type": {"type": "string", "description": "题型: single_choice/multi_choice/short_answer"},
+                        "question_text": {"type": "string", "description": "题干"},
+                        "correct_answer": {"type": "string", "description": "正确答案"},
+                        "difficulty": {"type": "integer", "description": "难度 1-5"},
+                        "options_json": {"type": "array", "description": "选项列表"},
+                        "explanation": {"type": "string", "description": "解析"},
+                        "topic_id": {"type": "string", "description": "关联 topic ID"},
+                        "source_evidence_ids": {"type": "array", "items": {"type": "string"}},
+                    },
+                    "required": ["question_text", "correct_answer"],
+                },
+            },
+            "unit_id": {"type": "string", "description": "关联学习单元 ID（可选）"},
+        },
+        "required": ["course_session_id", "items"],
+    },
+    agent_roles={"assessor"},
+)
+
+SUBMIT_ANSWER_DEFINITION = ToolDefinition(
+    name="submit_answer",
+    description="记录学生作答并自动判分",
+    parameters={
+        "type": "object",
+        "properties": {
+            "session_id": {"type": "string", "description": "测验会话 ID"},
+            "item_id": {"type": "string", "description": "题目 ID"},
+            "user_answer": {"type": "string", "description": "学生作答内容"},
+            "duration_seconds": {"type": "integer", "description": "作答耗时（秒）"},
+        },
+        "required": ["session_id", "item_id", "user_answer"],
+    },
+    agent_roles={"assessor"},
+)
+
+
 def build_tool_registry() -> ToolRegistry:
     """注册领域工具。"""
     registry = ToolRegistry()
     registry.register(RetrieveEvidenceTool(), RETRIEVE_EVIDENCE_DEFINITION)
     registry.register(CreateLearningPlanTool(), CREATE_LEARNING_PLAN_DEFINITION)
     registry.register(GetLearningProgressTool(), GET_LEARNING_PROGRESS_DEFINITION)
+    registry.register(GenerateItemTool(), GENERATE_ITEM_DEFINITION)
+    registry.register(SubmitAnswerTool(), SUBMIT_ANSWER_DEFINITION)
     return registry
 
 
