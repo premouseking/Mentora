@@ -7665,6 +7665,7 @@ button.mistake-source-row:hover {
   transition: transform 320ms cubic-bezier(0.16, 1, 0.3, 1);
   touch-action: none;
   background: var(--surface);
+  will-change: transform;
 }
 
 .phase-summary-overlay.open {

@@ -560,6 +560,7 @@ export function CourseWorkspacePage() {
   const psSwipeStart = useRef<{ y: number; moved: boolean; active: boolean }>({ y: 0, moved: false, active: false });
   const handlePSPointerDown = useCallback((e: React.PointerEvent) => {
     psSwipeStart.current = { y: e.clientY, moved: false, active: true };
+    if (psRef.current) psRef.current.style.transition = "none";
     e.currentTarget.setPointerCapture(e.pointerId);
   }, []);
   const handlePSPointerMove = useCallback(
@@ -582,6 +583,7 @@ export function CourseWorkspacePage() {
       if (psRef.current) {
         psRef.current.style.transform = "";
         psRef.current.style.opacity = "";
+        psRef.current.style.transition = "";
       }
       if (psSwipeStart.current.moved && dy > 60) setPhaseSummaryOpen(false);
     },
