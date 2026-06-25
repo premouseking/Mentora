@@ -1,6 +1,12 @@
 from django.http import JsonResponse
 from django.urls import path
 
+from mentora.assessment.views import (
+    complete_quiz_session,
+    generate_quiz_session,
+    quiz_session_detail,
+    submit_quiz_attempt,
+)
 from mentora.agent_runtime.views import chat_api, chat_stream
 from mentora.courses.views import (
     inquiry_next,
@@ -24,6 +30,10 @@ urlpatterns = [
     # 聊天
     path("api/chat/", chat_api, name="chat"),
     path("api/chat/stream/", chat_stream, name="chat-stream"),
+    path("api/assessment/sessions/generate/", generate_quiz_session, name="assessment-generate"),
+    path("api/assessment/sessions/<uuid:session_id>/", quiz_session_detail, name="assessment-session-detail"),
+    path("api/assessment/sessions/<uuid:session_id>/attempts/", submit_quiz_attempt, name="assessment-submit-attempt"),
+    path("api/assessment/sessions/<uuid:session_id>/complete/", complete_quiz_session, name="assessment-complete"),
     # 建课会话
     path("api/courses/sessions/", session_list_or_create, name="session-list-create"),
     path("api/courses/sessions/<uuid:session_id>/", session_detail, name="session-detail"),

@@ -5,6 +5,7 @@ import {
   ChevronDown,
   ChevronRight,
   Lightbulb,
+  ListChecks,
   MoveLeft,
   PenLine,
   AlertTriangle,
@@ -15,12 +16,12 @@ import { useParams } from "react-router-dom";
 import { AppShell } from "../components/AppShell";
 import { FileExplorer } from "../components/FileExplorer";
 import type { SectionKey } from "../components/FileExplorer";
+import { MistakeReviewPanel } from "../components/MistakeReviewPanel";
 import { PhaseSummary } from "../components/PhaseSummary";
-import { QuizPanel } from "../components/QuizPanel";
+import { QuizPracticeView } from "../components/QuizPracticeView";
 import type { FileNode } from "../data/files";
 import { aiExplanations } from "../data/aiExplanations";
-import { mistakeItems } from "../data/mistakes";
-import { sampleQuestion } from "../data/quiz";
+import { mistakeItems, type MistakeSourceLink } from "../data/mistakes";
 import {
   fetchSources,
   fetchSourceDetail,
@@ -316,6 +317,17 @@ function DocumentRenderer({ bundle }: { bundle: BundleRaw }) {
   );
 }
 
+function findFileNode(nodes: FileNode[], id: string): FileNode | null {
+  for (const node of nodes) {
+    if (node.id === id) return node;
+    if (node.children) {
+      const child = findFileNode(node.children, id);
+      if (child) return child;
+    }
+  }
+  return null;
+}
+
 /* ── Content preview panel ── */
 function ContentPanel({
   section,
@@ -327,6 +339,9 @@ function ContentPanel({
   fileBundle,
   fileBundleTitle,
   fileLoading,
+  files,
+  onOpenSourceFile,
+  onStartQuiz,
 }: {
   section: SectionKey;
   selectedFileId: string | null;
@@ -337,6 +352,9 @@ function ContentPanel({
   fileBundle?: BundleRaw | null;
   fileBundleTitle?: string;
   fileLoading?: boolean;
+  files: FileNode[];
+  onOpenSourceFile: (id: string) => void;
+  onStartQuiz: () => void;
 }) {
   const icon = SECTION_ICONS[section];
   const label = SECTION_LABELS[section];
@@ -353,13 +371,35 @@ function ContentPanel({
     }
   };
 
+  const selectedMistake = selectedMistakeId
+    ? mistakeItems.find((m) => m.id === selectedMistakeId) ?? null
+    : null;
+
+  function canOpenSource(link: MistakeSourceLink) {
+    return !!link.fileId && !!findFileNode(files, link.fileId);
+  }
+
+  function handleOpenSource(link: MistakeSourceLink) {
+    if (link.fileId && canOpenSource(link)) {
+      onOpenSourceFile(link.fileId);
+    }
+  }
+
   return (
     <div className="cw-split-pane" style={width !== undefined ? { width, flex: "0 0 auto" } : { flex: 1 }}>
       <div className="cw-split-title">
         <span className="cw-panel-label">{icon} {getTitle()}</span>
-        <button className="cw-panel-close" onClick={onClose} title="关闭">
-          <X size={14} />
-        </button>
+        <div className="cw-panel-actions">
+          {section === "file" && selectedFileId && (
+            <button className="cw-panel-quiz" onClick={onStartQuiz} title="刷题">
+              <ListChecks size={14} />
+              <span>刷题</span>
+            </button>
+          )}
+          <button className="cw-panel-close" onClick={onClose} title="关闭">
+            <X size={14} />
+          </button>
+        </div>
       </div>
       <div className="cw-split-content">
         {section === "file" && fileLoading && (
@@ -371,10 +411,20 @@ function ContentPanel({
         {section === "file" && !fileLoading && !fileBundle && selectedFileId && (
           <p className="cw-preview-text">无法加载文档内容。</p>
         )}
-        {section !== "file" && (
+        {section === "mistakes" && selectedMistake && (
+          <MistakeReviewPanel
+            canOpenSource={canOpenSource}
+            mistake={selectedMistake}
+            onOpenSource={handleOpenSource}
+          />
+        )}
+        {section !== "file" && section !== "mistakes" && (
           <p className="cw-preview-text">
             「{getTitle()}」的内容预览将在这里显示。
           </p>
+        )}
+        {section === "mistakes" && !selectedMistake && (
+          <p className="cw-preview-text">请选择一道错题开始复盘。</p>
         )}
       </div>
     </div>
@@ -382,9 +432,8 @@ function ContentPanel({
 }
 
 export function CourseWorkspacePage() {
-  const [quizOpen, setQuizOpen] = useState(false);
+  const [quizPracticeOpen, setQuizPracticeOpen] = useState(false);
   const [phaseSummaryOpen, setPhaseSummaryOpen] = useState(false);
-  const [tabHeld, setTabHeld] = useState(false);
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
   const [selectedAi, setSelectedAi] = useState<string | null>(null);
   const [selectedMistake, setSelectedMistake] = useState<string | null>(null);
@@ -406,7 +455,6 @@ export function CourseWorkspacePage() {
   const [activePlan, setActivePlan] = useState<ActivePlan | null>(null);
   const [planLoading, setPlanLoading] = useState(false);
 
-  const l2Ref = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
   /* ── Fetch plan on mount ── */
@@ -496,43 +544,8 @@ export function CourseWorkspacePage() {
     openPanel("mistakes");
   }, [openPanel]);
 
-  /* ── Top trigger → open quiz ── */
-  const handleTopClick = useCallback(() => setQuizOpen(true), []);
-
   /* ── Bottom trigger → open phase summary ── */
   const handleBottomClick = useCallback(() => setPhaseSummaryOpen(true), []);
-
-  /* ── Swipe up → close quiz ── */
-  const swipeStart = useRef<{ y: number; moved: boolean; active: boolean }>({ y: 0, moved: false, active: false });
-  const handleL2PointerDown = useCallback((e: React.PointerEvent) => {
-    swipeStart.current = { y: e.clientY, moved: false, active: true };
-    e.currentTarget.setPointerCapture(e.pointerId);
-  }, []);
-  const handleL2PointerMove = useCallback(
-    (e: React.PointerEvent) => {
-      if (!quizOpen || !swipeStart.current.active) return;
-      const dy = e.clientY - swipeStart.current.y;
-      if (dy < -20) swipeStart.current.moved = true;
-      if (swipeStart.current.moved && l2Ref.current) {
-        l2Ref.current.style.transform = `translateY(${Math.min(0, dy)}px)`;
-        l2Ref.current.style.opacity = String(Math.max(0.3, 1 - Math.abs(dy) / 300));
-      }
-    },
-    [quizOpen],
-  );
-  const handleL2PointerUp = useCallback(
-    (e: React.PointerEvent) => {
-      if (!quizOpen || !swipeStart.current.active) return;
-      swipeStart.current.active = false;
-      const dy = e.clientY - swipeStart.current.y;
-      if (l2Ref.current) {
-        l2Ref.current.style.transform = "";
-        l2Ref.current.style.opacity = "";
-      }
-      if (swipeStart.current.moved && dy < -60) setQuizOpen(false);
-    },
-    [quizOpen],
-  );
 
   /* ── Swipe down → close phase summary ── */
   const psRef = useRef<HTMLDivElement>(null);
@@ -566,33 +579,6 @@ export function CourseWorkspacePage() {
     },
     [phaseSummaryOpen],
   );
-
-  /* ── Tab peek ── */
-  const tabTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  useEffect(() => {
-    const down = (e: KeyboardEvent) => {
-      if (e.key === "Tab" && quizOpen) {
-        e.preventDefault();
-        setTabHeld(true);
-        if (tabTimerRef.current) clearTimeout(tabTimerRef.current);
-        tabTimerRef.current = setTimeout(() => setTabHeld(false), 2000);
-      }
-      if (e.key === "Escape" && quizOpen) setQuizOpen(false);
-    };
-    const up = (e: KeyboardEvent) => {
-      if (e.key === "Tab") {
-        if (tabTimerRef.current) clearTimeout(tabTimerRef.current);
-        setTabHeld(false);
-      }
-    };
-    window.addEventListener("keydown", down);
-    window.addEventListener("keyup", up);
-    return () => {
-      if (tabTimerRef.current) clearTimeout(tabTimerRef.current);
-      window.removeEventListener("keydown", down);
-      window.removeEventListener("keyup", up);
-    };
-  }, [quizOpen]);
 
   /* ── Resize file explorer ── */
   const explorerResizeRef = useRef(false);
@@ -705,10 +691,19 @@ export function CourseWorkspacePage() {
   const hasLeftSections = detachedSections.size < 3;
 
   /* ── Render ── */
-  const showFileOverlay = quizOpen && tabHeld;
-
   return (
     <AppShell>
+      {quizPracticeOpen ? (
+        <QuizPracticeView
+          files={fileNodes}
+          defaultSourceId={selectedFile}
+          onBack={() => setQuizPracticeOpen(false)}
+          onOpenSource={(id) => {
+            setQuizPracticeOpen(false);
+            handleSelectFile(id);
+          }}
+        />
+      ) : (
       <div className="course-workspace-new">
         {/* File Explorer (left sidebar - shows non-detached sections) */}
         {hasLeftSections && (
@@ -734,13 +729,6 @@ export function CourseWorkspacePage() {
 
         {/* Content Area */}
         <div className="cw-content" ref={containerRef}>
-          {!quizOpen && !phaseSummaryOpen && (
-            <div className="cw-top-trigger" onClick={handleTopClick}>
-              <div className="cw-top-trigger-bar" />
-              <span className="cw-top-hint">点击进入刷题模式</span>
-            </div>
-          )}
-
           {openPanels.length === 0 ? (
             /* Empty state */
             <div className="cw-file-view">
@@ -761,6 +749,9 @@ export function CourseWorkspacePage() {
               fileBundle={selectedFileBundle}
               fileBundleTitle={selectedFileName}
               fileLoading={fileLoading}
+              files={fileNodes}
+              onOpenSourceFile={handleSelectFile}
+              onStartQuiz={() => setQuizPracticeOpen(true)}
             />
           ) : (
             /* Multi-panel split */
@@ -777,6 +768,9 @@ export function CourseWorkspacePage() {
                     fileBundle={selectedFileBundle}
                     fileBundleTitle={selectedFileName}
                     fileLoading={fileLoading}
+                    files={fileNodes}
+                    onOpenSourceFile={handleSelectFile}
+                    onStartQuiz={() => setQuizPracticeOpen(true)}
                   />
                   {i < openPanels.length - 1 && (
                     <div
@@ -790,7 +784,7 @@ export function CourseWorkspacePage() {
           )}
 
           {/* Bottom trigger → open phase summary — inside cw-content only */}
-          {!quizOpen && !phaseSummaryOpen && (
+          {!phaseSummaryOpen && (
             <div className="cw-bottom-trigger" onClick={handleBottomClick}>
               <div className="cw-bottom-trigger-bar" />
               <span className="cw-bottom-hint">点击查看学习方案</span>
@@ -814,24 +808,6 @@ export function CourseWorkspacePage() {
           files={fileNodes}
         />
 
-        {/* Quiz overlay */}
-        <div
-          ref={l2Ref}
-          className={`cw-level2-overlay${quizOpen ? " open" : ""}${showFileOverlay ? " peeking" : ""}`}
-          onPointerDown={(e) => {
-            if (showFileOverlay) {
-              if (tabTimerRef.current) clearTimeout(tabTimerRef.current);
-              tabTimerRef.current = setTimeout(() => setTabHeld(false), 800);
-            } else {
-              handleL2PointerDown(e);
-            }
-          }}
-          onPointerMove={showFileOverlay ? undefined : handleL2PointerMove}
-          onPointerUp={showFileOverlay ? undefined : handleL2PointerUp}
-        >
-          {quizOpen && <QuizPanel question={sampleQuestion} onClose={() => setQuizOpen(false)} />}
-        </div>
-
         {/* Phase summary overlay */}
         <div
           ref={psRef}
@@ -851,6 +827,7 @@ export function CourseWorkspacePage() {
           )}
         </div>
       </div>
+      )}
     </AppShell>
   );
 }
