@@ -1,4 +1,4 @@
-import { useMemo, useState, type DragEvent } from "react";
+import { useMemo, useRef, useState, type ChangeEvent, type DragEvent } from "react";
 import {
   AlertTriangle,
   BookOpen,
@@ -156,6 +156,18 @@ function LibraryDetailPanel({ item, onClose }: { item: LibraryItem; onClose: () 
 
 function UploadModal({ onClose }: { onClose: () => void }) {
   const [dragOver, setDragOver] = useState(false);
+  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  function handleFiles(files: FileList | null) {
+    if (!files || files.length === 0) return;
+    setSelectedFiles(Array.from(files));
+  }
+
+  function handleFileChange(event: ChangeEvent<HTMLInputElement>) {
+    handleFiles(event.target.files);
+  }
+
   return (
     <div className="library-modal-overlay" onClick={onClose}>
       <div className="library-modal" onClick={(e) => e.stopPropagation()}>
@@ -168,7 +180,11 @@ function UploadModal({ onClose }: { onClose: () => void }) {
           onDragEnter={() => setDragOver(true)}
           onDragLeave={() => setDragOver(false)}
           onDragOver={(e) => e.preventDefault()}
-          onDrop={(e) => { e.preventDefault(); setDragOver(false); }}
+          onDrop={(e) => {
+            e.preventDefault();
+            setDragOver(false);
+            handleFiles(e.dataTransfer.files);
+          }}
         >
           <Upload size={28} />
           <strong>拖拽文件到此处上传</strong>
@@ -176,9 +192,30 @@ function UploadModal({ onClose }: { onClose: () => void }) {
         </div>
         <div className="library-modal-separator"><span>或者</span></div>
         <div className="library-add-options">
-          <button className="button secondary" type="button"><Folders size={16} />从本地选择文件</button>
+          <input
+            ref={fileInputRef}
+            className="library-file-input"
+            multiple
+            onChange={handleFileChange}
+            type="file"
+          />
+          <button
+            className="button secondary"
+            onClick={() => fileInputRef.current?.click()}
+            type="button"
+          >
+            <Folders size={16} />从本地选择文件
+          </button>
           <button className="button secondary" type="button"><Globe size={16} />添加网页链接</button>
         </div>
+        {selectedFiles.length > 0 && (
+          <div className="library-selected-files" aria-live="polite">
+            <strong>已选择 {selectedFiles.length} 个文件</strong>
+            {selectedFiles.map((file) => (
+              <span key={`${file.name}-${file.size}`}>{file.name}</span>
+            ))}
+          </div>
+        )}
         <p className="library-upload-note">上传资料仅进入资源库，不会自动授权任何课程访问。</p>
       </div>
     </div>
@@ -512,13 +549,20 @@ export function LibraryPage() {
                     const Icon = typeIcons[item.type];
                     const isSelected = selectedItem?.id === item.id;
                     return (
-                      <button
+                      <div
                         className={`library-row${isSelected ? " selected" : ""}`}
                         draggable
+                        role="button"
+                        tabIndex={0}
                         key={item.id}
                         onClick={() => setSelectedItem(isSelected ? null : item)}
                         onDragStart={(e) => onRowDragStart(e, item.id)}
-                        type="button"
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
+                            setSelectedItem(isSelected ? null : item);
+                          }
+                        }}
                       >
                         <span className="lib-cell-name">
                           <span className={`lib-type-icon type-${item.type}`}><Icon size={14} /></span>
@@ -544,7 +588,7 @@ export function LibraryPage() {
                         <span className="lib-cell-actions" onClick={(e) => e.stopPropagation()}>
                           <button aria-label="更多操作" className="icon-button" type="button"><MoreHorizontal size={17} /></button>
                         </span>
-                      </button>
+                      </div>
                     );
                   })
                 )}
