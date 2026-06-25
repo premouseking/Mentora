@@ -4834,18 +4834,25 @@ p {
 /* Resize handle */
 
 .fe-resize-handle {
-  height: 6px;
+  height: 1px;
   flex: 0 0 auto;
   cursor: row-resize;
-  background: #dce3e0;
-  border-top: 1px solid var(--border);
-  border-bottom: 1px solid var(--border);
-  margin: 2px 0;
+  position: relative;
+  background: var(--border);
   transition: background 120ms ease;
 }
 
+.fe-resize-handle::before {
+  content: "";
+  position: absolute;
+  top: -4px;
+  bottom: -4px;
+  left: 0;
+  right: 0;
+}
+
 .fe-resize-handle:hover {
-  background: #c5d1cc;
+  background: #96a59e;
 }
 
 /* Detached side panel (right side, column of sections) */
@@ -7599,6 +7606,53 @@ button.mistake-source-row:hover {
   .library-add-options {
     grid-template-columns: 1fr;
   }
+}
+
+/* Top hint bar (phase summary) */
+
+.quiz-swipe-hint {
+  display: flex;
+  height: 28px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 14px;
+  color: #8d9a95;
+  font-size: 11px;
+  border-bottom: 1px solid var(--border);
+  position: relative;
+  touch-action: none;
+}
+
+.quiz-swipe-hint-left {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.quiz-hint-close {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  display: inline-flex;
+  width: 22px;
+  height: 22px;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: #8d9a95;
+  cursor: pointer;
+  padding: 0;
+  z-index: 1;
+  transition: background 120ms, color 120ms;
+}
+
+.quiz-hint-close:hover {
+  background: #e8edeb;
+  color: #3d4a45;
 }
 
 /* ── 阶段总结全屏浮层 ── */

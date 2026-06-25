@@ -507,14 +507,22 @@ export function CourseWorkspacePage() {
 
   /* ── Init panel widths when openPanels or container size changes ── */
   useEffect(() => {
-    if (openPanels.length > 1 && containerRef.current) {
-      const w = containerRef.current.getBoundingClientRect().width;
-      const eq = Math.floor(w / openPanels.length);
-      setPanelWidths(openPanels.map((_, i) => (i < openPanels.length - 1 ? eq : w - eq * (openPanels.length - 1))));
-    } else {
-      setPanelWidths([]);
-    }
-  }, [openPanels.length, sidePanelWidth, explorerWidth]);
+    const el = containerRef.current;
+    if (!el) return;
+    const calc = () => {
+      if (openPanels.length > 1) {
+        const w = el.getBoundingClientRect().width;
+        const eq = Math.floor(w / openPanels.length);
+        setPanelWidths(openPanels.map((_, i) => (i < openPanels.length - 1 ? eq : w - eq * (openPanels.length - 1))));
+      } else {
+        setPanelWidths([]);
+      }
+    };
+    calc();
+    const ro = new ResizeObserver(() => calc());
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [openPanels.length]);
 
   /* ── Wrapper: select + open panel ── */
   const handleSelectFile = useCallback((id: string) => {
