@@ -104,19 +104,7 @@ function DetachedSidePanel({
     });
   }, []);
 
-  // Sort: expanded first (original order), collapsed last (original order)
-  const sortedSections = sections
-    .map((s, i) => ({ section: s, originalIndex: i }))
-    .sort((a, b) => {
-      const aCollapsed = collapsedSections.has(a.section);
-      const bCollapsed = collapsedSections.has(b.section);
-      if (aCollapsed === bCollapsed) return a.originalIndex - b.originalIndex;
-      return aCollapsed ? 1 : -1;
-    })
-    .map(({ section }) => section);
-
-  const expandedSections = sortedSections.filter((s) => !collapsedSections.has(s));
-  const collapsedList = sortedSections.filter((s) => collapsedSections.has(s));
+  const expandedSections = sections.filter((s) => !collapsedSections.has(s));
 
   // Reset heights when sections or collapse change
   useEffect(() => {
@@ -217,16 +205,20 @@ function DetachedSidePanel({
     <>
       <div className="resize-handle cw-resize" onMouseDown={onResizeStart} role="separator" aria-orientation="vertical" tabIndex={-1} />
       <aside className="detached-side-panel" ref={containerRef} style={{ width, flexShrink: 0 }}>
-        {/* Expanded section area — resize handles + sections are direct children */}
-        {expandedSections.length > 0 && (
-          <div className="fe-expanded-area">
-            {expandedSections.map((section, i) => {
-              const style = heights
-                ? { flex: `0 0 ${(heights[i] * 100).toFixed(2)}%` }
-                : { flex: 1, minHeight: 80 };
-              return (
+        {/* Sections in fixed order, collapsed stays in place */}
+        <div className="fe-expanded-area">
+          {sections.map((section, i) => {
+            const collapsed = collapsedSections.has(section);
+            const expIdx = expandedSections.indexOf(section);
+            const style = !collapsed && heights
+              ? { flex: `0 0 ${(heights[expIdx] * 100).toFixed(2)}%` }
+              : !collapsed
+                ? { flex: 1, minHeight: 80 }
+                : { flex: "0 0 auto", height: 26 };
+
+            return (
               <React.Fragment key={section}>
-                {i > 0 && (
+                {!collapsed && expIdx > 0 && (
                   <div
                     className="fe-resize-handle"
                     onMouseDown={(e) => {
@@ -234,7 +226,7 @@ function DetachedSidePanel({
                       if (!area) return;
                       const areaH = area.getBoundingClientRect().height;
                       if (areaH <= 0) return;
-                      const els = area.querySelectorAll<HTMLElement>(":scope > .fe-section");
+                      const els = area.querySelectorAll<HTMLElement>(":scope > .fe-section:not(.collapsed)");
                       const pixelHeights = Array.from(els).map((el) => el.getBoundingClientRect().height);
                       if (pixelHeights.length < 2) return;
                       const total = pixelHeights.reduce((a, b) => a + b, 0);
@@ -243,7 +235,7 @@ function DetachedSidePanel({
                       dragStartY.current = e.clientY;
                       dragAreaHeight.current = areaH;
                       setHeights(ratios);
-                      dragIdx.current = i - 1;
+                      dragIdx.current = expIdx - 1;
                       document.body.style.cursor = "row-resize";
                       document.body.style.userSelect = "none";
                       document.addEventListener("mousemove", onMoveHandler);
@@ -251,50 +243,40 @@ function DetachedSidePanel({
                     }}
                   />
                 )}
-                <div className="fe-section" style={style}>
-                  <div className={`fe-section-title${i > 0 ? " sub" : ""}`}>
-                    <button className="fe-collapse-toggle" onClick={() => toggleCollapse(section)} title="收起">
-                      <ChevronDown size={12} />
-                    </button>
-                    {sectionIcon(section)}
-                    <span>{SECTION_LABELS[section]}</span>
-                    <button className="fe-ai-popout" onClick={() => onMoveBack(section)} title="移回左侧">
-                      <MoveLeft size={14} />
-                    </button>
+                {collapsed ? (
+                  <div className="fe-section collapsed" style={style}>
+                    <div className="fe-section-title collapsed-title">
+                      <button className="fe-collapse-toggle" onClick={() => toggleCollapse(section)} title="展开">
+                        <ChevronRight size={12} />
+                      </button>
+                      {sectionIcon(section)}
+                      <span>{SECTION_LABELS[section]}</span>
+                      <button className="fe-ai-popout" onClick={() => onMoveBack(section)} title="移回左侧">
+                        <MoveLeft size={14} />
+                      </button>
+                    </div>
                   </div>
-                  <div className="fe-section-content">
-                    {renderSectionContent(section)}
+                ) : (
+                  <div className="fe-section" style={style}>
+                    <div className={`fe-section-title${expIdx > 0 ? " sub" : ""}`}>
+                      <button className="fe-collapse-toggle" onClick={() => toggleCollapse(section)} title="收起">
+                        <ChevronDown size={12} />
+                      </button>
+                      {sectionIcon(section)}
+                      <span>{SECTION_LABELS[section]}</span>
+                      <button className="fe-ai-popout" onClick={() => onMoveBack(section)} title="移回左侧">
+                        <MoveLeft size={14} />
+                      </button>
+                    </div>
+                    <div className="fe-section-content">
+                      {renderSectionContent(section)}
+                    </div>
                   </div>
-                </div>
+                )}
               </React.Fragment>
-              );
-            })}
-          </div>
-        )}
-
-        {/* Collapsed section area — pinned to bottom */}
-        {collapsedList.length > 0 && (
-          <div className="fe-collapsed-area">
-            {collapsedList.map((section) => (
-              <div key={section} className="fe-section collapsed" style={{ flex: "0 0 auto", height: 26 }}>
-                  <div className="fe-section-title collapsed-title">
-                    <button
-                      className="fe-collapse-toggle"
-                      onClick={() => toggleCollapse(section)}
-                      title="展开"
-                    >
-                      <ChevronRight size={12} />
-                    </button>
-                    {sectionIcon(section)}
-                    <span>{SECTION_LABELS[section]}</span>
-                    <button className="fe-ai-popout" onClick={() => onMoveBack(section)} title="移回左侧">
-                      <MoveLeft size={14} />
-                    </button>
-                  </div>
-                </div>
-            ))}
-          </div>
-        )}
+            );
+          })}
+        </div>
       </aside>
     </>
   );
@@ -342,7 +324,6 @@ function ContentPanel({
   selectedMistakeId,
   width,
   onClose,
-  onResizeStart,
   fileBundle,
   fileBundleTitle,
   fileLoading,
@@ -353,7 +334,6 @@ function ContentPanel({
   selectedMistakeId: string | null;
   width?: number;
   onClose: () => void;
-  onResizeStart?: () => void;
   fileBundle?: BundleRaw | null;
   fileBundleTitle?: string;
   fileLoading?: boolean;
@@ -397,9 +377,6 @@ function ContentPanel({
           </p>
         )}
       </div>
-      {onResizeStart && (
-        <div className="cw-split-handle" onMouseDown={onResizeStart} />
-      )}
     </div>
   );
 }
@@ -480,7 +457,7 @@ export function CourseWorkspacePage() {
     });
   }, []);
 
-  /* ── Init panel widths when openPanels change ── */
+  /* ── Init panel widths when openPanels or container size changes ── */
   useEffect(() => {
     if (openPanels.length > 1 && containerRef.current) {
       const w = containerRef.current.getBoundingClientRect().width;
@@ -489,7 +466,7 @@ export function CourseWorkspacePage() {
     } else {
       setPanelWidths([]);
     }
-  }, [openPanels.length]);
+  }, [openPanels.length, sidePanelWidth, explorerWidth]);
 
   /* ── Wrapper: select + open panel ── */
   const handleSelectFile = useCallback((id: string) => {
@@ -687,7 +664,7 @@ export function CourseWorkspacePage() {
     const idx = splitResizeIdx.current;
     const rect = containerRef.current.getBoundingClientRect();
     const x = e.clientX - rect.left;
-    const totalW = rect.width - 6 * (openPanels.length - 1);
+    const totalW = rect.width - (openPanels.length - 1);
     const newLeft = Math.max(120, Math.min(totalW - (openPanels.length - idx - 1) * 120, x));
     setPanelWidths((prev) => {
       const next = [...prev];
@@ -696,7 +673,7 @@ export function CourseWorkspacePage() {
         if (i === idx) {
           next[i] = Math.max(120, newLeft - acc);
         }
-        acc += next[i] + 6;
+        acc += next[i] + 1;
       }
       const remaining = totalW - next.reduce((a, b) => a + b, 0);
       if (remaining > 0) next[openPanels.length - 1] += remaining;
@@ -789,19 +766,25 @@ export function CourseWorkspacePage() {
             /* Multi-panel split */
             <div className="cw-split">
               {openPanels.map((section, i) => (
-                <ContentPanel
-                  key={section}
-                  section={section}
-                  selectedFileId={selectedFile}
-                  selectedAiId={selectedAi}
-                  selectedMistakeId={selectedMistake}
-                  width={panelWidths[i]}
-                  onClose={() => closePanel(section)}
-                  onResizeStart={i < openPanels.length - 1 ? () => startSplitResize(i) : undefined}
-                  fileBundle={selectedFileBundle}
-                  fileBundleTitle={selectedFileName}
-                  fileLoading={fileLoading}
-                />
+                <React.Fragment key={section}>
+                  <ContentPanel
+                    section={section}
+                    selectedFileId={selectedFile}
+                    selectedAiId={selectedAi}
+                    selectedMistakeId={selectedMistake}
+                    width={panelWidths[i]}
+                    onClose={() => closePanel(section)}
+                    fileBundle={selectedFileBundle}
+                    fileBundleTitle={selectedFileName}
+                    fileLoading={fileLoading}
+                  />
+                  {i < openPanels.length - 1 && (
+                    <div
+                      className="cw-split-handle"
+                      onMouseDown={() => startSplitResize(i)}
+                    />
+                  )}
+                </React.Fragment>
               ))}
             </div>
           )}
@@ -810,6 +793,7 @@ export function CourseWorkspacePage() {
           {!quizOpen && !phaseSummaryOpen && (
             <div className="cw-bottom-trigger" onClick={handleBottomClick}>
               <div className="cw-bottom-trigger-bar" />
+              <span className="cw-bottom-hint">点击查看学习方案</span>
             </div>
           )}
         </div>

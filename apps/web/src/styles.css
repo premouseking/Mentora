@@ -249,34 +249,28 @@ p {
 .resize-handle {
   position: relative;
   display: flex;
-  width: 5px;
+  width: 1px;
   flex-shrink: 0;
   align-items: center;
   justify-content: center;
   cursor: col-resize;
-  background: transparent;
-  color: transparent;
+  background: var(--border);
   user-select: none;
   touch-action: none;
-  transition: background 140ms ease, color 140ms ease;
+  transition: background 120ms ease;
 }
 
 .resize-handle::before {
+  content: "";
   position: absolute;
   top: 0;
   bottom: 0;
   left: -4px;
-  width: 13px;
-  content: "";
+  right: -4px;
 }
 
 .resize-handle:hover {
-  background: var(--border);
-  color: var(--quiet);
-}
-
-.resize-handle svg {
-  pointer-events: none;
+  background: #96a59e;
 }
 
 .primary-nav {
@@ -4861,7 +4855,6 @@ p {
   flex: 0 0 auto;
   flex-direction: column;
   background: #f9fbfa;
-  border-left: 1px solid var(--border);
   overflow: hidden;
 }
 
@@ -5032,47 +5025,56 @@ p {
   inset: 0;
 }
 
-/* Top trigger bar */
+/* 上下触发条（统一） */
 
-.cw-top-trigger {
+.cw-top-trigger,
+.cw-bottom-trigger {
   position: absolute;
   z-index: 30;
-  top: 0;
-  right: 0;
   left: 0;
-  height: 24px;
+  right: 0;
+  height: 15px;
   cursor: pointer;
   transition: background 120ms ease;
 }
 
-.cw-top-trigger:hover {
+.cw-top-trigger { top: 0; }
+.cw-bottom-trigger { bottom: 0; }
+
+.cw-top-trigger:hover,
+.cw-bottom-trigger:hover {
   background: rgb(0 0 0 / 3%);
 }
 
-.cw-top-trigger-bar {
+/* 横线 */
+.cw-top-trigger-bar,
+.cw-bottom-trigger-bar {
   position: absolute;
-  top: 8px;
   left: 50%;
-  width: 20px;
+  width: 32px;
   height: 3px;
   border-radius: 2px;
-  background: #b8c4bf;
+  background: rgb(0 0 0 / 10%);
   transform: translateX(-50%);
-  opacity: 0;
-  transition: opacity 120ms ease, background 120ms ease;
+  transition: background 120ms ease;
 }
 
-.cw-top-trigger:hover .cw-top-trigger-bar {
-  opacity: 1;
-}
+.cw-top-trigger-bar { top: 8px; }
+.cw-bottom-trigger-bar { bottom: 8px; }
 
-.cw-top-trigger:active .cw-top-trigger-bar {
+.cw-top-trigger:hover .cw-top-trigger-bar,
+.cw-bottom-trigger:hover .cw-bottom-trigger-bar {
   background: var(--green-700);
+}
+
+.cw-top-trigger:active .cw-top-trigger-bar,
+.cw-bottom-trigger:active .cw-bottom-trigger-bar {
+  background: var(--green-800);
 }
 
 .cw-top-hint {
   position: absolute;
-  top: 28px;
+  top: 32px;
   left: 50%;
   border-radius: 4px;
   padding: 3px 8px;
@@ -5090,48 +5092,24 @@ p {
   opacity: 1;
 }
 
-/* 底部上滑触发条 */
-
-.cw-bottom-trigger {
+.cw-bottom-hint {
   position: absolute;
-  z-index: 30;
-  bottom: 0;
-  right: 0;
-  left: 0;
-  height: 24px;
-  cursor: pointer;
-  transition: background 120ms ease;
-}
-
-.cw-bottom-trigger:hover {
-  background: rgb(0 0 0 / 3%);
-}
-
-.cw-bottom-trigger-bar {
-  position: absolute;
-  bottom: 8px;
+  bottom: 28px;
   left: 50%;
-  width: 32px;
-  height: 4px;
-  border-radius: 2px;
-  background: #b8c4bf;
-  transform: translateX(-50%);
-  transition: background 120ms ease;
-}
-
-.cw-bottom-trigger:hover .cw-bottom-trigger-bar {
-  background: var(--green-700);
-}
-
-.cw-bottom-label {
-  position: absolute;
-  bottom: 6px;
-  left: 50%;
-  transform: translateX(-50%);
-  font-size: 11px;
-  color: var(--quiet);
-  white-space: nowrap;
+  border-radius: 4px;
+  padding: 3px 8px;
+  background: #30423b;
+  color: #dfe8e4;
+  font-size: 10px;
+  opacity: 0;
   pointer-events: none;
+  transform: translateX(-50%);
+  transition: opacity 100ms ease;
+  white-space: nowrap;
+}
+
+.cw-bottom-trigger:hover .cw-bottom-hint {
+  opacity: 1;
 }
 
 /* File view (default) */
@@ -5483,7 +5461,12 @@ p {
   background: transparent;
   cursor: pointer;
   color: #889992;
-  transition: background 120ms, color 120ms;
+  opacity: 0;
+  transition: background 120ms, color 120ms, opacity 120ms;
+}
+
+.cw-split-title:hover .cw-panel-close {
+  opacity: 1;
 }
 
 .cw-panel-close:hover {
@@ -5567,35 +5550,31 @@ p {
 }
 
 .cw-split-handle {
-  width: 6px;
+  width: 1px;
   flex: 0 0 auto;
   cursor: col-resize;
+  position: relative;
   background: var(--border);
   transition: background 120ms ease;
 }
 
-.cw-split-handle:hover {
-  background: #b0bfb9;
-}
-
-/* Explorer resize handle */
-
-.cw-resize {
-  width: 7px;
-  height: 100%;
-  background: transparent;
-  position: relative;
-}
-
-.cw-resize::after {
+.cw-split-handle::before {
   content: "";
   position: absolute;
-  inset: 0 -4px;
-  cursor: col-resize;
+  top: 0;
+  bottom: 0;
+  left: -4px;
+  right: -4px;
 }
 
-.cw-resize:hover {
-  background: #d0d9d5;
+.cw-split-handle:hover {
+  background: #96a59e;
+}
+
+/* Explorer resize handle（已统一到 .resize-handle） */
+
+.cw-resize {
+  height: 100%;
 }
 
 /* ── 认证页主题令牌（html[data-theme="light|dark"] 切换） ── */
