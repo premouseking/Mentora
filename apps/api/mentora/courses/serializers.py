@@ -44,6 +44,7 @@ class SessionDetailSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "goal",
+            "title",
             "level",
             "pace",
             "school",

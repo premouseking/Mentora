@@ -73,14 +73,29 @@ def _format_history(inquiry_history: list[dict]) -> str:
 
 
 @csrf_exempt
-@require_http_methods(["POST"])
-def session_create(request):
+def session_list_or_create(request):
     """
-    POST /api/courses/sessions/
+    GET  /api/courses/sessions/ → 列出所有建课会话
+    POST /api/courses/sessions/ → 创建新会话
+    """
+    if request.method == "GET":
+        sessions = CourseCreationSession.objects.all().order_by("-updated_at")
+        data = []
+        for s in sessions:
+            data.append({
+                "id": str(s.id),
+                "goal": s.goal,
+                "title": s.title,
+                "status": s.status,
+                "level": s.level,
+                "pace": s.pace,
+                "school": s.school,
+                "created_at": s.created_at.isoformat(),
+                "updated_at": s.updated_at.isoformat(),
+            })
+        return JsonResponse(data, safe=False)
 
-    请求体：{ "goal": "学习目标文本" }
-    返回：{ "id": "...", "goal": "...", "status": "..." }
-    """
+    # POST
     try:
         body = _parse_json(request)
     except ValueError as exc:
@@ -95,6 +110,7 @@ def session_create(request):
         {
             "id": str(session.id),
             "goal": session.goal,
+            "title": session.title,
             "status": session.status,
         },
         status=201,
@@ -314,8 +330,34 @@ def _plan_to_learning_snapshot(plan_output: dict) -> dict:
 
 
 @csrf_exempt
-@require_http_methods(["POST"])
-def plan_generate(request, session_id):
+def plan_handler(request, session_id):
+    """
+    GET  /api/courses/sessions/<uuid:id>/plan/ → 返回当前生效的学习方案
+    POST /api/courses/sessions/<uuid:id>/plan/ → 生成学习方案
+    """
+    if request.method == "GET":
+        return _plan_detail(request, session_id)
+    return _plan_generate(request, session_id)
+
+
+def _plan_detail(request, session_id):
+    """返回当前生效的学习方案（阶段、单元、任务）。"""
+    try:
+        _get_session(session_id)
+    except ValueError as exc:
+        return JsonResponse({"error": str(exc)}, status=404)
+
+    from mentora.learning.services import get_active_plan
+
+    plan = get_active_plan(session_id)
+    if plan is None:
+        return JsonResponse({"error": "该课程尚未生成学习方案"}, status=404)
+
+    return JsonResponse(plan)
+
+
+@csrf_exempt
+def _plan_generate(request, session_id):
     """
     POST /api/courses/sessions/<uuid:id>/plan/
 
@@ -374,9 +416,15 @@ def plan_generate(request, session_id):
 
     # 持久化到 learning 模块
     plan_output: dict = resp.parsed_output  # type: ignore[assignment]
+
+    # 存储 LLM 生成的标题
+    course_title = plan_output.get("title", "").strip()
+    if course_title:
+        session.title = course_title
+
     revision_id = ""
     try:
-        from mentora.learning.services import create_plan_revision
+        from mentora.learning.services import create_plan_revision, activate_revision
 
         snapshot = _plan_to_learning_snapshot(plan_output)
         revision = create_plan_revision(
@@ -386,12 +434,14 @@ def plan_generate(request, session_id):
             knowledge_scope_revision_id="",
         )
         revision_id = revision["revision_id"]
+        # 立即激活，使工作区页面可以查到方案
+        activate_revision(revision_id)
     except Exception:
         # 持久化失败不影响方案返回，前端可继续展示
         pass
 
     session.status = SessionStatus.COMPLETED
-    session.save(update_fields=["status", "updated_at"])
+    session.save(update_fields=["title", "status", "updated_at"])
 
     return JsonResponse({**plan_output, "revision_id": revision_id})
 

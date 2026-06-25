@@ -22,6 +22,7 @@ const DEFAULT_TIMEOUT_MS = 60_000;
 export interface SessionResponse {
   id: string;
   goal: string;
+  title: string;
   status: string;
 }
 
@@ -60,6 +61,7 @@ export interface PlanPhase {
 }
 
 export interface PlanResponse {
+  title: string;
   phases: PlanPhase[];
   revision_id: string;
 }
@@ -128,7 +130,25 @@ function combineSignals(s1: AbortSignal, s2: AbortSignal): AbortSignal {
   return c.signal;
 }
 
+export interface CourseSessionListItem {
+  id: string;
+  goal: string;
+  title: string;
+  status: string;
+  level: string;
+  pace: string;
+  school: string;
+  created_at: string;
+  updated_at: string;
+}
+
 /* ── Session CRUD ── */
+
+export async function listCourseSessions(
+  signal?: AbortSignal,
+): Promise<CourseSessionListItem[]> {
+  return request<CourseSessionListItem[]>(`${BASE}/`, { signal });
+}
 
 export async function createCourseSession(
   goal: string,
@@ -187,6 +207,53 @@ export async function generatePlan(
     signal,
     timeoutMs: 90_000, // 方案生成 90s 超时
   });
+}
+
+/* ── Active plan 方案查询 ── */
+
+export interface PlanTask {
+  id: string;
+  task_type: string;
+  delivery_mode: string;
+  estimated_minutes: number;
+  required: boolean;
+}
+
+export interface PlanUnit {
+  id: string;
+  title?: string;
+  position: number;
+  topic_id: string | null;
+  target_depth: string;
+  estimated_minutes: number;
+  prerequisite_unit_ids: string[];
+  priority: number;
+  tasks: PlanTask[];
+}
+
+export interface PlanPhase {
+  id: string;
+  position: number;
+  title: string;
+  objective: string;
+  estimated_minutes: number;
+  units: PlanUnit[];
+}
+
+export interface ActivePlan {
+  plan_id: string;
+  revision_id: string;
+  status: string;
+  feasibility_status: string;
+  profile_revision_id: string;
+  phases: PlanPhase[];
+}
+
+export async function getActivePlan(
+  id: string,
+  signal?: AbortSignal,
+): Promise<ActivePlan> {
+  return request<ActivePlan>(`${BASE}/${encodeURIComponent(id)}/plan/`, { signal });
 }
 
 /* ── 开始学习 ── */

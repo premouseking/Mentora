@@ -11,6 +11,7 @@ import {
   X,
   XCircle,
 } from "lucide-react";
+import { useParams } from "react-router-dom";
 import { AppShell } from "../components/AppShell";
 import { FileExplorer } from "../components/FileExplorer";
 import type { SectionKey } from "../components/FileExplorer";
@@ -26,6 +27,7 @@ import {
   sourcesToFileNodes,
   type BundleRaw,
 } from "../services/documentApi";
+import { getActivePlan, type ActivePlan } from "../services/courseApi";
 
 const MIN_EXPLORER = 170;
 const MAX_EXPLORER = 360;
@@ -415,14 +417,30 @@ export function CourseWorkspacePage() {
   const [openPanels, setOpenPanels] = useState<SectionKey[]>([]);
   const [panelWidths, setPanelWidths] = useState<number[]>([]);
 
+  const { courseId } = useParams<{ courseId: string }>();
+
   /* ── Document data ── */
   const [fileNodes, setFileNodes] = useState<FileNode[]>([]);
   const [selectedFileBundle, setSelectedFileBundle] = useState<BundleRaw | null>(null);
   const [selectedFileName, setSelectedFileName] = useState("");
   const [fileLoading, setFileLoading] = useState(false);
 
+  /* ── Plan data ── */
+  const [activePlan, setActivePlan] = useState<ActivePlan | null>(null);
+  const [planLoading, setPlanLoading] = useState(false);
+
   const l2Ref = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+
+  /* ── Fetch plan on mount ── */
+  useEffect(() => {
+    if (!courseId) return;
+    setPlanLoading(true);
+    getActivePlan(courseId)
+      .then((plan) => setActivePlan(plan))
+      .catch(() => setActivePlan(null))
+      .finally(() => setPlanLoading(false));
+  }, [courseId]);
 
   /* ── Fetch sources on mount ── */
   useEffect(() => {
@@ -838,7 +856,15 @@ export function CourseWorkspacePage() {
           onPointerMove={handlePSPointerMove}
           onPointerUp={handlePSPointerUp}
         >
-          {phaseSummaryOpen && <PhaseSummary onClose={() => setPhaseSummaryOpen(false)} />}
+          {phaseSummaryOpen && (
+            planLoading ? (
+              <div className="phase-summary"><div className="ps-body" style={{ padding: 40, textAlign: "center", color: "var(--quiet)" }}>加载方案中…</div></div>
+            ) : activePlan ? (
+              <PhaseSummary plan={activePlan} onClose={() => setPhaseSummaryOpen(false)} />
+            ) : (
+              <div className="phase-summary"><div className="ps-body" style={{ padding: 40, textAlign: "center" }}><p style={{ color: "var(--quiet)" }}>暂无学习方案</p></div></div>
+            )
+          )}
         </div>
       </div>
     </AppShell>

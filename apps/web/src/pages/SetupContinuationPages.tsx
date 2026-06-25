@@ -280,7 +280,8 @@ type Phase = {
 
 export function ConfirmPlanPage() {
   const navigate = useNavigate();
-  const { items, sessionId } = useCourseCreation();
+  const { items, addItem, sessionId } = useCourseCreation();
+  const [courseTitle, setCourseTitle] = useState("");
   const [phases, setPhases] = useState<Phase[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -304,6 +305,11 @@ export function ConfirmPlanPage() {
     import("../services/courseApi").then(async ({ generatePlan }) => {
       try {
         const resp = await generatePlan(sessionId);
+        // 存储 AI 生成的标题
+        if (resp.title) {
+          setCourseTitle(resp.title);
+          addItem({ key: "title", title: "课程名称", value: resp.title, source: "AI 生成" });
+        }
         const mapped: Phase[] = resp.phases.map((p, i) => ({
           id: `phase_${i}`,
           name: p.name,
@@ -374,13 +380,13 @@ export function ConfirmPlanPage() {
           <button className="button secondary" onClick={() => navigate("/courses/new/inquiry")} type="button">
             返回修改需求
           </button>
-          <button className="button primary" disabled={loading} onClick={startCourse} type="button">开始学习</button>
+          <button className="button primary" disabled={loading || starting} onClick={startCourse} type="button">{starting ? "启动中…" : "开始学习"}</button>
         </div>
       }
     >
       <div className="plan-page">
         <div className="setup-heading compact-heading">
-          <h1>确认学习方案</h1>
+          <h1>{courseTitle ? `「${courseTitle}」学习方案` : "确认学习方案"}</h1>
           <p>{loading ? "AI 正在生成方案…" : error ? "方案生成遇到问题" : "AI 已根据你的需求生成阶段方案，请确认并按需调整。"}</p>
         </div>
 

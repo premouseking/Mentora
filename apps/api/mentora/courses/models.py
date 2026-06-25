@@ -40,6 +40,9 @@ class CourseCreationSession(models.Model):
     # 步骤 1：学习目标
     goal = models.TextField(blank=True, default="")
 
+    # 由 PlannerAgent 生成的课程标题（步骤 5）
+    title = models.CharField(max_length=128, blank=True, default="")
+
     # 步骤 2：当前基础 / 推进方式 / 学校
     level = models.CharField(max_length=64, blank=True, default="")
     pace = models.CharField(max_length=64, blank=True, default="")

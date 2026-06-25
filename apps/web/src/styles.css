@@ -5123,6 +5123,17 @@ p {
   background: var(--green-700);
 }
 
+.cw-bottom-label {
+  position: absolute;
+  bottom: 6px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 11px;
+  color: var(--quiet);
+  white-space: nowrap;
+  pointer-events: none;
+}
+
 /* File view (default) */
 
 .cw-file-view {

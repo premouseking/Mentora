@@ -75,6 +75,10 @@ class PlanPhase(BaseModel):
 
 
 class PlanResponse(BaseModel):
-    """PlannerAgent 方案输出。"""
+    """PlannerAgent 方案输出。
 
+    title 字段由 LLM 根据用户目标生成简洁课程标题（≤15 字）。
+    """
+
+    title: str = Field(description="课程标题，≤15字")
     phases: list[PlanPhase] = Field(description="学习阶段列表（4-5 个阶段）")
