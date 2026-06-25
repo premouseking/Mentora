@@ -26,6 +26,8 @@ from mentora.courses.serializers import (
     SessionDetailSerializer,
     SessionUpdateSerializer,
 )
+from mentora.knowledge.models import CourseSource
+from mentora.knowledge.models import SourceVersion
 from mentora.model_gateway.schemas import Message
 
 # 追问最大轮次（防止无限循环）
@@ -485,3 +487,65 @@ def session_start(request, session_id):
         "status": "started",
         "revision_id": result["revision_id"],
     })
+
+
+# ── 课程资料关联 ──
+
+
+@csrf_exempt
+def course_sources_manage(request, session_id):
+    """
+    GET  /api/courses/sessions/<uuid:id>/sources/  → 查课程已关联资料
+    POST /api/courses/sessions/<uuid:id>/sources/  → 批量设置关联
+
+    POST body: { "source_version_ids": ["uuid1", "uuid2", ...] }
+    注意：为幂等安全，先删后建，而非增量合并。
+    """
+    try:
+        _get_session(session_id)
+    except ValueError as exc:
+        return JsonResponse({"error": str(exc)}, status=404)
+
+    if request.method == "GET":
+        links = CourseSource.objects.filter(
+            course_session_id=session_id,
+        ).select_related("source_version__source")
+        items = []
+        for link in links:
+            sv = link.source_version
+            items.append({
+                "sourceVersionId": str(sv.id),
+                "sourceId": str(sv.source.id),
+                "displayTitle": sv.source.display_title,
+                "originalFilename": sv.original_filename,
+                "processingStatus": sv.processing_status,
+                "addedAt": link.added_at.isoformat(),
+            })
+        return JsonResponse({"items": items, "count": len(items)})
+
+    # POST
+    try:
+        body = _parse_json(request)
+    except ValueError as exc:
+        return JsonResponse({"error": str(exc)}, status=400)
+
+    version_ids = body.get("source_version_ids", [])
+    if not isinstance(version_ids, list):
+        return JsonResponse({"error": "source_version_ids 必须是数组"}, status=400)
+
+    # 幂等：先删后建
+    CourseSource.objects.filter(course_session_id=session_id).delete()
+
+    created = 0
+    for vid in version_ids:
+        try:
+            sv = SourceVersion.objects.get(id=vid)
+        except SourceVersion.DoesNotExist:
+            continue
+        CourseSource.objects.get_or_create(
+            course_session_id=session_id,
+            source_version=sv,
+        )
+        created += 1
+
+    return JsonResponse({"status": "ok", "source_count": created})

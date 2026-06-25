@@ -1,4 +1,4 @@
-import { useMemo, useState, useEffect, useCallback } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowDown,
   ArrowLeft,
@@ -30,6 +30,8 @@ export function AiInquiryPage() {
   const [round, setRound] = useState(0);
   const [error, setError] = useState("");
 
+  const initRef = useRef(false);  // 防止 StrictMode 双调用
+
   // 获取下一个问题
   const fetchNext = useCallback(async (answer?: string) => {
     if (!sessionId) {
@@ -50,8 +52,10 @@ export function AiInquiryPage() {
     }
   }, [sessionId]);
 
-  // 首次进入 → 触发首个问题
+  // 首次进入 → 触发首个问题（ref 防 StrictMode 双调用）
   useEffect(() => {
+    if (initRef.current) return;
+    initRef.current = true;
     fetchNext().finally(() => setLoading(false));
   }, [fetchNext]);
 

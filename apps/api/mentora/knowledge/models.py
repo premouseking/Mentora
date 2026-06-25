@@ -204,3 +204,40 @@ class ProcessingRun(models.Model):
 
     def __str__(self) -> str:
         return f"ProcessingRun({self.id}) {self.status}"
+
+
+class CourseSource(models.Model):
+    """课程与资料的 N:N 映射，一份资料可被多门课使用。
+
+    约定：
+    - course_session_id 存 UUID 字符串，不跨模块 FK
+    - source_version 为 FK（同模块内）
+    - UniqueConstraint 防止重复关联
+    """
+
+    id = models.BigAutoField(primary_key=True)
+    course_session_id = models.CharField(
+        max_length=64, db_index=True,
+        help_text="CourseCreationSession.id（UUID 字符串）",
+    )
+    source_version = models.ForeignKey(
+        SourceVersion,
+        on_delete=models.CASCADE,
+        related_name="course_links",
+        help_text="关联的资料版本",
+    )
+    added_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "knowledge_course_source"
+        verbose_name = "课程资料关联"
+        verbose_name_plural = verbose_name
+        constraints = [
+            models.UniqueConstraint(
+                fields=["course_session_id", "source_version"],
+                name="knowledge_coursesource_uc",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"CourseSource({self.course_session_id} ↔ {self.source_version_id})"

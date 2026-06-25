@@ -9,6 +9,7 @@ from mentora.assessment.views import (
 )
 from mentora.agent_runtime.views import chat_api, chat_stream
 from mentora.courses.views import (
+    course_sources_manage,
     inquiry_next,
     plan_handler,
     session_detail,
@@ -41,6 +42,7 @@ urlpatterns = [
     path("api/courses/sessions/<uuid:session_id>/inquiry/", inquiry_next, name="inquiry-next"),
     path("api/courses/sessions/<uuid:session_id>/plan/", plan_handler, name="plan-handler"),
     path("api/courses/sessions/<uuid:session_id>/start/", session_start, name="session-start"),
+    path("api/courses/sessions/<uuid:session_id>/sources/", course_sources_manage, name="session-sources"),
     # 上传
     path("api/uploads/", upload_create, name="upload-create"),
     path("api/uploads/complete/", upload_complete, name="upload-complete"),

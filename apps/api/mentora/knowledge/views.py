@@ -7,7 +7,7 @@ from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 
-from mentora.knowledge.models import Source
+from mentora.knowledge.models import CourseSource, Source
 from mentora.knowledge.services.upload import (
     DEV_OWNER_ID,
     complete_upload,
@@ -87,11 +87,23 @@ def upload_complete(request):
 
 @require_http_methods(["GET"])
 def list_sources(request):
-    """GET /api/library/sources/ — 列出开发用户资源库资料。"""
+    """GET /api/library/sources/?ownerId=&courseId= — 列出资料。
+
+    courseId 可选：传入时仅返回已关联到该课程的资料。
+    """
     owner_id = request.GET.get("ownerId", DEV_OWNER_ID)
-    sources = Source.objects.filter(owner_id=owner_id).select_related("latest_version")
+    course_id = request.GET.get("courseId", "").strip()
+
+    qs = Source.objects.filter(owner_id=owner_id).select_related("latest_version")
+
+    if course_id:
+        linked_version_ids = CourseSource.objects.filter(
+            course_session_id=course_id,
+        ).values_list("source_version_id", flat=True)
+        qs = qs.filter(latest_version__id__in=linked_version_ids)
+
     items = []
-    for source in sources.order_by("-created_at"):
+    for source in qs.order_by("-created_at"):
         latest = source.latest_version
         items.append(
             {

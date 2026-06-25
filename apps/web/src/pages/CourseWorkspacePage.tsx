@@ -467,12 +467,12 @@ export function CourseWorkspacePage() {
       .finally(() => setPlanLoading(false));
   }, [courseId]);
 
-  /* ── Fetch sources on mount ── */
+  /* ── Fetch sources on mount (filtered by course) ── */
   useEffect(() => {
-    fetchSources()
+    fetchSources(courseId)
       .then((items) => setFileNodes(sourcesToFileNodes(items)))
       .catch(() => setFileNodes([]));
-  }, []);
+  }, [courseId]);
 
   /* ── Open / close panel ── */
   const openPanel = useCallback((section: SectionKey) => {

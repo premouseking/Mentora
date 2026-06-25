@@ -60,8 +60,12 @@ export interface SourceDetail {
 
 /* ── API functions ─────────────────────────────────── */
 
-export async function fetchSources(): Promise<SourceItem[]> {
-  const res = await fetch(`${API}/library/sources/`);
+export async function fetchSources(courseId?: string): Promise<SourceItem[]> {
+  const params = new URLSearchParams();
+  if (courseId) params.set("courseId", courseId);
+  const qs = params.toString();
+  const url = qs ? `${API}/library/sources/?${qs}` : `${API}/library/sources/`;
+  const res = await fetch(url);
   if (!res.ok) throw new Error(`获取资料列表失败: ${res.status}`);
   const data = await res.json();
   return data.items ?? [];
@@ -95,6 +99,39 @@ export async function deleteSource(sourceId: string): Promise<void> {
     method: "DELETE",
   });
   if (!res.ok) throw new Error("删除失败");
+}
+
+/* ── 课程资料关联 ── */
+
+export interface CourseSourceItem {
+  sourceVersionId: string;
+  sourceId: string;
+  displayTitle: string;
+  originalFilename: string;
+  processingStatus: string;
+  addedAt: string;
+}
+
+export async function getCourseSources(courseId: string): Promise<CourseSourceItem[]> {
+  const res = await fetch(`${API}/courses/sessions/${encodeURIComponent(courseId)}/sources/`);
+  if (!res.ok) throw new Error("获取课程资料失败");
+  const data = await res.json();
+  return data.items ?? [];
+}
+
+export async function setCourseSources(
+  courseId: string,
+  sourceVersionIds: string[],
+): Promise<void> {
+  const res = await fetch(
+    `${API}/courses/sessions/${encodeURIComponent(courseId)}/sources/`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ source_version_ids: sourceVersionIds }),
+    },
+  );
+  if (!res.ok) throw new Error("设置课程资料失败");
 }
 
 /* ── 重新解析 ── */
