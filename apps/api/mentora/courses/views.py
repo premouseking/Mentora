@@ -390,6 +390,133 @@ def profile_candidates(request, session_id):
     return JsonResponse(resp.parsed_output)
 
 
+# ── Course list ──
+
+
+@csrf_exempt
+@require_http_methods(["GET"])
+def course_list(request):
+    """
+    GET /api/courses/
+
+    返回课程列表（按创建时间倒序）。
+    """
+    from mentora.courses.models import Course, CourseProfileRevision
+
+    courses = Course.objects.order_by("-created_at").values(
+        "id", "active_profile_revision_id", "active_scope_revision_id", "created_at",
+    )
+    result = []
+    for c in courses:
+        goal = ""
+        status = ""
+        if c["active_profile_revision_id"]:
+            profile = CourseProfileRevision.objects.filter(
+                id=c["active_profile_revision_id"],
+            ).values("goal", "status").first()
+            if profile:
+                goal = profile["goal"]
+                status = profile["status"]
+        result.append({
+            "course_id": str(c["id"]),
+            "goal": goal,
+            "status": status,
+            "created_at": c["created_at"].isoformat(),
+        })
+    return JsonResponse(result, safe=False)
+
+
+# ── Apply Candidate → Auto Plan ──
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def apply_candidate(request, session_id):
+    """
+    POST /api/courses/sessions/<uuid:id>/apply-candidate/
+
+    请求体: {goal, level, pace}
+    流程:
+      1. 写入 session goal/level/pace
+      2. 自动调 plan_generate 生成计划
+    返回: {profile: {goal,level,pace}, plan: {phases: [...]}}
+    """
+    try:
+        session = _get_session(session_id)
+    except ValueError as exc:
+        return JsonResponse({"error": str(exc)}, status=404)
+
+    try:
+        body = _parse_json(request)
+    except ValueError as exc:
+        return JsonResponse({"error": str(exc)}, status=400)
+
+    goal = body.get("goal", "").strip()
+    level = body.get("level", "").strip()
+    pace = body.get("pace", "").strip()
+
+    if not goal:
+        return JsonResponse({"error": "缺少 goal"}, status=400)
+
+    # 1. 更新 session
+    session.goal = goal
+    session.level = level
+    session.pace = pace
+    session.status = SessionStatus.GENERATING_PLAN
+    session.save(update_fields=["goal", "level", "pace", "status", "updated_at"])
+
+    # 2. 调 PlannerAgent 生成计划
+    gateway, prompt_mgr = _get_gateway_and_prompts()
+
+    variables = {
+        "school": session.school or "未填写",
+        "goal": session.goal,
+        "level": session.level or "未选择",
+        "pace": session.pace or "未选择",
+        "inquiry_history": _format_history(session.inquiry_history),
+    }
+    system_text = prompt_mgr.render("planner", variables)
+
+    messages = [
+        Message(role="system", content=system_text),
+        Message(
+            role="user",
+            content="请根据以上全部信息，生成一份阶段化学习方案。",
+        ),
+    ]
+
+    try:
+        resp = asyncio.run(
+            gateway.chat(
+                task_type="planner",
+                messages=messages,
+                structured_output_schema=PlanResponse,
+            )
+        )
+    except Exception as exc:
+        return JsonResponse({"error": f"LLM 调用失败: {str(exc)}"}, status=502)
+
+    if resp.parsed_output is None:
+        return JsonResponse(
+            {"error": "LLM 返回格式异常", "raw_content": resp.content},
+            status=502,
+        )
+
+    plan_output = resp.parsed_output
+    session.status = SessionStatus.COMPLETED
+    session.save(update_fields=["status", "updated_at"])
+
+    return JsonResponse({
+        "profile": {
+            "goal": session.goal,
+            "level": session.level,
+            "pace": session.pace,
+            "school": session.school,
+        },
+        "plan": plan_output,
+    })
+
+
 # ── Course 管理 ──
 
 
