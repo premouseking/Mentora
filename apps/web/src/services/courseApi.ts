@@ -29,7 +29,9 @@ export interface SessionResponse {
 export interface SessionDetail extends SessionResponse {
   level: string;
   pace: string;
+  time_budget: string;
   school: string;
+  deadline: string | null;
   inquiry_history: InquiryEntry[];
   created_at: string;
   updated_at: string;
@@ -137,9 +139,14 @@ export interface CourseSessionListItem {
   status: string;
   level: string;
   pace: string;
+  time_budget: string;
   school: string;
+  deadline: string | null;
+  current_phase: string | null;
+  next_task: string | null;
   created_at: string;
   updated_at: string;
+  last_studied_at: string | null;
 }
 
 /* ── Session CRUD ── */
@@ -170,7 +177,7 @@ export async function getCourseSession(
 
 export async function updateCourseSession(
   id: string,
-  data: { level?: string; pace?: string; school?: string },
+  data: { level?: string; pace?: string; time_budget?: string; school?: string; deadline?: string | null; last_studied_at?: string },
   signal?: AbortSignal,
 ): Promise<{ status: string }> {
   return request<{ status: string }>(`${BASE}/${encodeURIComponent(id)}/update/`, {
@@ -254,6 +261,12 @@ export async function getActivePlan(
   signal?: AbortSignal,
 ): Promise<ActivePlan> {
   return request<ActivePlan>(`${BASE}/${encodeURIComponent(id)}/plan/`, { signal });
+}
+
+/* ── 删除 ── */
+
+export async function deleteCourseSession(id: string): Promise<void> {
+  await fetch(`${BASE}/${encodeURIComponent(id)}/delete/`, { method: "DELETE" });
 }
 
 /* ── 开始学习 ── */

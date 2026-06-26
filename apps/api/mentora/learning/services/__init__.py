@@ -292,3 +292,35 @@ def get_progress(course_session_id: str) -> dict | None:
         "progress_pct": round(completed_minutes / max(total_minutes, 1) * 100),
         "phases": phase_summaries,
     }
+
+
+def get_progress_summary(course_session_id: str) -> dict | None:
+    """
+    课程卡片专用的轻量进度摘要：当前阶段名 + 下一个任务名。
+
+    仅查 4 次 DB，适合列表页批量展示。
+    """
+    try:
+        plan = LearningPlan.objects.get(course_session_id=course_session_id)
+    except LearningPlan.DoesNotExist:
+        return None
+    if not plan.active_revision_id:
+        return None
+
+    try:
+        revision = LearningPlanRevision.objects.get(id=plan.active_revision_id)
+    except LearningPlanRevision.DoesNotExist:
+        return None
+
+    first_phase = revision.phases.order_by("position").first()
+    if not first_phase:
+        return None
+
+    first_task = revision.task_templates.filter(
+        unit__phase_id=first_phase.id,
+    ).order_by("unit__position", "id").first()
+
+    return {
+        "current_phase": first_phase.title,
+        "next_task": first_task.task_type if first_task else "暂无",
+    }

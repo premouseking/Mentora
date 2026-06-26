@@ -146,7 +146,13 @@ export function AiInquiryPage() {
             </div>
           )}
 
-          {current && !loading && !error && (
+          {answering && !loading && (
+            <div className="question-block">
+              <MentoraLoader message="AI 分析中…" size={100} />
+            </div>
+          )}
+
+          {current && !loading && !error && !answering && (
             <section className="question-block">
               <p className="question-index">当前问题</p>
               <h2>{current.text}</h2>
@@ -160,9 +166,6 @@ export function AiInquiryPage() {
               {current.type === "free_text" && (
                 <FreeTextQ onAnswer={handleAnswer} disabled={answering} />
               )}
-
-              {answering && (
-                <MentoraLoader message="AI 分析中…" size={100} />              )}
             </section>
           )}
         </div>
@@ -262,7 +265,7 @@ function FreeTextQ({ onAnswer, disabled = false }: { onAnswer: (v: string) => vo
       />
       <button
         className="button secondary"
-        disabled={text.trim().length < 2 || disabled}
+        disabled={text.trim().length < 1 || disabled}
         onClick={() => onAnswer(text.trim())}
         type="button"
       >

@@ -359,6 +359,7 @@ p {
   padding: 34px 40px 48px;
   background: var(--surface);
   overflow: auto;
+  scrollbar-gutter: stable;
 }
 
 .page-surface:has(.course-workspace-new) {
@@ -709,6 +710,74 @@ p {
   color: var(--green-700);
 }
 
+.course-card-wrapper {
+  position: relative;
+}
+
+.course-card-delete {
+  position: absolute;
+  top: 24px;
+  right: 160px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: transparent;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+  z-index: 2;
+}
+
+.course-card-wrapper:hover .course-card-delete {
+  background: #fef2f2;
+  color: #dc2626;
+}
+
+.course-card-delete:hover {
+  background: #fecaca !important;
+}
+
+.course-delete-confirm {
+  position: absolute;
+  top: 20px;
+  right: 130px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  color: #b91c1c;
+  font-size: 12px;
+  z-index: 3;
+  white-space: nowrap;
+  animation: vfadein 0.2s ease;
+}
+
+.course-delete-confirm > svg {
+  flex-shrink: 0;
+}
+
+.button.danger {
+  background: #dc2626;
+  border-color: #dc2626;
+  color: #fff;
+}
+
+.button.danger:hover {
+  background: #b91c1c;
+}
+
+.button.small {
+  padding: 3px 10px;
+  font-size: 12px;
+}
+
 /* keep old course-icon for workspace page use */
 
 .course-icon {
@@ -992,19 +1061,60 @@ p {
 }
 
 .info-bar-row dt {
+  overflow: visible;
+}
+
+.info-bar-label {
+  display: block;
   color: var(--quiet);
   font-size: 11px;
   font-weight: 650;
   white-space: nowrap;
-  padding-top: 1px;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .info-bar-row dd {
-  margin: 0;
+  overflow: visible;
+}
+
+.info-bar-value {
+  display: block;
   color: #39443f;
   font-size: 12px;
   line-height: 1.55;
   word-break: break-word;
+}
+
+[data-tooltip] {
+  position: relative;
+  cursor: default;
+}
+
+[data-tooltip]:hover::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + 6px);
+  padding: 5px 10px;
+  border-radius: 6px;
+  background: #3b4540;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 450;
+  white-space: nowrap;
+  z-index: 100;
+  pointer-events: none;
+  animation: tooltip-in 0.15s ease 0.5s both;
+}
+
+@keyframes tooltip-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.info-bar-row dd {
+  margin: 0;
 }
 
 /* 收起态只显示紧凑列表，隐藏标题 */
@@ -1329,6 +1439,21 @@ p {
 .inquiry-main {
   min-width: 0;
   padding: 0 24px;
+}
+
+.inquiry-main .choice-grid {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+}
+
+.inquiry-main .choice {
+  flex: 1 1 auto;
+  min-width: 140px;
+  max-width: 200px;
+  padding: 12px 14px;
+  text-align: center;
 }
 
 .inquiry-progress {
@@ -1739,6 +1864,19 @@ p {
   font-size: 13px;
   outline: none;
   transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.required-star {
+  color: #dc2626;
+  font-weight: 700;
+  margin-left: 2px;
+}
+
+.required-hint {
+  font-weight: 400;
+  font-size: 12px;
+  color: var(--quiet);
+  margin-left: 4px;
 }
 
 .school-input::placeholder {

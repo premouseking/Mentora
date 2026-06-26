@@ -57,8 +57,8 @@ export function CourseInfoBar({ mode, onToggle }: CourseInfoBarProps) {
         <dl className="info-bar-list">
           {items.map((item) => (
             <div className="info-bar-row" key={item.key}>
-              <dt>{item.title}</dt>
-              <dd>{item.value}</dd>
+              <dt data-tooltip={item.title}><span className="info-bar-label">{item.title}</span></dt>
+              <dd data-tooltip={item.value}><span className="info-bar-value">{item.value}</span></dd>
             </div>
           ))}
         </dl>
@@ -92,8 +92,8 @@ export function CourseInfoPanel({ onConfirm }: { onConfirm: () => void }) {
           <dl className="info-bar-list">
             {items.map((item) => (
               <div className="info-bar-row" key={item.key}>
-                <dt>{item.title}</dt>
-                <dd>{item.value}</dd>
+                <dt data-tooltip={item.title}><span className="info-bar-label">{item.title}</span></dt>
+                <dd data-tooltip={item.value}><span className="info-bar-value">{item.value}</span></dd>
               </div>
             ))}
           </dl>

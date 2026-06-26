@@ -2,17 +2,19 @@ import {
   ArrowRight,
   BookOpen,
   Clock,
+  FileWarning,
   Layers,
-  MapPin,
   Plus,
   Search,
   Sparkles,
+  Trash2,
+  X,
 } from "lucide-react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useCallback, useEffect, useState } from "react";
 
 import { AppShell } from "../components/AppShell";
-import { listCourseSessions, type CourseSessionListItem } from "../services/courseApi";
+import { deleteCourseSession, listCourseSessions, type CourseSessionListItem } from "../services/courseApi";
 
 /* ── 状态映射 ── */
 
@@ -98,7 +100,7 @@ function courseDisplayName(title: string, goal: string): string {
   return trimmed.slice(0, 15) + "…";
 }
 
-function formatDate(iso: string): string {
+function fmtDate(iso: string): string {
   try {
     const d = new Date(iso);
     const now = new Date();
@@ -106,14 +108,39 @@ function formatDate(iso: string): string {
     const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
     if (diffDays === 0) return "今天";
     if (diffDays === 1) return "昨天";
-    if (diffDays < 7) return `${diffDays} 天前`;
-    return d.toLocaleDateString("zh-CN", { month: "short", day: "numeric" });
+    return d.toLocaleDateString("zh-CN", { month: "long", day: "numeric" });
   } catch {
     return "";
   }
 }
 
-function CourseList({ courses }: { courses: CourseSessionListItem[] }) {
+function fmtDeadline(deadline: string | null): string | null {
+  if (!deadline) return null;
+  try {
+    const d = new Date(deadline);
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const target = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+    const diffDays = Math.round((target.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+    if (diffDays < 0) return "已截止";
+    if (diffDays === 0) return "今天截止";
+    if (diffDays === 1) return "明天截止";
+    return `还有 ${diffDays} 天`;
+  } catch {
+    return null;
+  }
+}
+
+const TASK_TYPE_LABEL: Record<string, string> = {
+  lecture: "讲解",
+  exercise: "练习",
+  project: "项目",
+  review: "复习",
+};
+
+function CourseList({ courses, onDelete }: { courses: CourseSessionListItem[]; onDelete: (id: string) => void }) {
+  const [confirmId, setConfirmId] = useState<string | null>(null);
+
   return (
     <div className="course-list">
       {courses.map((course, i) => {
@@ -126,48 +153,90 @@ function CourseList({ courses }: { courses: CourseSessionListItem[] }) {
         const name = courseDisplayName(course.title, course.goal);
 
         return (
-          <Link
-            className={`course-card ${colorClasses[color] ?? ""}`}
-            key={course.id}
-            to={`/courses/${course.id}`}
-          >
-            <span className={`course-card-icon ${color}`}>
-              {name.charAt(0)}
-            </span>
-            <h2 className="course-card-name">{name}</h2>
-            <div className="course-card-meta">
-              {(isStarted || isCompleted) && (
-                <span className="course-card-progress">
-                  <span
-                    className="course-card-progress-bar"
-                    style={{ width: isCompleted ? "100%" : "0%" }}
-                  />
-                </span>
-              )}
-              <span className={`course-card-status${statusClass ? ` ${statusClass}` : ""}`}>
-                {statusLabel}
+          <div className="course-card-wrapper" key={course.id}>
+            <Link
+              className={`course-card ${colorClasses[color] ?? ""}`}
+              to={`/courses/${course.id}`}
+            >
+              <span className={`course-card-icon ${color}`}>
+                {name.charAt(0)}
               </span>
-            </div>
+              <h2 className="course-card-name">{name}</h2>
+              <div className="course-card-meta">
+                {(isStarted || isCompleted) && (
+                  <span className="course-card-progress">
+                    <span
+                      className="course-card-progress-bar"
+                      style={{ width: isCompleted ? "100%" : "0%" }}
+                    />
+                  </span>
+                )}
+                <span className={`course-card-status${statusClass ? ` ${statusClass}` : ""}`}>
+                  {statusLabel}
+                </span>
+              </div>
 
-            <div className="course-card-detail">
-              <div className="course-card-phase">
-                <Layers size={12} />
-                <span>{course.level || "基础未知"}</span>
-                <span className="course-card-phase-detail">
-                  · {course.pace || "节奏未设"}
+              <div className="course-card-detail">
+                <div className="course-card-phase">
+                  <Layers size={12} />
+                  <span>
+                    {course.current_phase
+                      ? `当前阶段：${course.current_phase}`
+                      : course.school || "未填写学校"}
+                  </span>
+                </div>
+                <div className="course-card-next">
+                  <Clock size={12} />
+                  <span>
+                    {course.next_task
+                      ? `下一个：${TASK_TYPE_LABEL[course.next_task] || course.next_task}`
+                      : "准备开始学习"}
+                  </span>
+                </div>
+                <span className="course-card-estimate">
+                  {fmtDeadline(course.deadline)
+                    ? `截止：${fmtDeadline(course.deadline)}　　创建：${fmtDate(course.created_at)}`
+                    : `创建：${fmtDate(course.created_at)}`}
+                  {course.last_studied_at && (
+                    <>　　上次：{fmtDate(course.last_studied_at)}</>
+                  )}
                 </span>
+                <ArrowRight size={15} className="course-card-arrow" />
               </div>
-              <div className="course-card-next">
-                <MapPin size={12} />
-                <span>{course.school || "未填写学校"}</span>
-              </div>
-              <span className="course-card-estimate">
-                <Clock size={11} />
-                {formatDate(course.updated_at)}
-              </span>
-              <ArrowRight size={15} className="course-card-arrow" />
-            </div>
           </Link>
+
+          {/* 删除按钮 — 仅 hover 显示 */}
+          <button
+            className="course-card-delete"
+            onClick={(e) => { e.preventDefault(); setConfirmId(course.id); }}
+            title="删除课程"
+            type="button"
+          >
+            <Trash2 size={14} />
+          </button>
+
+          {/* 二次确认浮层 */}
+          {confirmId === course.id && (
+            <div className="course-delete-confirm">
+              <FileWarning size={15} />
+              <span>确定删除该课程？</span>
+              <button
+                className="button primary danger small"
+                onClick={(e) => { e.preventDefault(); onDelete(course.id); setConfirmId(null); }}
+                type="button"
+              >
+                删除
+              </button>
+              <button
+                className="button secondary small"
+                onClick={(e) => { e.preventDefault(); setConfirmId(null); }}
+                type="button"
+              >
+                <X size={13} />
+              </button>
+            </div>
+          )}
+        </div>
         );
       })}
     </div>
@@ -212,6 +281,15 @@ export function CoursesPage() {
   );
   const hasCourses = displayCourses.length > 0;
 
+  const handleDelete = useCallback(async (id: string) => {
+    try {
+      await deleteCourseSession(id);
+      setSessions((prev) => prev.filter((s) => s.id !== id));
+    } catch {
+      // 静默失败
+    }
+  }, []);
+
   return (
     <AppShell>
       <CourseHeader hasCourses={hasCourses} />
@@ -228,7 +306,7 @@ export function CoursesPage() {
           </button>
         </div>
       )}
-      {!loading && !error && (hasCourses ? <CourseList courses={displayCourses} /> : <EmptyCourses />)}
+      {!loading && !error && (hasCourses ? <CourseList courses={displayCourses} onDelete={handleDelete} /> : <EmptyCourses />)}
     </AppShell>
   );
 }

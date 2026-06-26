@@ -43,10 +43,13 @@ class CourseCreationSession(models.Model):
     # 由 PlannerAgent 生成的课程标题（步骤 5）
     title = models.CharField(max_length=128, blank=True, default="")
 
-    # 步骤 2：当前基础 / 推进方式 / 学校
+    # 步骤 2：当前基础 / 推进方式 / 时间分配 / 学校 / 截止日期
     level = models.CharField(max_length=64, blank=True, default="")
     pace = models.CharField(max_length=64, blank=True, default="")
+    time_budget = models.CharField(max_length=64, blank=True, default="")
     school = models.CharField(max_length=128, blank=True, default="")
+    deadline = models.DateField(null=True, blank=True, help_text="考试或截止日期（选填）")
+    last_studied_at = models.DateTimeField(null=True, blank=True, help_text="最近一次进入学习的时间")
 
     # 步骤 4：追问历史 [{"question":"...","answer":"...","type":"single_choice|multi_choice|free_text"}]
     inquiry_history = models.JSONField(default=list)

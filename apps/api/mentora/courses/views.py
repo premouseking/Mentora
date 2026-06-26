@@ -82,8 +82,22 @@ def session_list_or_create(request):
     """
     if request.method == "GET":
         sessions = CourseCreationSession.objects.all().order_by("-updated_at")
+
+        # 预加载进度摘要
+        from mentora.learning.services import get_progress_summary
+
+        progress_map: dict = {}
+        for s in sessions:
+            try:
+                summary = get_progress_summary(str(s.id))
+                if summary:
+                    progress_map[str(s.id)] = summary
+            except Exception:
+                pass
+
         data = []
         for s in sessions:
+            progress = progress_map.get(str(s.id))
             data.append({
                 "id": str(s.id),
                 "goal": s.goal,
@@ -91,9 +105,14 @@ def session_list_or_create(request):
                 "status": s.status,
                 "level": s.level,
                 "pace": s.pace,
+                "time_budget": s.time_budget,
                 "school": s.school,
+                "deadline": s.deadline.isoformat() if s.deadline else None,
+                "current_phase": progress["current_phase"] if progress else None,
+                "next_task": progress["next_task"] if progress else None,
                 "created_at": s.created_at.isoformat(),
                 "updated_at": s.updated_at.isoformat(),
+                "last_studied_at": s.last_studied_at.isoformat() if s.last_studied_at else None,
             })
         return JsonResponse(data, safe=False)
 
@@ -549,3 +568,26 @@ def course_sources_manage(request, session_id):
         created += 1
 
     return JsonResponse({"status": "ok", "source_count": created})
+
+
+# ── 删除课程 ──
+
+
+@csrf_exempt
+@require_http_methods(["DELETE"])
+def session_delete(request, session_id):
+    """
+    DELETE /api/courses/sessions/<uuid:id>/
+
+    删除建课会话及其课程资料关联。
+    """
+    try:
+        session = _get_session(session_id)
+    except ValueError as exc:
+        return JsonResponse({"error": str(exc)}, status=404)
+
+    # 清理课程资料关联（非 FK，需手动删）
+    CourseSource.objects.filter(course_session_id=session_id).delete()
+    session.delete()
+
+    return JsonResponse({"status": "deleted"})

@@ -133,6 +133,7 @@ export function AddInfoPage() {
   const [pace, setPace] = useState("");
   const [timeBudget, setTimeBudget] = useState("");
   const [school, setSchool] = useState("华中科技大学");
+  const [deadline, setDeadline] = useState("");
 
   // 自定义输入
   const [levelCustom, setLevelCustom] = useState("");
@@ -163,7 +164,7 @@ export function AddInfoPage() {
     const budgetLabel = timeBudget === "other" ? budgetCustom.trim()
       : choiceLabel(timeBudgetOptions, timeBudget);
 
-    if (!levLabel || !paceLabel || !budgetLabel || !school.trim()) {
+    if (!levLabel || !paceLabel || !budgetLabel) {
       if (errorTimer.current) clearTimeout(errorTimer.current);
       setValidationError(true);
       errorTimer.current = setTimeout(() => setValidationError(false), 3000);
@@ -184,10 +185,19 @@ export function AddInfoPage() {
     if (school.trim()) {
       addItem({ key: "school", title: "学校", value: school.trim(), source: "你的输入" });
     }
+    if (deadline) {
+      addItem({ key: "deadline", title: "截止日期", value: deadline, source: "你的输入" });
+    }
 
     if (sessionId) {
       try {
-        await updateCourseSession(sessionId, { level: levLabel, pace: paceLabel, school: school.trim() });
+        await updateCourseSession(sessionId, {
+          level: levLabel,
+          pace: paceLabel,
+          time_budget: budgetLabel,
+          school: school.trim(),
+          deadline: deadline || null,
+        });
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : "更新会话失败";
         alert(msg);
@@ -249,7 +259,7 @@ export function AddInfoPage() {
             <ArrowLeft size={15} /> 上一步
           </button>
           {validationError && (
-            <span className="footer-error">请填写全部信息后再进入下一步</span>
+            <span className="footer-error">请先完成所有必填项</span>
           )}
           <button
             className="button primary"
@@ -269,23 +279,23 @@ export function AddInfoPage() {
         </div>
 
         <section className="info-block">
-          <h2>当前基础</h2>
+          <h2>当前基础 <span className="required-star">*</span></h2>
           {renderChoiceGroup(levelOptions, level, selectLevel, levelCustom, setLevelCustom, true)}
         </section>
 
         <section className="info-block">
-          <h2>推进方式</h2>
+          <h2>推进方式 <span className="required-star">*</span></h2>
           {renderChoiceGroup(paceOptions, pace, selectPace, paceCustom, setPaceCustom, true)}
         </section>
 
         <section className="info-block">
-          <h2>时间分配</h2>
+          <h2>时间分配 <span className="required-star">*</span></h2>
           <p className="info-desc">预计每天能投入多少时间学习？</p>
           {renderChoiceGroup(timeBudgetOptions, timeBudget, selectBudget, budgetCustom, setBudgetCustom, true)}
         </section>
 
         <section className="info-block">
-          <h2>学校</h2>
+          <h2>学校 <span className="required-hint">（选填）</span></h2>
           <p className="info-desc">填写所在学校，帮助 AI 了解你的学习背景。</p>
           <input
             className="school-input"
@@ -293,6 +303,17 @@ export function AddInfoPage() {
             placeholder="请输入学校名称"
             type="text"
             value={school}
+          />
+        </section>
+
+        <section className="info-block">
+          <h2>截止日期 <span className="required-hint">（选填）</span></h2>
+          <p className="info-desc">如有考试或其他截止时间，设置后可追踪剩余天数。</p>
+          <input
+            className="school-input"
+            onChange={(e) => setDeadline(e.target.value)}
+            type="date"
+            value={deadline}
           />
         </section>
       </div>
