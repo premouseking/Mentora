@@ -176,3 +176,24 @@ def get_session_result(session_id: str) -> dict | None:
         "score_pct": session.score_pct,
         "items": items,
     }
+
+
+def get_latest_session_for_unit(unit_id: str) -> dict | None:
+    """获取指定学习单元的最近一次完成测验结果，供 learning 模块调用。"""
+    from mentora.assessment.models import AssessmentSession
+
+    session = AssessmentSession.objects.filter(
+        unit_id=unit_id,
+        status=AssessmentSession.Status.COMPLETED,
+    ).order_by("-completed_at").first()
+
+    if session is None:
+        return None
+
+    return {
+        "session_id": str(session.id),
+        "score_pct": session.score_pct,
+        "correct_count": session.correct_count,
+        "total_items": session.total_items,
+        "completed_at": session.completed_at.isoformat() if session.completed_at else None,
+    }

@@ -241,6 +241,35 @@ def revise_profile(
     }
 
 
+def get_course_info(course_id: str) -> dict | None:
+    """获取课程基本信息（画像 + 作用域），供外部模块查询。"""
+    try:
+        course = Course.objects.get(id=course_id)
+    except Course.DoesNotExist:
+        return None
+
+    profile = None
+    if course.active_profile_revision_id:
+        try:
+            profile = CourseProfileRevision.objects.get(
+                id=course.active_profile_revision_id,
+            )
+        except CourseProfileRevision.DoesNotExist:
+            pass
+
+    scope = get_course_scope(course_id) or []
+
+    return {
+        "course_id": str(course.id),
+        "goal": profile.goal if profile else "",
+        "level": profile.level if profile else "",
+        "pace": profile.pace if profile else "",
+        "school": profile.school if profile else "",
+        "status": profile.status if profile else "",
+        "source_version_ids": scope,
+    }
+
+
 def suggest_scope_updates(course_id: str) -> dict:
     """检查是否有已完成解析的新资料可加入课程作用域。"""
     current_scope = get_course_scope(course_id) or []

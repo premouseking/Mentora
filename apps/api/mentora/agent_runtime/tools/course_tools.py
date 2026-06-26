@@ -44,30 +44,20 @@ class QueryCourseScopeTool(Tool):
             )
 
     async def _query_course(self, course_id: str) -> ToolResult:
-        from mentora.courses.models import Course, CourseProfileRevision
-        from mentora.courses.services import get_course_scope
+        from mentora.courses.services import get_course_info
 
-        course = await sync_to_async(Course.objects.get)(id=course_id)
-        profile = None
-        if course.active_profile_revision_id:
-            profile = await sync_to_async(
-                CourseProfileRevision.objects.get
-            )(id=course.active_profile_revision_id)
-
-        source_version_ids = get_course_scope(course_id) or []
+        info = await sync_to_async(get_course_info)(course_id)
+        if info is None:
+            return ToolResult(
+                tool_name="query_course_scope",
+                success=False,
+                error=f"课程不存在: {course_id}",
+            )
 
         return ToolResult(
             tool_name="query_course_scope",
             success=True,
-            result={
-                "course_id": str(course.id),
-                "goal": profile.goal if profile else "",
-                "level": profile.level if profile else "",
-                "pace": profile.pace if profile else "",
-                "school": profile.school if profile else "",
-                "status": profile.status if profile else "",
-                "source_version_ids": source_version_ids,
-            },
+            result=info,
         )
 
     async def _query_session(self, session_id: str) -> ToolResult:
