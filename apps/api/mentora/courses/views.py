@@ -101,7 +101,7 @@ def session_list_or_create(request):
                 "created_at": s.created_at.isoformat(),
                 "updated_at": s.updated_at.isoformat(),
             })
-        return Response(data, safe=False)
+        return Response(data)
 
     # POST
     try:
@@ -676,7 +676,7 @@ def course_list(request):
             "status": status,
             "created_at": c["created_at"].isoformat(),
         })
-    return Response(result, safe=False)
+    return Response(result)
 
 
 # ── Apply Candidate → Auto Plan ──
