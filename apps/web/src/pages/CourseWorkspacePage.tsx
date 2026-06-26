@@ -28,7 +28,7 @@ import {
   sourcesToFileNodes,
   type BundleRaw,
 } from "../services/documentApi";
-import { getActivePlan, type ActivePlan } from "../services/courseApi";
+import { getActivePlan, updateCourseSession, type ActivePlan } from "../services/courseApi";
 
 const MIN_EXPLORER = 170;
 const MAX_EXPLORER = 360;
@@ -457,7 +457,7 @@ export function CourseWorkspacePage() {
 
   const containerRef = useRef<HTMLDivElement>(null);
 
-  /* ── Fetch plan on mount ── */
+  /* ── Fetch plan + update last_studied_at on mount ── */
   useEffect(() => {
     if (!courseId) return;
     setPlanLoading(true);
@@ -465,14 +465,18 @@ export function CourseWorkspacePage() {
       .then((plan) => setActivePlan(plan))
       .catch(() => setActivePlan(null))
       .finally(() => setPlanLoading(false));
+    // 更新最近学习时间
+    updateCourseSession(courseId, {
+      last_studied_at: new Date().toISOString(),
+    }).catch(() => {});
   }, [courseId]);
 
-  /* ── Fetch sources on mount ── */
+  /* ── Fetch sources on mount (filtered by course) ── */
   useEffect(() => {
-    fetchSources()
+    fetchSources(courseId)
       .then((items) => setFileNodes(sourcesToFileNodes(items)))
       .catch(() => setFileNodes([]));
-  }, []);
+  }, [courseId]);
 
   /* ── Open / close panel ── */
   const openPanel = useCallback((section: SectionKey) => {

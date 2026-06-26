@@ -1,4 +1,4 @@
-import { useMemo, useState, useEffect, useCallback } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowDown,
   ArrowLeft,
@@ -30,6 +30,8 @@ export function AiInquiryPage() {
   const [round, setRound] = useState(0);
   const [error, setError] = useState("");
 
+  const initRef = useRef(false);  // 防止 StrictMode 双调用
+
   // 获取下一个问题
   const fetchNext = useCallback(async (answer?: string) => {
     if (!sessionId) {
@@ -50,8 +52,10 @@ export function AiInquiryPage() {
     }
   }, [sessionId]);
 
-  // 首次进入 → 触发首个问题
+  // 首次进入 → 触发首个问题（ref 防 StrictMode 双调用）
   useEffect(() => {
+    if (initRef.current) return;
+    initRef.current = true;
     fetchNext().finally(() => setLoading(false));
   }, [fetchNext]);
 
@@ -142,7 +146,13 @@ export function AiInquiryPage() {
             </div>
           )}
 
-          {current && !loading && !error && (
+          {answering && !loading && (
+            <div className="question-block">
+              <MentoraLoader message="AI 分析中…" size={100} />
+            </div>
+          )}
+
+          {current && !loading && !error && !answering && (
             <section className="question-block">
               <p className="question-index">当前问题</p>
               <h2>{current.text}</h2>
@@ -156,9 +166,6 @@ export function AiInquiryPage() {
               {current.type === "free_text" && (
                 <FreeTextQ onAnswer={handleAnswer} disabled={answering} />
               )}
-
-              {answering && (
-                <MentoraLoader message="AI 分析中…" size={100} />              )}
             </section>
           )}
         </div>
@@ -258,7 +265,7 @@ function FreeTextQ({ onAnswer, disabled = false }: { onAnswer: (v: string) => vo
       />
       <button
         className="button secondary"
-        disabled={text.trim().length < 2 || disabled}
+        disabled={text.trim().length < 1 || disabled}
         onClick={() => onAnswer(text.trim())}
         type="button"
       >
