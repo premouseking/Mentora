@@ -11,7 +11,12 @@
 from django.db import transaction
 from django.utils import timezone
 
-from mentora.assessment.models import AssessmentAttempt, AssessmentItem, AssessmentSession
+from mentora.assessment.models import (
+    AssessmentAttempt,
+    AssessmentItem,
+    AssessmentItemRevision,
+    AssessmentSession,
+)
 
 
 @transaction.atomic
@@ -26,14 +31,18 @@ def create_item(
     options_json: list | None = None,
     explanation: str = "",
     source_evidence_ids: list | None = None,
-    status: str = AssessmentItem.Status.PUBLISHED,
+    status: str = "published",
 ) -> dict:
-    """创建题目。"""
+    """创建题目 + 首版修订。"""
     item = AssessmentItem.objects.create(
         course_session_id=course_session_id,
         topic_id=topic_id or None,
         question_type=question_type,
         difficulty=difficulty,
+    )
+    revision = AssessmentItemRevision.objects.create(
+        item=item,
+        version_number=1,
         question_text=question_text,
         options_json=options_json,
         correct_answer=correct_answer,
@@ -41,11 +50,45 @@ def create_item(
         source_evidence_ids=source_evidence_ids or [],
         status=status,
     )
+    item.current_revision_id = revision.id
+    item.save(update_fields=["current_revision_id"])
     return {
         "item_id": str(item.id),
+        "revision_id": str(revision.id),
+        "version_number": 1,
         "question_type": item.question_type,
         "difficulty": item.difficulty,
-        "status": item.status,
+        "status": revision.status,
+    }
+
+
+@transaction.atomic
+def revise_item(item_id: str, **kwargs) -> dict:
+    """克隆当前修订 → 新版本 → 更新 current_revision_id。"""
+    item = AssessmentItem.objects.get(id=item_id)
+    old = AssessmentItemRevision.objects.get(id=item.current_revision_id)
+
+    new = AssessmentItemRevision.objects.create(
+        item=item,
+        parent_revision_id=old.id,
+        version_number=old.version_number + 1,
+        question_text=kwargs.get("question_text", old.question_text),
+        options_json=kwargs.get("options_json", old.options_json),
+        correct_answer=kwargs.get("correct_answer", old.correct_answer),
+        explanation=kwargs.get("explanation", old.explanation),
+        source_evidence_ids=kwargs.get("source_evidence_ids", old.source_evidence_ids),
+        status=kwargs.get("status", AssessmentItemRevision.Status.PUBLISHED),
+    )
+
+    item.current_revision_id = new.id
+    item.save(update_fields=["current_revision_id"])
+
+    return {
+        "item_id": str(item.id),
+        "revision_id": str(new.id),
+        "version_number": new.version_number,
+        "previous_revision_id": str(old.id),
+        "status": new.status,
     }
 
 
@@ -96,8 +139,10 @@ def submit_attempt(
         item_id=item_id,
     )
 
-    item = attempt.item
-    is_correct = user_answer.strip().lower() == item.correct_answer.strip().lower()
+    revision = AssessmentItemRevision.objects.get(
+        id=attempt.item.current_revision_id,
+    )
+    is_correct = user_answer.strip().lower() == revision.correct_answer.strip().lower()
     score = 1.0 if is_correct else 0.0
 
     attempt.user_answer = user_answer
