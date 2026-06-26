@@ -174,6 +174,9 @@ def activate_revision(revision_id: str) -> dict:
     revision.status = LearningPlanRevision.Status.ACTIVE
     revision.save(update_fields=["status"])
 
+    # 激活后自动物化近期任务
+    materialize_tasks(str(revision.id))
+
     return {
         "plan_id": str(plan.id),
         "active_revision_id": str(revision.id),
@@ -287,4 +290,109 @@ def get_progress(course_session_id: str) -> dict | None:
         "completed_minutes": completed_minutes,
         "progress_pct": round(completed_minutes / max(total_minutes, 1) * 100),
         "phases": phase_summaries,
+    }
+
+
+def materialize_tasks(revision_id: str, *, weeks: int = 2) -> dict:
+    """
+    从 TaskTemplate 物化未来 N 周的可执行 LearningTask。
+
+    按 estimated_minutes 分配日期——每天最多 120min。
+    已有同模板任务的跳过（幂等）。
+    """
+    from datetime import datetime, timedelta, timezone
+
+    from mentora.learning.models import (
+        LearningPlanRevision,
+        LearningPlanTaskTemplate,
+        LearningTask,
+    )
+
+    revision = LearningPlanRevision.objects.get(id=revision_id)
+    templates = list(
+        LearningPlanTaskTemplate.objects.filter(revision=revision)
+        .select_related("unit", "unit__phase")
+        .order_by("unit__phase__position", "unit__position", "id")
+    )
+
+    if not templates:
+        return {"task_count": 0, "message": "无任务模板"}
+
+    existing_ids = set(
+        LearningTask.objects.filter(
+            revision=revision, template__isnull=False,
+        ).values_list("template_id", flat=True)
+    )
+
+    now = datetime.now(timezone.utc)
+    current_date = now
+    daily_minutes = 0
+    task_count = 0
+
+    for tmpl in templates:
+        if tmpl.id in existing_ids:
+            continue
+
+        if daily_minutes + tmpl.estimated_minutes > 120:
+            current_date = current_date + timedelta(days=1)
+            daily_minutes = 0
+
+        cutoff = now + timedelta(weeks=weeks * 7)
+
+        LearningTask.objects.create(
+            revision=revision,
+            unit=tmpl.unit,
+            template=tmpl,
+            title=f"{tmpl.get_task_type_display()}: {tmpl.unit.title if hasattr(tmpl, 'unit') else '未知'}",
+            task_type=tmpl.task_type,
+            estimated_minutes=tmpl.estimated_minutes,
+            required=tmpl.required,
+            position=tmpl.unit.position,
+            due_date=current_date if current_date <= cutoff else None,
+        )
+        daily_minutes += tmpl.estimated_minutes
+        task_count += 1
+
+    return {"task_count": task_count}
+
+
+def get_upcoming_tasks(course_id: str, *, limit: int = 20) -> list[dict]:
+    """查询课程下所有待办任务。"""
+    from mentora.learning.models import LearningTask
+
+    tasks = LearningTask.objects.filter(
+        revision__learning_plan__course_session__courses__id=course_id,
+        status__in=("pending", "in_progress"),
+    ).order_by("due_date", "position")[:limit]
+
+    return [
+        {
+            "task_id": str(t.id),
+            "title": t.title,
+            "task_type": t.task_type,
+            "status": t.status,
+            "unit_id": str(t.unit_id),
+            "estimated_minutes": t.estimated_minutes,
+            "required": t.required,
+            "due_date": t.due_date.isoformat() if t.due_date else None,
+        }
+        for t in tasks
+    ]
+
+
+def complete_task(task_id: str) -> dict:
+    """标记任务完成。"""
+    from django.utils import timezone
+
+    from mentora.learning.models import LearningTask
+
+    task = LearningTask.objects.get(id=task_id)
+    task.status = LearningTask.Status.COMPLETED
+    task.completed_at = timezone.now()
+    task.save(update_fields=["status", "completed_at"])
+
+    return {
+        "task_id": str(task.id),
+        "status": task.status,
+        "completed_at": task.completed_at.isoformat() if task.completed_at else None,
     }

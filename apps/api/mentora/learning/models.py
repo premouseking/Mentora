@@ -219,3 +219,65 @@ class LearningPlanTaskTemplate(models.Model):
         verbose_name = "任务模板"
         verbose_name_plural = verbose_name
         ordering = ["unit", "id"]
+
+
+class LearningTask(models.Model):
+    """
+    物化的可执行任务。
+
+    约定：
+    - 由 LearningPlanTaskTemplate 在计划激活后按近期窗口物化
+    - 首期不提前生成整门课程所有任务，只物化未来 weeks 周
+    - 设计：LearningPlanRevision 是计划结构，LearningTask 是可执行实例
+    """
+
+    class Status(models.TextChoices):
+        PENDING = "pending", "待完成"
+        IN_PROGRESS = "in_progress", "进行中"
+        COMPLETED = "completed", "已完成"
+        SKIPPED = "skipped", "已跳过"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    revision = models.ForeignKey(
+        LearningPlanRevision,
+        on_delete=models.CASCADE,
+        related_name="tasks",
+    )
+    unit = models.ForeignKey(
+        LearningPlanUnit,
+        on_delete=models.CASCADE,
+        related_name="tasks",
+    )
+    template = models.ForeignKey(
+        LearningPlanTaskTemplate,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="tasks",
+        help_text="来源模板",
+    )
+    title = models.CharField(max_length=256, help_text="任务标题")
+    task_type = models.CharField(
+        max_length=16,
+        choices=LearningPlanTaskTemplate.TaskType.choices,
+    )
+    status = models.CharField(
+        max_length=16,
+        choices=Status.choices,
+        default=Status.PENDING,
+    )
+    position = models.IntegerField(default=0)
+    estimated_minutes = models.IntegerField(default=0)
+    required = models.BooleanField(default=True)
+    due_date = models.DateTimeField(null=True, blank=True, help_text="建议完成日期")
+    completed_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "learning_task"
+        verbose_name = "学习任务"
+        verbose_name_plural = verbose_name
+        ordering = ["revision", "due_date", "position"]
+        indexes = [
+            models.Index(fields=["revision", "status"]),
+        ]
