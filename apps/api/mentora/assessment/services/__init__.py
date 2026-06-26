@@ -32,14 +32,26 @@ def create_item(
     explanation: str = "",
     source_evidence_ids: list | None = None,
     status: str = "draft",
+    source_type: str = "user",
+    created_by: str = "",
+    model_request_id: str = "",
 ) -> dict:
-    """创建题目 + 首版修订。"""
+    """创建题目 + 首版修订 + 溯源记录。"""
     item = AssessmentItem.objects.create(
         course_session_id=course_session_id,
         topic_id=topic_id or None,
         question_type=question_type,
         difficulty=difficulty,
     )
+
+    from mentora.assessment.models import ItemProvenance
+    ItemProvenance.objects.create(
+        item=item,
+        source_type=source_type,
+        created_by=created_by,
+        model_request_id=model_request_id,
+    )
+
     revision = AssessmentItemRevision.objects.create(
         item=item,
         version_number=1,

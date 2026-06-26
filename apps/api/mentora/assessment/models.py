@@ -147,3 +147,23 @@ class FlaggedItem(models.Model):
         indexes = [
             models.Index(fields=["item_id", "resolved"]),
         ]
+
+
+class ItemProvenance(models.Model):
+    """题目溯源——谁创建的、从哪里来。"""
+
+    class SourceType(models.TextChoices):
+        OFFICIAL = "official", "官方题库"
+        USER = "user", "用户创建"
+        AI = "ai", "AI 生成"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    item = models.OneToOneField(
+        AssessmentItem, on_delete=models.CASCADE, related_name="provenance",
+    )
+    source_type = models.CharField(max_length=16, choices=SourceType.choices)
+    created_by = models.CharField(max_length=128, blank=True, default="", help_text="创建者标识")
+    model_request_id = models.CharField(max_length=64, blank=True, default="", help_text="AI 生成时关联 ModelRequest")
+    import_batch = models.CharField(max_length=64, blank=True, default="", help_text="批量导入批次")
+    note = models.CharField(max_length=256, blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True)
