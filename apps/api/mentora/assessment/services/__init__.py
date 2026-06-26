@@ -226,6 +226,43 @@ def get_session_result(session_id: str) -> dict | None:
     }
 
 
+def flag_item(item_id: str, issue: str, *, student_note: str = "") -> dict:
+    """学生对题目标记反馈。≥2 个未解决 flag 触发自动修正。"""
+    from mentora.assessment.models import FlaggedItem
+
+    FlaggedItem.objects.create(
+        item_id=item_id,
+        issue=issue,
+        student_note=student_note,
+    )
+
+    unresolved = FlaggedItem.objects.filter(
+        item_id=item_id, resolved=False,
+    ).count()
+
+    result = {"item_id": item_id, "unresolved_flags": unresolved}
+
+    if unresolved >= 2:
+        from mentora.assessment.models import AssessmentItem
+        item = AssessmentItem.objects.get(id=item_id)
+        old_rev = AssessmentItemRevision.objects.get(id=item.current_revision_id)
+
+        new_rev_result = revise_item(item_id)
+        new_rev = AssessmentItemRevision.objects.get(id=new_rev_result["revision_id"])
+
+        val_result = validate_item(new_rev_result["revision_id"])
+        result["auto_revised"] = True
+        result["revision_id"] = new_rev_result["revision_id"]
+        result["validation"] = val_result
+
+        FlaggedItem.objects.filter(item_id=item_id, resolved=False).update(
+            resolved=True,
+            resolved_by_revision_id=new_rev.id,
+        )
+
+    return result
+
+
 def get_latest_session_for_unit(unit_id: str) -> dict | None:
     """获取指定学习单元的最近一次完成测验结果，供 learning 模块调用。"""
     from mentora.assessment.models import AssessmentSession

@@ -120,3 +120,30 @@ class AssessmentAttempt(models.Model):
         verbose_name = "作答记录"
         verbose_name_plural = verbose_name
         ordering = ["session", "position"]
+
+
+class FlaggedItem(models.Model):
+    """学生对题目的反馈标记。"""
+
+    class IssueType(models.TextChoices):
+        WRONG_ANSWER = "answer_wrong", "答案错误"
+        OPTION_OVERLAP = "option_overlap", "选项重叠"
+        UNCLEAR = "unclear", "表述不清"
+        OUTDATED = "outdated", "内容过时"
+        OTHER = "other", "其他"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    item_id = models.UUIDField(db_index=True)
+    issue = models.CharField(max_length=16, choices=IssueType.choices)
+    student_note = models.TextField(blank=True, default="")
+    resolved = models.BooleanField(default=False)
+    resolved_by_revision_id = models.UUIDField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "assessment_flagged_item"
+        verbose_name = "题目反馈"
+        verbose_name_plural = verbose_name
+        indexes = [
+            models.Index(fields=["item_id", "resolved"]),
+        ]
