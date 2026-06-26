@@ -6,7 +6,6 @@ import uuid
 from rest_framework.response import Response
 from rest_framework.decorators import api_view
 from drf_spectacular.utils import extend_schema
-from django.views.decorators.http import require_http_methods
 
 from mentora.knowledge.models import CourseSource, Source
 from mentora.knowledge.services.upload import (

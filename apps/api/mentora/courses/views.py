@@ -18,7 +18,6 @@ import uuid
 from rest_framework.response import Response
 from rest_framework.decorators import api_view
 from drf_spectacular.utils import extend_schema
-from django.views.decorators.http import require_http_methods
 
 from mentora.courses.models import CourseCreationSession, SessionStatus
 from mentora.courses.schemas import (

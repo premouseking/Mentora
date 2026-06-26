@@ -8,7 +8,6 @@ import json
 from django.conf import settings
 from rest_framework.response import Response
 from rest_framework.decorators import api_view
-from django.views.decorators.http import require_http_methods
 from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiResponse
 
 from mentora.assessment.models import AssessmentItem, AssessmentSession
@@ -34,7 +33,7 @@ def _parse_json(request) -> dict:
         raise ValueError("无效 JSON")
 
 
-def _json_error(message: str, status: int = 400) -> JsonResponse:
+def _json_error(message: str, status: int = 400) -> Response:
     return Response({"error": message}, status=status)
 
 

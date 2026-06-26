@@ -17,10 +17,10 @@ import json
 import uuid
 
 from django.conf import settings
+from django.http import StreamingHttpResponse
 from rest_framework.response import Response
-from rest_framework.decorators import api_view, StreamingHttpResponse
+from rest_framework.decorators import api_view
 from drf_spectacular.utils import extend_schema
-from django.views.decorators.http import require_http_methods
 
 from mentora.agent_runtime.runtime import build_orchestrator
 from mentora.agent_runtime.schemas.task import OrchestratorTask
