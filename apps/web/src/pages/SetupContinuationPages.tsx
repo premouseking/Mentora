@@ -111,8 +111,7 @@ export function AiInquiryPage() {
             <ArrowLeft size={15} /> 上一步
           </button>
           <div className="footer-buttons">
-            <button className="button primary" onClick={() => navigate("/courses/new/plan")} type="button"
-              disabled={answering}>
+            <button className="button primary" onClick={() => navigate("/courses/new/plan")} type="button">
               <Sparkles size={16} /> {ready ? "生成学习方案" : "停止追问 → 生成方案"}
             </button>
           </div>
@@ -300,8 +299,9 @@ export function ConfirmPlanPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [activePhaseId, setActivePhaseId] = useState("");
-  const [planExpanded, setPlanExpanded] = useState(false);
   const [starting, setStarting] = useState(false);
+
+  const planRef = useRef(false); // 防 StrictMode 多次生成
 
   const activePhase = useMemo(
     () => phases.find((phase) => phase.id === activePhaseId) ?? phases[0],
@@ -310,6 +310,8 @@ export function ConfirmPlanPage() {
 
   // 页面加载 → 调用 plan API
   useEffect(() => {
+    if (planRef.current) return;
+    planRef.current = true;
     if (!sessionId) {
       setError("未找到建课会话，请返回第一步重新开始。");
       setLoading(false);
@@ -346,11 +348,6 @@ export function ConfirmPlanPage() {
       }
     });
   }, [sessionId]);
-
-  // 页面加载后触发底栏展开动画
-  function triggerExpand() {
-    setPlanExpanded(true);
-  }
 
   async function startCourse() {
     if (!sessionId || starting) return;
@@ -400,7 +397,8 @@ export function ConfirmPlanPage() {
     >
       <div className="plan-page">
         <div className="setup-heading compact-heading">
-          <h1>{courseTitle ? `「${courseTitle}」学习方案` : "确认学习方案"}</h1>
+          {courseTitle && <h1 className="course-title-main">「{courseTitle}」</h1>}
+          <h2 className="course-title-sub">学习方案确认</h2>
           <p>{loading ? "AI 正在生成方案…" : error ? "方案生成遇到问题" : "AI 已根据你的需求生成阶段方案，请确认并按需调整。"}</p>
         </div>
 
@@ -428,30 +426,40 @@ export function ConfirmPlanPage() {
 
         {!loading && !error && phases.length > 0 && (
           <>
-          <div className={`plan-info-section${planExpanded ? " plan-expanded" : ""}`}>
+          <div className="plan-info-section plan-expanded">
             <h3 className="plan-info-heading">
-              <Sparkles size={16} /> 学习方案概览
+              <Sparkles size={16} /> 学习档案
             </h3>
             <dl className="info-bar-list plan-info-list">
-              {items.map((item) => {
+              {/* 课程名称放最前 */}
+              {(() => {
+                const titleItem = items.find((i) => i.key === "title");
+                if (!titleItem) return null;
+                return (
+                  <div className="info-bar-row" key={titleItem.key}>
+                    <dt data-tooltip={titleItem.title}><span className="info-bar-label">{titleItem.title}</span></dt>
+                    <dd data-tooltip={titleItem.value}>
+                      <span className="info-bar-value">{titleItem.value}</span>
+                    </dd>
+                  </div>
+                );
+              })()}
+              {items.filter((item) => item.key !== "title").map((item) => {
                 const isInquiry = item.key === "inquiry";
                 return (
                   <div className="info-bar-row" key={item.key}>
-                    <dt>{item.title}</dt>
-                    <dd className={isInquiry ? "inquiry-value" : ""}>{item.value}</dd>
+                    <dt data-tooltip={item.title}><span className="info-bar-label">{item.title}</span></dt>
+                    <dd data-tooltip={isInquiry ? item.value.replace(/\n/g, " ") : item.value}>
+                      <span className={`info-bar-value${isInquiry ? " inquiry-value" : ""}`}>{item.value}</span>
+                    </dd>
                   </div>
                 );
               })}
             </dl>
-            {!planExpanded && (
-              <button className="plan-expand-btn" onClick={triggerExpand} type="button">
-                查看完整方案
-              </button>
-            )}
           </div>
 
         <div className="phase-heading">
-          <h2>学习阶段 <span>（共 {phases.length} 个阶段）</span></h2>
+          <h2>学习计划 <span>（共 {phases.length} 个阶段）</span></h2>
           <small>阶段是主要结构，完成节奏可根据实际情况调整。</small>
         </div>
 
