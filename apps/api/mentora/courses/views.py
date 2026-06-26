@@ -998,4 +998,3 @@ def course_activate(request, course_id):
         **result,
         "plan": {"phases": plan_output.get("phases", []), "revision_id": plan_result["revision_id"]},
     })
->>>>>>> lh
