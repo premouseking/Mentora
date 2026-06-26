@@ -4,12 +4,13 @@
 约定：
 - source_version_id 使用 SourceVersion UUID 字符串，与 retrieval CharField 占位兼容
 - 重复处理同一版本时先删除旧证据再写入
+- 通过 retrieval.repository 间接访问 ORM，不跨模块直写
 
 @module mentora/knowledge/services/persist_evidence
 """
 
 from mentora.parsing.schemas import EvidenceUnit as PydanticEvidenceUnit
-from mentora.retrieval.models import EvidenceUnit as OrmEvidenceUnit
+from mentora.retrieval.repository import replace_evidence_for_version
 
 
 def persist_evidence_units(
@@ -17,8 +18,6 @@ def persist_evidence_units(
     source_version_id: str,
 ) -> int:
     """持久化证据单元，返回写入条数。"""
-    OrmEvidenceUnit.objects.filter(source_version_id=source_version_id).delete()
-
     rows = []
     for unit in units:
         bbox_json = None
@@ -29,6 +28,7 @@ def persist_evidence_units(
                 "x1": unit.bbox.x1,
                 "y1": unit.bbox.y1,
             }
+        from mentora.retrieval.models import EvidenceUnit as OrmEvidenceUnit
         rows.append(
             OrmEvidenceUnit(
                 id=unit.id,
@@ -39,8 +39,9 @@ def persist_evidence_units(
                 bbox_json=bbox_json,
                 element_indices=unit.element_indices,
                 token_count=unit.token_count,
+                structure_type=unit.structure_type,
+                artifact_ref=unit.artifact_ref,
             )
         )
 
-    OrmEvidenceUnit.objects.bulk_create(rows)
-    return len(rows)
+    return replace_evidence_for_version(source_version_id, rows)

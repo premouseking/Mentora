@@ -9,9 +9,18 @@ from mentora.assessment.views import (
 )
 from mentora.agent_runtime.views import chat_api, chat_stream
 from mentora.courses.views import (
+    apply_candidate,
+    course_activate,
+    course_confirm,
+    course_detail,
+    course_list,
+    course_profile_revise,
+    course_scope_extend,
+    course_scope_suggest,
     course_sources_manage,
     inquiry_next,
     plan_handler,
+    profile_candidates,
     session_delete,
     session_detail,
     session_list_or_create,
@@ -45,6 +54,16 @@ urlpatterns = [
     path("api/courses/sessions/<uuid:session_id>/plan/", plan_handler, name="plan-handler"),
     path("api/courses/sessions/<uuid:session_id>/start/", session_start, name="session-start"),
     path("api/courses/sessions/<uuid:session_id>/sources/", course_sources_manage, name="session-sources"),
+    path("api/courses/sessions/<uuid:session_id>/candidates/", profile_candidates, name="profile-candidates"),
+    path("api/courses/sessions/<uuid:session_id>/apply-candidate/", apply_candidate, name="apply-candidate"),
+    # 课程管理
+    path("api/courses/", course_list, name="course-list"),
+    path("api/courses/confirm/", course_confirm, name="course-confirm"),
+    path("api/courses/<uuid:course_id>/", course_detail, name="course-detail"),
+    path("api/courses/<uuid:course_id>/profile/", course_profile_revise, name="course-profile-revise"),
+    path("api/courses/<uuid:course_id>/scope/", course_scope_extend, name="course-scope-extend"),
+    path("api/courses/<uuid:course_id>/scope-suggest/", course_scope_suggest, name="course-scope-suggest"),
+    path("api/courses/<uuid:course_id>/activate/", course_activate, name="course-activate"),
     # 上传
     path("api/uploads/", upload_create, name="upload-create"),
     path("api/uploads/complete/", upload_complete, name="upload-complete"),

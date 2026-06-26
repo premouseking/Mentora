@@ -71,3 +71,151 @@ class CourseCreationSession(models.Model):
     def __str__(self) -> str:
         goal_preview = self.goal[:40] + "…" if len(self.goal) > 40 else self.goal
         return f"Session({self.id}) {goal_preview or '空目标'}"
+
+
+class Course(models.Model):
+    """课程实体——建课流程完成后创建。"""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    session = models.ForeignKey(
+        CourseCreationSession,
+        on_delete=models.PROTECT,
+        related_name="courses",
+        help_text="来源建课会话",
+    )
+    active_profile_revision_id = models.UUIDField(
+        null=True,
+        blank=True,
+        help_text="当前生效的 CourseProfileRevision ID",
+    )
+    active_scope_revision_id = models.UUIDField(
+        null=True,
+        blank=True,
+        help_text="当前生效的 CourseKnowledgeScopeRevision ID",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "courses_course"
+        verbose_name = "课程"
+        verbose_name_plural = verbose_name
+
+
+class CourseProfileRevision(models.Model):
+    """版本化课程画像——目标/水平/主题，不可变草稿→确认→激活模式。"""
+
+    class Status(models.TextChoices):
+        DRAFT = "draft", "草稿"
+        CONFIRMED = "confirmed", "已确认"
+        ACTIVE = "active", "生效中"
+        SUPERSEDED = "superseded", "已替代"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    course = models.ForeignKey(
+        Course,
+        on_delete=models.CASCADE,
+        related_name="profile_revisions",
+    )
+    parent_revision_id = models.UUIDField(
+        null=True,
+        blank=True,
+        help_text="上一版本修订 ID",
+    )
+    goal = models.TextField(blank=True, default="")
+    level = models.CharField(max_length=64, blank=True, default="")
+    pace = models.CharField(max_length=64, blank=True, default="")
+    school = models.CharField(max_length=128, blank=True, default="")
+    topics_json = models.JSONField(
+        default=dict,
+        help_text="PlannerAgent 输出的主题树",
+    )
+    plan_revision_id = models.UUIDField(
+        null=True,
+        blank=True,
+        help_text="关联 LearningPlanRevision ID",
+    )
+    status = models.CharField(
+        max_length=16,
+        choices=Status.choices,
+        default=Status.DRAFT,
+    )
+    lock_version = models.IntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "courses_profile_revision"
+        verbose_name = "画像修订"
+        verbose_name_plural = verbose_name
+        indexes = [
+            models.Index(fields=["course", "-created_at"]),
+            models.Index(fields=["status"]),
+        ]
+
+
+class CourseKnowledgeScopeRevision(models.Model):
+    """版本化知识作用域——记录课程激活了哪些资料版本。"""
+
+    class Status(models.TextChoices):
+        DRAFT = "draft", "草稿"
+        ACTIVE = "active", "生效中"
+        SUPERSEDED = "superseded", "已替代"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    course = models.ForeignKey(
+        Course,
+        on_delete=models.CASCADE,
+        related_name="scope_revisions",
+    )
+    label = models.CharField(
+        max_length=64,
+        blank=True,
+        default="",
+        help_text="版本标签，如 v1",
+    )
+    status = models.CharField(
+        max_length=16,
+        choices=Status.choices,
+        default=Status.DRAFT,
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "courses_scope_revision"
+        verbose_name = "作用域修订"
+        verbose_name_plural = verbose_name
+        indexes = [
+            models.Index(fields=["course", "-created_at"]),
+        ]
+
+
+class CourseScopeBinding(models.Model):
+    """作用域绑定——每份资料一条，标记角色。"""
+
+    class Role(models.TextChoices):
+        PRIMARY = "primary", "主资料"
+        REFERENCE = "reference", "参考资料"
+        EXAM_SCOPE = "exam_scope", "考试范围"
+        EXERCISE = "exercise", "练习"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    revision = models.ForeignKey(
+        CourseKnowledgeScopeRevision,
+        on_delete=models.CASCADE,
+        related_name="bindings",
+    )
+    source_version_id = models.CharField(
+        max_length=128,
+        help_text="资料版本 ID",
+    )
+    role = models.CharField(
+        max_length=16,
+        choices=Role.choices,
+        default=Role.PRIMARY,
+    )
+    position = models.IntegerField(default=0)
+
+    class Meta:
+        db_table = "courses_scope_binding"
+        verbose_name = "作用域绑定"
+        verbose_name_plural = verbose_name
+        ordering = ["revision", "position"]

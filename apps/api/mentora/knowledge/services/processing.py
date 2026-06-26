@@ -110,6 +110,78 @@ def run_processing_for_version(
     return run
 
 
+def _extract_and_upload_images(
+    bundle,
+    pdf_path: str,
+    source_version_id: str,
+    storage,
+) -> None:
+    """从 PDF 提取内嵌图片并上传到对象存储，回填 artifact_ref 到 IMAGE 元素。
+
+    若多模态 Provider 可用，同时生成图片文字描述，替换 [图片] 占位文本。
+    """
+    from mentora.parsing.schemas import ElementType
+    from mentora.retrieval.multimodal_provider import get_multimodal_provider
+    import hashlib
+
+    multimodal_provider = get_multimodal_provider()
+    import logging
+    logger = logging.getLogger(__name__)
+
+    try:
+        doc = fitz.open(pdf_path)
+    except Exception:
+        return
+
+    try:
+        for page_idx, page_data in enumerate(bundle.pages):
+            for elem in page_data.elements:
+                if elem.type != ElementType.IMAGE:
+                    continue
+                if not elem.extra or "xref" not in elem.extra:
+                    continue
+                xref = elem.extra["xref"]
+                try:
+                    img_dict = doc.extract_image(xref)
+                except Exception:
+                    continue
+
+                img_bytes = img_dict.get("image")
+                if not img_bytes:
+                    continue
+
+                ext = img_dict.get("ext", "png")
+                img_hash = hashlib.sha256(img_bytes).hexdigest()[:12]
+                object_key = (
+                    f"images/{source_version_id}/p{page_idx + 1}_{img_hash}.{ext}"
+                )
+                try:
+                    storage.put_object(
+                        object_key,
+                        img_bytes,
+                        content_type=f"image/{ext}",
+                    )
+                    elem.extra["artifact_ref"] = object_key
+                except Exception:
+                    elem.extra["artifact_ref"] = ""
+
+                # 多模态图片描述
+                if multimodal_provider and multimodal_provider.is_available:
+                    try:
+                        description = multimodal_provider.image_to_text(img_bytes)
+                        if description:
+                            elem.text = description
+                            logger.info(
+                                f"[multimodal] p{page_idx+1} 图片描述: "
+                                f"{description[:60]}..."
+                            )
+                    except Exception as exc:
+                        logger.warning(f"[multimodal] 图片描述生成失败: {exc}")
+                        continue
+    finally:
+        doc.close()
+
+
 def _execute_processing(
     run: ProcessingRun,
     source_version: SourceVersion,
@@ -134,6 +206,9 @@ def _execute_processing(
         bundle = parse(tmp_path, parser_version)
         bundle.source_version_id = str(source_version.id)
         bundle.content_hash = source_version.content_sha256
+
+        # 提取内嵌图片并上传到对象存储
+        _extract_and_upload_images(bundle, tmp_path, str(source_version.id), storage)
 
         artifact_key = storage.artifact_key_for_bundle(str(bundle.id))
         bundle.artifact_ref = artifact_key

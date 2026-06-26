@@ -87,10 +87,34 @@ class PyMuPDFAdapter:
                 )
                 total_elements += len(elements)
 
-            # 全局质量：检查是否纯图片 PDF
+            # 全局质量：纯图片 PDF 尝试 OCR 回退
             if total_elements == 0:
-                doc.close()
-                raise ImageOnlyPDFError(f"PDF 无可提取文本（可能是纯图片）: {file_path}")
+                from mentora.parsing.adapters.ocr import TesseractOCRAdapter
+
+                ocr = TesseractOCRAdapter()
+                if not ocr.is_available():
+                    doc.close()
+                    raise ImageOnlyPDFError(
+                        f"PDF 无可提取文本且 OCR 不可用: {file_path}"
+                    )
+
+                for page_idx in range(len(doc)):
+                    ocr_text = ocr.ocr_page(doc[page_idx])
+                    # 重新计算页高以生成 bbox（全页文本）
+                    page_height = doc[page_idx].rect.height
+                    if ocr_text:
+                        pages[page_idx].elements.append(
+                            ParsedElement(
+                                type=ElementType.PARAGRAPH,
+                                text=ocr_text,
+                                bbox=BoundingBox(
+                                    x0=0, y0=0,
+                                    x1=doc[page_idx].rect.width,
+                                    y1=page_height,
+                                ),
+                            )
+                        )
+                total_elements = sum(len(p.elements) for p in pages)
 
             text_page_count = sum(1 for p in pages if p.elements)
             quality = QualityInfo(
@@ -138,14 +162,17 @@ class PyMuPDFAdapter:
         for block in blocks:
             block_type = block.get("type", -1)
 
-            # 图片块
+            # 图片块：记录 xref 供 processing 管道提取
             if block_type == 1:
                 bbox = self._to_pdf_bbox(block.get("bbox"), page_height)
+                xref = self._find_image_xref(fitz_page, block)
+                extra = {"xref": xref} if xref is not None else None
                 elements.append(
                     ParsedElement(
                         type=ElementType.IMAGE,
                         text="",
                         bbox=bbox,
+                        extra=extra,
                     )
                 )
                 continue
@@ -163,6 +190,25 @@ class PyMuPDFAdapter:
         # 多列阅读顺序恢复
         elements, reorder_warnings = reorder_elements(elements, page_width)
         return elements, table_warnings + reorder_warnings
+
+    @staticmethod
+    def _find_image_xref(page, block: dict) -> int | None:
+        """根据图片 block 匹配 PDF 内嵌图片的 xref 编号。"""
+        block_bbox = block.get("bbox")
+        if not block_bbox:
+            return None
+        bx0, by0, bx1, by1 = block_bbox
+        for img in page.get_image_info():
+            i_bbox = img.get("bbox")
+            if not i_bbox:
+                continue
+            ix0, iy0, ix1, iy1 = i_bbox
+            # bbox 重叠度 > 50%
+            overlap_x = max(0, min(bx1, ix1) - max(bx0, ix0))
+            overlap_y = max(0, min(by1, iy1) - max(by0, iy0))
+            if overlap_x * overlap_y > 0:
+                return img.get("xref")
+        return None
 
     def _merge_tables(
         self,

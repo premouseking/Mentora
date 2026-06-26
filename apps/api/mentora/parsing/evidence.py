@@ -39,8 +39,36 @@ def split_evidence(bundle: ParsedBundle) -> list[EvidenceUnit]:
     while i < len(flat):
         pg, idx, elem = flat[i]
 
-        # 跳过图片和空文本
-        if elem.type == ElementType.IMAGE or not elem.text.strip():
+        # 图片 → 生成 EvidenceUnit，artifact_ref 指向对象存储中的图片
+        if elem.type == ElementType.IMAGE:
+            artifact_ref = ""
+            if elem.extra:
+                artifact_ref = elem.extra.get("artifact_ref", "")
+                # 多模态描述替代占位文本
+                if elem.text and elem.text != "[图片]" and elem.text.strip():
+                    content = elem.text
+                else:
+                    content = "[图片]"
+            else:
+                content = "[图片]"
+
+            units.append(
+                EvidenceUnit(
+                    bundle_id=bundle.id,
+                    source_version_id=bundle.source_version_id,
+                    content=content,
+                    page_number=pg,
+                    bbox=elem.bbox,
+                    element_indices=[idx],
+                    structure_type="image",
+                    artifact_ref=artifact_ref,
+                )
+            )
+            i += 1
+            continue
+
+        # 跳过空文本
+        if not elem.text.strip():
             i += 1
             continue
 

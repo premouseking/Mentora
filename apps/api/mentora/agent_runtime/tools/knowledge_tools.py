@@ -36,10 +36,19 @@ class RetrieveEvidenceTool(Tool):
                 error="查询不能为空",
             )
 
+        # 作用域：优先 args，次之从 ctx.course_id 自动解析
+        source_version_ids = args.get("source_version_ids")
+        if not source_version_ids and ctx.course_id:
+            from mentora.courses.services import get_course_scope
+
+            source_version_ids = get_course_scope(ctx.course_id)
+
         try:
             from mentora.retrieval.search import search
 
-            result_set = await sync_to_async(search)(query=query, top_k=top_k)
+            result_set = await sync_to_async(search)(
+                query=query, top_k=top_k, source_version_ids=source_version_ids,
+            )
             results = [r.to_dict() for r in result_set.results]
 
             return ToolResult(

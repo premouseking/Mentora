@@ -82,3 +82,22 @@ class PlanResponse(BaseModel):
 
     title: str = Field(description="课程标题，≤15字")
     phases: list[PlanPhase] = Field(description="学习阶段列表（4-5 个阶段）")
+
+
+class ProfileCandidate(BaseModel):
+    """画像候选项——ClarifierAgent 分析追问后推荐的方案。"""
+
+    goal: str = Field(description="学习目标描述")
+    level: str = Field(description="当前水平")
+    pace: str = Field(description="推进节奏")
+    estimated_hours: int = Field(default=0, ge=0, description="预估总时长（小时）")
+    reason: str = Field(description="推荐理由")
+
+
+class ProfileCandidatesResponse(BaseModel):
+    """画布候选项列表。"""
+
+    candidates: list[ProfileCandidate] = Field(
+        min_length=1, max_length=4,
+        description="2-4 个差异化画像方案",
+    )

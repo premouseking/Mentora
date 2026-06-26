@@ -231,9 +231,9 @@ def get_progress(course_session_id: str) -> dict | None:
     """
     获取学习进度摘要。
 
-    通过 AssessmentSession 判断 unit 完成状态。
+    通过 assessment.services 判断 unit 完成状态。
     """
-    from mentora.assessment.models import AssessmentSession
+    from mentora.assessment.services import get_latest_session_for_unit
 
     plan = get_active_plan(course_session_id)
     if not plan:
@@ -250,14 +250,10 @@ def get_progress(course_session_id: str) -> dict | None:
 
         for unit in phase["units"]:
             unit_minutes = unit["estimated_minutes"]
-            # 查该 unit 最近一次完成的测验
-            session = AssessmentSession.objects.filter(
-                unit_id=unit["id"],
-                status=AssessmentSession.Status.COMPLETED,
-            ).order_by("-completed_at").first()
+            session = get_latest_session_for_unit(unit["id"])
 
-            unit_completed = session is not None and session.score_pct >= 60
-            unit_score = session.score_pct if session else None
+            unit_completed = session is not None and session["score_pct"] >= 60
+            unit_score = session["score_pct"] if session else None
 
             unit_summaries.append({
                 "unit_id": unit["id"],

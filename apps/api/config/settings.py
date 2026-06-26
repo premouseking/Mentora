@@ -152,6 +152,21 @@ EMBEDDING_DOUBAO_BASE_URL = os.getenv(
     "https://ark.cn-beijing.volces.com/api/v3",
 )
 
+# ── 多模态 Provider ──────────────────────────────────────
+
+# 豆包多模态：Vision 模型做图片描述，Embedding Vision 做图文联合向量
+MULTIMODAL_API_KEY = os.getenv("MULTIMODAL_API_KEY", os.getenv("VOLCANO_ENGINE_API_KEY", ""))
+MULTIMODAL_BASE_URL = os.getenv(
+    "MULTIMODAL_BASE_URL",
+    "https://ark.cn-beijing.volces.com/api/v3",
+)
+MULTIMODAL_VISION_MODEL = os.getenv(
+    "MULTIMODAL_VISION_MODEL", "doubao-1-5-vision-pro-32k"
+)
+MULTIMODAL_EMBED_MODEL = os.getenv(
+    "MULTIMODAL_EMBED_MODEL", "doubao-embedding-vision-250615"
+)
+
 # ── Reranker ─────────────────────────────────────────────
 
 # Qwen3-Reranker-4B via SiliconFlow
