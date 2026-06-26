@@ -23,7 +23,6 @@ from mentora.courses.models import CourseCreationSession, SessionStatus
 from mentora.courses.schemas import (
     ClarifierResponse,
     PlanResponse,
-    ProfileCandidatesResponse,
 )
 from mentora.courses.serializers import (
     SessionCreateSerializer,
@@ -280,7 +279,16 @@ def inquiry_next(request, session_id):
 
     if result.get("ready"):
         session.status = SessionStatus.GENERATING_PLAN
-        session.save(update_fields=["status", "updated_at"])
+        # 提取追问历史为结构化补充画像
+        supplement = {}
+        for entry in session.inquiry_history:
+            q = (entry.get("question") or "").strip()
+            a = (entry.get("answer") or "").strip()
+            if q and a:
+                supplement[q] = a
+        if supplement:
+            session.profile_supplement = supplement
+        session.save(update_fields=["status", "inquiry_history", "profile_supplement", "updated_at"])
 
     return Response(result)
 
@@ -489,65 +497,6 @@ def session_start(request, session_id):
     return Response(resp.parsed_output)
 
 
-# ── Profile Candidates 画像候选项 ──
-
-
-@api_view(["POST"])
-@extend_schema(summary="Profile Candidates")
-def profile_candidates(request, session_id):
-    """
-    POST /api/courses/sessions/<uuid:id>/candidates/
-
-    基于追问历史生成 2-4 个差异化画像方案供学生选择。
-    """
-    try:
-        session = _get_session(session_id)
-    except ValueError as exc:
-        return Response({"error": str(exc)}, status=404)
-
-    gateway, prompt_mgr = _get_gateway_and_prompts()
-
-    variables = {
-        "school": session.school or "未填写",
-        "goal": session.goal or "未填写",
-        "level": session.level or "未选择",
-        "pace": session.pace or "未选择",
-        "inquiry_history": _format_history(session.inquiry_history),
-    }
-    system_text = prompt_mgr.render("clarifier", variables)
-
-    messages = [
-        Message(role="system", content=system_text),
-        Message(
-            role="user",
-            content="请基于以上全部信息，生成 2-4 个差异化的学习画像方案候选。"
-                    "每个方案应包含不同的目标/重点/节奏，并给出推荐理由。",
-        ),
-    ]
-
-    try:
-        resp = asyncio.run(
-            gateway.chat(
-                task_type="clarifier",
-                messages=messages,
-                structured_output_schema=ProfileCandidatesResponse,
-            )
-        )
-    except Exception as exc:
-        return Response({"error": f"LLM 调用失败: {str(exc)}"}, status=502)
-
-    if resp.parsed_output is None:
-        return Response(
-            {"error": "LLM 返回格式异常", "raw_content": resp.content},
-            status=502,
-        )
-
-    return Response(resp.parsed_output)
-
-
-# ── Course list ──
-
-
 @api_view(["GET"])
 @extend_schema(summary="Course List")
 def course_list(request):
@@ -557,7 +506,6 @@ def course_list(request):
     返回课程列表（按创建时间倒序）。
     """
     from mentora.courses.models import Course, CourseProfileRevision
-
     courses = Course.objects.order_by("-created_at").values(
         "id", "active_profile_revision_id", "active_scope_revision_id", "created_at",
     )
@@ -579,85 +527,6 @@ def course_list(request):
             "created_at": c["created_at"].isoformat(),
         })
     return Response(result, safe=False)
-
-
-# ── Apply Candidate → Auto Plan ──
-
-
-@api_view(["POST"])
-@extend_schema(summary="Apply Candidate")
-def apply_candidate(request, session_id):
-    """
-    POST /api/courses/sessions/<uuid:id>/apply-candidate/
-
-    请求体: {goal, level, pace}
-    流程:
-      1. 写入 session goal/level/pace
-      2. 创建 Course + CourseProfileRevision(draft)
-    返回: {course_id, profile_revision_id, goal, level, pace, status: "draft"}
-
-    用户可继续 PATCH /api/courses/<id>/profile/ 编辑草稿，
-    确认后 POST /api/courses/<id>/activate/ 触发 plan_generate 并激活。
-    """
-    try:
-        session = _get_session(session_id)
-    except ValueError as exc:
-        return Response({"error": str(exc)}, status=404)
-
-    try:
-        body = _parse_json(request)
-    except ValueError as exc:
-        return Response({"error": str(exc)}, status=400)
-
-    goal = body.get("goal", "").strip()
-    level = body.get("level", "").strip()
-    pace = body.get("pace", "").strip()
-
-    if not goal:
-        return Response({"error": "缺少 goal"}, status=400)
-
-    # 更新 session
-    session.goal = goal
-    session.level = level
-    session.pace = pace
-    session.save(update_fields=["goal", "level", "pace", "updated_at"])
-
-    # 创建 Course + draft ProfileRevision
-    from mentora.courses.models import Course, CourseProfileRevision
-
-    course, _ = Course.objects.get_or_create(session=session)
-
-    # 旧 draft 标记 superseded
-    CourseProfileRevision.objects.filter(
-        course=course, status=CourseProfileRevision.Status.DRAFT,
-    ).update(status=CourseProfileRevision.Status.SUPERSEDED)
-
-    profile = CourseProfileRevision.objects.create(
-        course=course,
-        goal=goal,
-        level=level,
-        pace=pace,
-        school=session.school or "",
-        status=CourseProfileRevision.Status.DRAFT,
-    )
-    course.active_profile_revision_id = profile.id
-    course.save(update_fields=["active_profile_revision_id"])
-
-    session.status = SessionStatus.COMPLETED
-    session.save(update_fields=["status", "updated_at"])
-
-    return Response({
-        "course_id": str(course.id),
-        "profile_revision_id": str(profile.id),
-        "goal": profile.goal,
-        "level": profile.level,
-        "pace": profile.pace,
-        "school": profile.school,
-        "status": profile.status,
-    })
-
-
-# ── Course 管理 ──
 
 
 @api_view(["POST"])

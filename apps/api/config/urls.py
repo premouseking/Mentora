@@ -14,16 +14,15 @@ from mentora.assessment.views import (
 from mentora.agent_runtime.views import chat_api, chat_stream
 from mentora.courses.views import (
     course_activate,
-    apply_candidate,
     course_confirm,
     course_detail,
+    course_list,
     course_list,
     course_profile_revise,
     course_scope_extend,
     course_scope_suggest,
     inquiry_next,
     plan_handler,
-    profile_candidates,
     session_detail,
     session_list_or_create,
     session_start,
@@ -56,8 +55,6 @@ urlpatterns = [
     path("api/courses/sessions/<uuid:session_id>/update/", session_update, name="session-update"),
     path("api/courses/sessions/<uuid:session_id>/inquiry/", inquiry_next, name="inquiry-next"),
     path("api/courses/sessions/<uuid:session_id>/plan/", plan_handler, name="plan-handler"),
-    path("api/courses/sessions/<uuid:session_id>/candidates/", profile_candidates, name="profile-candidates"),
-    path("api/courses/sessions/<uuid:session_id>/apply-candidate/", apply_candidate, name="apply-candidate"),
     # 课程管理
     path("api/courses/", course_list, name="course-list"),
     path("api/courses/confirm/", course_confirm, name="course-confirm"),

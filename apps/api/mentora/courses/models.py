@@ -53,6 +53,8 @@ class CourseCreationSession(models.Model):
 
     # 步骤 4：追问历史 [{"question":"...","answer":"...","type":"single_choice|multi_choice|free_text"}]
     inquiry_history = models.JSONField(default=list)
+    # AI 追问提取的用户补充画像 {"你学过哪些课": "组成原理、数据结构", ...}
+    profile_supplement = models.JSONField(default=dict)
 
     # 扩展字段（后续可存储生成的 plan、profile_candidates 等）
     extra = models.JSONField(default=dict)
