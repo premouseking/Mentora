@@ -438,8 +438,11 @@ def apply_candidate(request, session_id):
     请求体: {goal, level, pace}
     流程:
       1. 写入 session goal/level/pace
-      2. 自动调 plan_generate 生成计划
-    返回: {profile: {goal,level,pace}, plan: {phases: [...]}}
+      2. 创建 Course + CourseProfileRevision(draft)
+    返回: {course_id, profile_revision_id, goal, level, pace, status: "draft"}
+
+    用户可继续 PATCH /api/courses/<id>/profile/ 编辑草稿，
+    确认后 POST /api/courses/<id>/activate/ 触发 plan_generate 并激活。
     """
     try:
         session = _get_session(session_id)
@@ -458,62 +461,44 @@ def apply_candidate(request, session_id):
     if not goal:
         return JsonResponse({"error": "缺少 goal"}, status=400)
 
-    # 1. 更新 session
+    # 更新 session
     session.goal = goal
     session.level = level
     session.pace = pace
-    session.status = SessionStatus.GENERATING_PLAN
-    session.save(update_fields=["goal", "level", "pace", "status", "updated_at"])
+    session.save(update_fields=["goal", "level", "pace", "updated_at"])
 
-    # 2. 调 PlannerAgent 生成计划
-    gateway, prompt_mgr = _get_gateway_and_prompts()
+    # 创建 Course + draft ProfileRevision
+    from mentora.courses.models import Course, CourseProfileRevision
 
-    variables = {
-        "school": session.school or "未填写",
-        "goal": session.goal,
-        "level": session.level or "未选择",
-        "pace": session.pace or "未选择",
-        "inquiry_history": _format_history(session.inquiry_history),
-    }
-    system_text = prompt_mgr.render("planner", variables)
+    course, _ = Course.objects.get_or_create(session=session)
 
-    messages = [
-        Message(role="system", content=system_text),
-        Message(
-            role="user",
-            content="请根据以上全部信息，生成一份阶段化学习方案。",
-        ),
-    ]
+    # 旧 draft 标记 superseded
+    CourseProfileRevision.objects.filter(
+        course=course, status=CourseProfileRevision.Status.DRAFT,
+    ).update(status=CourseProfileRevision.Status.SUPERSEDED)
 
-    try:
-        resp = asyncio.run(
-            gateway.chat(
-                task_type="planner",
-                messages=messages,
-                structured_output_schema=PlanResponse,
-            )
-        )
-    except Exception as exc:
-        return JsonResponse({"error": f"LLM 调用失败: {str(exc)}"}, status=502)
+    profile = CourseProfileRevision.objects.create(
+        course=course,
+        goal=goal,
+        level=level,
+        pace=pace,
+        school=session.school or "",
+        status=CourseProfileRevision.Status.DRAFT,
+    )
+    course.active_profile_revision_id = profile.id
+    course.save(update_fields=["active_profile_revision_id"])
 
-    if resp.parsed_output is None:
-        return JsonResponse(
-            {"error": "LLM 返回格式异常", "raw_content": resp.content},
-            status=502,
-        )
-
-    plan_output = resp.parsed_output
     session.status = SessionStatus.COMPLETED
     session.save(update_fields=["status", "updated_at"])
 
     return JsonResponse({
-        "profile": {
-            "goal": session.goal,
-            "level": session.level,
-            "pace": session.pace,
-            "school": session.school,
-        },
-        "plan": plan_output,
+        "course_id": str(course.id),
+        "profile_revision_id": str(profile.id),
+        "goal": profile.goal,
+        "level": profile.level,
+        "pace": profile.pace,
+        "school": profile.school,
+        "status": profile.status,
     })
 
 
@@ -668,14 +653,85 @@ def course_activate(request, course_id):
     """
     POST /api/courses/<uuid:id>/activate/
 
-    激活课程画像 + 联动激活 LearningPlan。
+    流程: draft → confirmed → plan_generate → create_plan_revision → active
     """
-    from mentora.courses.services import activate_course
+    from mentora.courses.models import Course, CourseProfileRevision
+    from mentora.courses.services import activate_course, get_course_scope
+
+    try:
+        course = Course.objects.get(id=course_id)
+    except Course.DoesNotExist:
+        return JsonResponse({"error": "课程不存在"}, status=404)
+
+    try:
+        profile = CourseProfileRevision.objects.get(
+            id=course.active_profile_revision_id,
+        )
+    except CourseProfileRevision.DoesNotExist:
+        return JsonResponse({"error": "无活动画像修订"}, status=400)
+
+    if profile.status != CourseProfileRevision.Status.DRAFT:
+        return JsonResponse({"error": f"画像状态为 {profile.status}，需为 draft"}, status=400)
+
+    # 1. 调 PlannerAgent 生成计划
+    session = course.session
+    gateway, prompt_mgr = _get_gateway_and_prompts()
+
+    variables = {
+        "school": profile.school or "未填写",
+        "goal": profile.goal,
+        "level": profile.level or "未选择",
+        "pace": profile.pace or "未选择",
+        "inquiry_history": _format_history(session.inquiry_history),
+    }
+    system_text = prompt_mgr.render("planner", variables)
+
+    messages = [
+        Message(role="system", content=system_text),
+        Message(role="user", content="请根据以上全部信息，生成一份阶段化学习方案。"),
+    ]
+
+    try:
+        resp = asyncio.run(
+            gateway.chat(
+                task_type="planner",
+                messages=messages,
+                structured_output_schema=PlanResponse,
+            )
+        )
+    except Exception as exc:
+        return JsonResponse({"error": f"LLM 调用失败: {str(exc)}"}, status=502)
+
+    if resp.parsed_output is None:
+        return JsonResponse({"error": "LLM 返回格式异常"}, status=502)
+
+    plan_output = resp.parsed_output
+
+    # 2. 持久化计划
+    from mentora.learning.services import create_plan_revision
+
+    plan_result = create_plan_revision(
+        course_session_id=str(session.id),
+        plan_snapshot={
+            "total_budget_minutes": 80 * 60,
+            "phases": plan_output.get("phases", []),
+        },
+        profile_revision_id=str(profile.id),
+    )
+
+    profile.plan_revision_id = plan_result["revision_id"]
+    profile.save(update_fields=["plan_revision_id"])
+
+    # 3. 确认 + 激活
+    profile.status = CourseProfileRevision.Status.CONFIRMED
+    profile.save(update_fields=["status"])
 
     try:
         result = activate_course(course_id)
-        return JsonResponse(result)
-    except Course.DoesNotExist:
-        return JsonResponse({"error": "课程不存在"}, status=404)
     except Exception as exc:
         return JsonResponse({"error": str(exc)}, status=500)
+
+    return JsonResponse({
+        **result,
+        "plan": {"phases": plan_output.get("phases", []), "revision_id": plan_result["revision_id"]},
+    })
