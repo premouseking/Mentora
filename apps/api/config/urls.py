@@ -10,6 +10,7 @@ from mentora.courses.views import (
     course_scope_extend,
     inquiry_next,
     plan_generate,
+    profile_candidates,
     session_create,
     session_detail,
     session_update,
@@ -34,6 +35,7 @@ urlpatterns = [
     path("api/courses/sessions/<uuid:session_id>/update/", session_update, name="session-update"),
     path("api/courses/sessions/<uuid:session_id>/inquiry/", inquiry_next, name="inquiry-next"),
     path("api/courses/sessions/<uuid:session_id>/plan/", plan_generate, name="plan-generate"),
+    path("api/courses/sessions/<uuid:session_id>/candidates/", profile_candidates, name="profile-candidates"),
     # 课程管理
     path("api/courses/confirm/", course_confirm, name="course-confirm"),
     path("api/courses/<uuid:course_id>/", course_detail, name="course-detail"),

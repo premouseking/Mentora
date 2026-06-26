@@ -18,7 +18,11 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 
 from mentora.courses.models import CourseCreationSession, SessionStatus
-from mentora.courses.schemas import ClarifierResponse, PlanResponse
+from mentora.courses.schemas import (
+    ClarifierResponse,
+    PlanResponse,
+    ProfileCandidatesResponse,
+)
 from mentora.courses.serializers import (
     SessionCreateSerializer,
     SessionDetailSerializer,
@@ -326,6 +330,62 @@ def plan_generate(request, session_id):
 
     session.status = SessionStatus.COMPLETED
     session.save(update_fields=["status", "updated_at"])
+
+    return JsonResponse(resp.parsed_output)
+
+
+# ── Profile Candidates 画像候选项 ──
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def profile_candidates(request, session_id):
+    """
+    POST /api/courses/sessions/<uuid:id>/candidates/
+
+    基于追问历史生成 2-4 个差异化画像方案供学生选择。
+    """
+    try:
+        session = _get_session(session_id)
+    except ValueError as exc:
+        return JsonResponse({"error": str(exc)}, status=404)
+
+    gateway, prompt_mgr = _get_gateway_and_prompts()
+
+    variables = {
+        "school": session.school or "未填写",
+        "goal": session.goal or "未填写",
+        "level": session.level or "未选择",
+        "pace": session.pace or "未选择",
+        "inquiry_history": _format_history(session.inquiry_history),
+    }
+    system_text = prompt_mgr.render("clarifier", variables)
+
+    messages = [
+        Message(role="system", content=system_text),
+        Message(
+            role="user",
+            content="请基于以上全部信息，生成 2-4 个差异化的学习画像方案候选。"
+                    "每个方案应包含不同的目标/重点/节奏，并给出推荐理由。",
+        ),
+    ]
+
+    try:
+        resp = asyncio.run(
+            gateway.chat(
+                task_type="clarifier",
+                messages=messages,
+                structured_output_schema=ProfileCandidatesResponse,
+            )
+        )
+    except Exception as exc:
+        return JsonResponse({"error": f"LLM 调用失败: {str(exc)}"}, status=502)
+
+    if resp.parsed_output is None:
+        return JsonResponse(
+            {"error": "LLM 返回格式异常", "raw_content": resp.content},
+            status=502,
+        )
 
     return JsonResponse(resp.parsed_output)
 
