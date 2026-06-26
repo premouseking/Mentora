@@ -10,45 +10,57 @@ import {
   TrendingUp,
   X,
 } from "lucide-react";
+import { useMemo } from "react";
+import type { ActivePlan } from "../services/courseApi";
 
-/* ── Mock data ── */
+/* ── 辅助 ── */
 
-const completedTasks = [
-  { id: "1-1", title: "计算机系统层次结构", check: "3/3", time: "25 分钟", mastered: true },
-  { id: "1-2", title: "数据表示与运算基础", check: "2/3", time: "32 分钟", mastered: true },
-  { id: "1-3", title: "指令系统概述", check: "2/2", time: "18 分钟", mastered: true },
-  { id: "1-4", title: "CPU 基本组成", check: "2/2", time: "22 分钟", mastered: true },
-  { id: "1-5", title: "数据通路与时序控制", check: "1/2", time: "28 分钟", mastered: false },
-  { id: "1-6", title: "存储系统层次结构", check: "3/3", time: "20 分钟", mastered: true },
-  { id: "1-7", title: "总线与 I/O 基础", check: "2/2", time: "15 分钟", mastered: true },
-  { id: "1-8", title: "性能指标与评估", check: "2/3", time: "24 分钟", mastered: false },
-];
-
-const revisitItems = [
-  { id: "r1", title: "数据通路与时序控制", reason: "即时检查正确率 50%，建议回顾微操作序列" },
-  { id: "r2", title: "性能指标与评估", reason: "MIPS 与 CPI 的计算关系未完全掌握" },
-];
-
-const nextPhase = {
-  name: "重点突破",
-  tasks: 6,
-  focus: ["Cache 映射与命中率", "流水线冒险与优化", "指令级并行"],
-  representative: "Cache 替换算法与性能分析",
+const TASK_TYPE_LABEL: Record<string, string> = {
+  lecture: "讲解",
+  exercise: "练习",
+  project: "项目",
+  review: "复习",
 };
 
-const aiSuggestions = [
-  "在「数据通路」任务中，你对微操作序列的理解偏弱，建议在下阶段开始前先做一次针对性的回顾练习。",
-  "目前的掌握速度略高于预估，可以考虑将下一阶段的「流水线冒险」任务调整为标准深度。",
-];
+function formatMinutes(m: number): string {
+  if (m >= 60) return `${Math.round(m / 60)}h`;
+  return `${m} 分钟`;
+}
 
-export function PhaseSummary({ onClose }: { onClose: () => void }) {
-  const masteredCount = completedTasks.filter((t) => t.mastered).length;
-  const totalChecks = completedTasks.reduce((sum, t) => sum + parseInt(t.check.split("/")[1], 10), 0);
-  const correctChecks = completedTasks.reduce((sum, t) => sum + parseInt(t.check.split("/")[0], 10), 0);
+/* ── 组件 ── */
+
+export function PhaseSummary({
+  plan,
+  onClose,
+}: {
+  plan: ActivePlan;
+  onClose: () => void;
+}) {
+  const phases = plan.phases;
+
+  // 总分阶段数
+  const phaseCount = phases.length;
+
+  // 总任务数（所有 unit 的 task_templates 数量）
+  const totalTasks = useMemo(
+    () =>
+      phases.reduce(
+        (sum, p) =>
+          sum + p.units.reduce((usum, u) => usum + u.tasks.length, 0),
+        0,
+      ),
+    [phases],
+  );
+
+  // 总预估时长
+  const totalMinutes = useMemo(
+    () => phases.reduce((sum, p) => sum + p.estimated_minutes, 0),
+    [phases],
+  );
 
   return (
     <div className="phase-summary">
-      {/* Top hint bar — stop pointer events from reaching overlay swipe */}
+      {/* Top hint bar */}
       <div className="quiz-swipe-hint" onPointerDown={(e) => e.stopPropagation()}>
         <div className="quiz-swipe-hint-left">
           <ChevronDown size={14} />
@@ -59,91 +71,109 @@ export function PhaseSummary({ onClose }: { onClose: () => void }) {
         </button>
       </div>
       <div className="ps-body">
-        {/* ── Phase header ── */}
+        {/* ── 方案概览 ── */}
         <div className="ps-phase-badge">
-          <Check size={14} /> 阶段完成
+          <Check size={14} /> 学习方案
         </div>
-        <h2 className="ps-phase-title">阶段一：基础梳理</h2>
+        <h2 className="ps-phase-title">共 {phaseCount} 个阶段</h2>
         <p className="ps-phase-desc">
-          已覆盖计算机组成原理的核心基础知识，为后续的重点突破阶段打下基础。
+          共 {totalTasks} 个任务 · 预计 {formatMinutes(totalMinutes)}
         </p>
 
         {/* ── Key metrics ── */}
         <div className="ps-metrics">
           <div className="ps-metric">
-            <div className="ps-metric-value">{completedTasks.length}</div>
-            <div className="ps-metric-label">完成任务</div>
+            <div className="ps-metric-value">{phaseCount}</div>
+            <div className="ps-metric-label">学习阶段</div>
           </div>
           <div className="ps-metric">
-            <div className="ps-metric-value">{masteredCount}/{completedTasks.length}</div>
-            <div className="ps-metric-label">已掌握</div>
+            <div className="ps-metric-value">{phases.reduce((s, p) => s + p.units.length, 0)}</div>
+            <div className="ps-metric-label">学习单元</div>
           </div>
           <div className="ps-metric">
-            <div className="ps-metric-value">{correctChecks}/{totalChecks}</div>
-            <div className="ps-metric-label">检查正确</div>
+            <div className="ps-metric-value">{totalTasks}</div>
+            <div className="ps-metric-label">任务</div>
           </div>
           <div className="ps-metric">
-            <div className="ps-metric-value">~4.5h</div>
-            <div className="ps-metric-label">投入时间</div>
+            <div className="ps-metric-value">{formatMinutes(totalMinutes)}</div>
+            <div className="ps-metric-label">预估时长</div>
           </div>
         </div>
 
-        {/* ── Mastery bar ── */}
+        {/* ── Mastery bar（暂无评估数据，占位） ── */}
         <div className="ps-mastery-section">
           <div className="ps-section-head">
             <TrendingUp size={16} />
-            <span>阶段掌握度</span>
+            <span>整体掌握度</span>
           </div>
           <div className="ps-mastery-bar-track">
-            <div className="ps-mastery-bar-fill" style={{ width: "85%" }} />
+            <div className="ps-mastery-bar-fill" style={{ width: "0%" }} />
           </div>
           <div className="ps-mastery-meta">
-            <span>良好</span>
-            <span>{masteredCount}/{completedTasks.length} 个任务标记为已掌握</span>
+            <span>尚未开始</span>
+            <span>开始学习第一单元后可查看进度</span>
           </div>
         </div>
 
-        {/* ── Completed tasks ── */}
+        {/* ── 各阶段概览 ── */}
         <div className="ps-section">
           <div className="ps-section-head">
             <BookOpen size={16} />
-            <span>已完成的任务</span>
+            <span>阶段安排</span>
           </div>
           <div className="ps-task-list">
-            {completedTasks.map((task) => (
-              <div className={`ps-task-row${task.mastered ? "" : " weak"}`} key={task.id}>
-                <div className="ps-task-status">
-                  {task.mastered ? (
-                    <Check size={14} className="ps-check-icon" />
-                  ) : (
-                    <span className="ps-need-review">待巩固</span>
-                  )}
+            {phases.map((phase) => {
+              const unitCount = phase.units.length;
+              const taskCount = phase.units.reduce(
+                (s, u) => s + u.tasks.length,
+                0,
+              );
+              const sharePct = totalMinutes > 0
+                ? Math.round((phase.estimated_minutes / totalMinutes) * 100)
+                : 0;
+
+              return (
+                <div className="ps-task-row" key={phase.id}>
+                  <div className="ps-task-status">
+                    <span className="ps-phase-num">{phase.position + 1}</span>
+                  </div>
+                  <div className="ps-task-info">
+                    <span className="ps-task-title">
+                      {phase.title}
+                      <span className="ps-phase-share">（{sharePct}%）</span>
+                    </span>
+                    <span className="ps-task-meta">
+                      <Clock3 size={11} /> {formatMinutes(phase.estimated_minutes)}
+                      {" · "}{unitCount} 单元 · {taskCount} 任务
+                    </span>
+                  </div>
                 </div>
-                <div className="ps-task-info">
-                  <span className="ps-task-title">{task.title}</span>
-                  <span className="ps-task-meta">
-                    <Clock3 size={11} /> {task.time} · 检查 {task.check}
-                  </span>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
 
-        {/* ── Revisit items ── */}
-        {revisitItems.length > 0 && (
+        {/* ── 首阶段单元详览 ── */}
+        {phases.length > 0 && phases[0].units.length > 0 && (
           <div className="ps-section">
             <div className="ps-section-head">
               <Target size={16} />
-              <span>待巩固 / 已跳过</span>
+              <span>第一阶段「{phases[0].title}」单元</span>
             </div>
             <div className="ps-revisit-list">
-              {revisitItems.map((item) => (
-                <div className="ps-revisit-row" key={item.id}>
+              {phases[0].units.map((unit) => (
+                <div className="ps-revisit-row" key={unit.id}>
                   <ChevronRight size={13} className="ps-revisit-arrow" />
                   <div>
-                    <span className="ps-revisit-title">{item.title}</span>
-                    <span className="ps-revisit-reason">{item.reason}</span>
+                    <span className="ps-revisit-title">
+                      {unit.title || `单元 ${unit.position + 1}`}
+                    </span>
+                    <span className="ps-revisit-reason">
+                      {unit.tasks
+                        .map((t) => TASK_TYPE_LABEL[t.task_type] ?? t.task_type)
+                        .join("、")}
+                      {" · "}{formatMinutes(unit.estimated_minutes)}
+                    </span>
                   </div>
                 </div>
               ))}
@@ -151,46 +181,51 @@ export function PhaseSummary({ onClose }: { onClose: () => void }) {
           </div>
         )}
 
-        {/* ── Next phase preview ── */}
-        <div className="ps-section ps-next-phase">
-          <div className="ps-section-head">
-            <ArrowRight size={16} />
-            <span>下一阶段</span>
-          </div>
-          <div className="ps-next-card">
-            <div className="ps-next-header">
-              <span className="ps-next-label">阶段二</span>
-              <strong>{nextPhase.name}</strong>
+        {/* ── 下一阶段预览 ── */}
+        {phases.length > 1 && (() => {
+          const next = phases[1];
+          return (
+            <div className="ps-section ps-next-phase">
+              <div className="ps-section-head">
+                <ArrowRight size={16} />
+                <span>下一阶段</span>
+              </div>
+              <div className="ps-next-card">
+                <div className="ps-next-header">
+                  <span className="ps-next-label">阶段{next.position + 1}</span>
+                  <strong>{next.title}</strong>
+                </div>
+                <div className="ps-next-detail">
+                  <div>
+                    <span className="ps-next-meta-label">任务数</span>
+                    <span>
+                      {next.units.reduce((s, u) => s + u.tasks.length, 0)} 个
+                    </span>
+                  </div>
+                  <div>
+                    <span className="ps-next-meta-label">预估时长</span>
+                    <span>{formatMinutes(next.estimated_minutes)}</span>
+                  </div>
+                  <div>
+                    <span className="ps-next-meta-label">目标</span>
+                    <span>{next.objective || next.title}</span>
+                  </div>
+                </div>
+              </div>
             </div>
-            <div className="ps-next-detail">
-              <div>
-                <span className="ps-next-meta-label">任务数</span>
-                <span>{nextPhase.tasks} 个</span>
-              </div>
-              <div>
-                <span className="ps-next-meta-label">重点主题</span>
-                <span>{nextPhase.focus.join("、")}</span>
-              </div>
-              <div>
-                <span className="ps-next-meta-label">代表性任务</span>
-                <span>{nextPhase.representative}</span>
-              </div>
-            </div>
-          </div>
-        </div>
+          );
+        })()}
 
-        {/* ── AI suggestions ── */}
+        {/* ── AI 建议（暂无，占位） ── */}
         <div className="ps-section">
           <div className="ps-section-head">
             <Lightbulb size={16} />
             <span>AI 建议</span>
           </div>
           <div className="ps-suggestions">
-            {aiSuggestions.map((s, i) => (
-              <div className="ps-suggestion-card" key={i}>
-                <p>{s}</p>
-              </div>
-            ))}
+            <div className="ps-suggestion-card">
+              <p>开始学习第一个单元后，AI 会根据你的表现提供个性化建议。</p>
+            </div>
           </div>
         </div>
 
@@ -200,7 +235,7 @@ export function PhaseSummary({ onClose }: { onClose: () => void }) {
             调整计划
           </button>
           <button className="ps-btn ps-btn-primary" type="button">
-            进入下一阶段 <ChevronRight size={18} />
+            开始学习 <ChevronRight size={18} />
           </button>
         </div>
 

@@ -157,26 +157,13 @@ export function FileExplorer({
     });
   }, []);
 
-  // Sort: expanded sections first (original order), collapsed sections last (original order)
-  const sortedSections = visibleSections
-    .map((s, i) => ({ section: s, originalIndex: i }))
-    .sort((a, b) => {
-      const aCollapsed = collapsedSections.has(a.section.key);
-      const bCollapsed = collapsedSections.has(b.section.key);
-      if (aCollapsed === bCollapsed) return a.originalIndex - b.originalIndex;
-      return aCollapsed ? 1 : -1;
-    })
-    .map(({ section }) => section);
-
   // Reset heights to flex mode when sections or collapse state change
   useEffect(() => {
     setHeights(null);
     initialHeightsRef.current = null;
   }, [detachedSections.size, collapsedSections.size]);
 
-  // Split sections into expanded and collapsed groups
-  const expandedSections = sortedSections.filter((s) => !collapsedSections.has(s.key));
-  const collapsedList = sortedSections.filter((s) => collapsedSections.has(s.key));
+  const expandedSections = visibleSections.filter((s) => !collapsedSections.has(s.key));
 
   /* ── Resize by dragging between sections ── */
   const dragIdx = useRef<number | null>(null);
@@ -260,43 +247,60 @@ export function FileExplorer({
 
   return (
     <aside className="file-explorer" ref={containerRef}>
-      {/* Expanded section area — resize handles + sections are direct children */}
-      {expandedSections.length > 0 && (
-        <div className="fe-expanded-area">
-          {expandedSections.map((section, i) => {
-            const style = heights
-              ? { flex: `0 0 ${(heights[i] * 100).toFixed(2)}%` }
-              : { flex: 1, minHeight: 80 };
-            return (
-            <React.Fragment key={section.key}>
-                {i > 0 && (
-                <div
-                  className="fe-resize-handle"
-                  onMouseDown={(e) => {
-                    const area = containerRef.current?.querySelector<HTMLElement>(".fe-expanded-area");
-                    if (!area) return;
-                    const areaH = area.getBoundingClientRect().height;
-                    if (areaH <= 0) return;
-                    const els = area.querySelectorAll<HTMLElement>(":scope > .fe-section");
-                    const pixelHeights = Array.from(els).map((el) => el.getBoundingClientRect().height);
-                    if (pixelHeights.length < 2) return;
-                    // Convert to ratios (sum = 1)
-                    const total = pixelHeights.reduce((a, b) => a + b, 0);
-                    const ratios = pixelHeights.map((h) => h / total);
-                    dragStartRatios.current = ratios;
-                    dragStartY.current = e.clientY;
-                    dragAreaHeight.current = areaH;
-                    setHeights(ratios);
-                    dragIdx.current = i - 1;
-                    document.body.style.cursor = "row-resize";
-                    document.body.style.userSelect = "none";
-                    document.addEventListener("mousemove", onMoveHandler);
-                    document.addEventListener("mouseup", onUpHandler);
-                  }}
-                />
-              )}
+      {/* Sections in fixed order, collapsed stays in place */}
+      <div className="fe-expanded-area">
+        {visibleSections.map((section, i) => {
+          const collapsed = collapsedSections.has(section.key);
+          const expIdx = expandedSections.indexOf(section);
+          const style = !collapsed && heights
+            ? { flex: `0 0 ${(heights[expIdx] * 100).toFixed(2)}%` }
+            : !collapsed
+              ? { flex: 1, minHeight: 80 }
+              : { flex: "0 0 auto", height: 26 };
+
+          return (
+          <React.Fragment key={section.key}>
+              {!collapsed && expIdx > 0 && (
+              <div
+                className="fe-resize-handle"
+                onMouseDown={(e) => {
+                  const area = containerRef.current?.querySelector<HTMLElement>(".fe-expanded-area");
+                  if (!area) return;
+                  const areaH = area.getBoundingClientRect().height;
+                  if (areaH <= 0) return;
+                  const els = area.querySelectorAll<HTMLElement>(":scope > .fe-section:not(.collapsed)");
+                  const pixelHeights = Array.from(els).map((el) => el.getBoundingClientRect().height);
+                  if (pixelHeights.length < 2) return;
+                  const total = pixelHeights.reduce((a, b) => a + b, 0);
+                  const ratios = pixelHeights.map((h) => h / total);
+                  dragStartRatios.current = ratios;
+                  dragStartY.current = e.clientY;
+                  dragAreaHeight.current = areaH;
+                  setHeights(ratios);
+                  dragIdx.current = expIdx - 1;
+                  document.body.style.cursor = "row-resize";
+                  document.body.style.userSelect = "none";
+                  document.addEventListener("mousemove", onMoveHandler);
+                  document.addEventListener("mouseup", onUpHandler);
+                }}
+              />
+            )}
+            {collapsed ? (
+              <div className="fe-section collapsed" style={style}>
+                <div className="fe-section-title collapsed-title">
+                  <button className="fe-collapse-toggle" onClick={() => toggleCollapse(section.key)} title="展开">
+                    <ChevronRight size={12} />
+                  </button>
+                  {section.icon}
+                  <span>{section.title}</span>
+                  <button className="fe-ai-popout" onClick={() => onToggleDetach(section.key)} title="移到右侧">
+                    <PanelRightClose size={14} />
+                  </button>
+                </div>
+              </div>
+            ) : (
               <div className="fe-section" style={style}>
-                <div className={`fe-section-title${i > 0 ? " sub" : ""}`}>
+                <div className={`fe-section-title${expIdx > 0 ? " sub" : ""}`}>
                   <button className="fe-collapse-toggle" onClick={() => toggleCollapse(section.key)} title="收起">
                     <ChevronDown size={12} />
                   </button>
@@ -310,39 +314,11 @@ export function FileExplorer({
                   {renderSectionContent(section)}
                 </div>
               </div>
-            </React.Fragment>
-            );
-          })}
-        </div>
-      )}
-
-      {/* Collapsed section area — fixed height, pinned to bottom */}
-      {collapsedList.length > 0 && (
-        <div className="fe-collapsed-area">
-          {collapsedList.map((section) => (
-            <div key={section.key} className="fe-section collapsed" style={{ flex: "0 0 auto", height: 26 }}>
-                <div className="fe-section-title collapsed-title">
-                  <button
-                    className="fe-collapse-toggle"
-                    onClick={() => toggleCollapse(section.key)}
-                    title="展开"
-                  >
-                    <ChevronRight size={12} />
-                  </button>
-                  {section.icon}
-                  <span>{section.title}</span>
-                  <button
-                    className="fe-ai-popout"
-                    onClick={() => onToggleDetach(section.key)}
-                    title="移到右侧"
-                  >
-                    <PanelRightClose size={14} />
-                  </button>
-                </div>
-              </div>
-          ))}
-        </div>
-      )}
+            )}
+          </React.Fragment>
+          );
+        })}
+      </div>
     </aside>
   );
 }

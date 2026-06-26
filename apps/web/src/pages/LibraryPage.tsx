@@ -1,4 +1,4 @@
-import { useMemo, useState, type DragEvent } from "react";
+import { useMemo, useState, useEffect, useRef, useCallback, type DragEvent } from "react";
 import {
   AlertTriangle,
   BookOpen,
@@ -30,9 +30,10 @@ import {
 } from "lucide-react";
 
 import { AppShell } from "../components/AppShell";
+import { fetchSources, deleteSource, reparseSource, type SourceItem } from "../services/documentApi";
+import { uploadFile, type UploadProgress } from "../services/uploadService";
 import {
   libraryFolders,
-  libraryItems,
   parseStateLabels,
   roleLabels,
   typeLabels,
@@ -41,7 +42,6 @@ import {
   type LibraryItemType,
   type ParseState,
 } from "../data/library";
-import { courses } from "../data/courses";
 
 /* ── constants ─────────────────────────────────────── */
 
@@ -49,7 +49,7 @@ const ALL_TYPES: (LibraryItemType | "all")[] = [
   "all", "pdf", "docx", "pptx", "image", "video", "audio", "link",
 ];
 
-const allTags = Array.from(new Set(libraryItems.flatMap((item) => item.tags))).sort();
+const allTags: string[] = [];
 
 const typeIcons: Record<LibraryItemType, typeof FileText> = {
   pdf: FileText, docx: FileText, pptx: FileText, image: Image, video: FileText, audio: FileText, link: Link2,
@@ -74,7 +74,18 @@ function ParseIcon({ state }: { state: ParseState }) {
 
 /* ── detail panel ──────────────────────────────────── */
 
-function LibraryDetailPanel({ item, onClose }: { item: LibraryItem; onClose: () => void }) {
+function LibraryDetailPanel({ item, onClose, onDelete, onReparse }: { item: LibraryItem; onClose: () => void; onDelete?: () => void; onReparse?: () => void }) {
+  const [reparsing, setReparsing] = useState(false);
+
+  async function handleReparse() {
+    setReparsing(true);
+    try {
+      await (onReparse as () => Promise<void>)?.();
+    } finally {
+      setReparsing(false);
+    }
+  }
+
   return (
     <aside className="library-detail-panel" role="complementary" aria-label="资料详情">
       <header className="library-detail-header">
@@ -106,16 +117,12 @@ function LibraryDetailPanel({ item, onClose }: { item: LibraryItem; onClose: () 
           <h3>被引用课程</h3>
           {item.usedBy.length > 0 ? (
             <ul className="used-by-list">
-              {item.usedBy.map((courseName) => {
-                const course = courses.find((c) => c.name === courseName);
-                return (
+              {item.usedBy.map((courseName) => (
                   <li key={courseName}>
-                    <span className={`course-dot ${course?.color ?? "teal"}`} />
+                    <span className="course-dot teal" />
                     <span>{courseName}</span>
-                    {course && <span className="used-by-status">{course.status}</span>}
                   </li>
-                );
-              })}
+                ))}
             </ul>
           ) : (
             <p className="library-detail-empty-text">此资料尚未被任何课程引用。上传资料至资源库不会自动授权课程使用。</p>
@@ -138,9 +145,12 @@ function LibraryDetailPanel({ item, onClose }: { item: LibraryItem; onClose: () 
           <h3>操作</h3>
           <div className="library-detail-actions">
             <button className="button secondary compact" type="button"><Eye size={15} /> 预览</button>
-            <button className="button secondary compact" type="button"><RefreshCw size={15} /> 重新解析</button>
+            <button className="button secondary compact" type="button" onClick={handleReparse} disabled={reparsing}>
+              {reparsing ? <Loader size={15} className="spin" /> : <RefreshCw size={15} />}
+              {reparsing ? "解析中…" : "重新解析"}
+            </button>
             {item.usedBy.length === 0 && (
-              <button className="button secondary compact danger" type="button"><Trash2 size={15} /> 删除</button>
+              <button className="button secondary compact danger" type="button" onClick={onDelete}><Trash2 size={15} /> 删除</button>
             )}
             {item.usedBy.length > 0 && (
               <p className="library-detail-empty-text">此资料正被 {item.usedBy.length} 门课程使用，删除前请先从课程资料中移除。</p>
@@ -154,8 +164,83 @@ function LibraryDetailPanel({ item, onClose }: { item: LibraryItem; onClose: () 
 
 /* ── upload modal ──────────────────────────────────── */
 
-function UploadModal({ onClose }: { onClose: () => void }) {
+const ACCEPTED_TYPES = ".pdf,.docx,.pptx,.xlsx,.png,.jpg,.jpeg,.mp4,.mp3";
+
+interface UploadModalProps {
+  onClose: () => void;
+  onUploaded: () => void;
+}
+
+function UploadModal({ onClose, onUploaded }: UploadModalProps) {
   const [dragOver, setDragOver] = useState(false);
+  const [progress, setProgress] = useState<UploadProgress | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  function pickFile() {
+    fileInputRef.current?.click();
+  }
+
+  async function handleFile(file: File) {
+    setProgress({ step: "create", message: "正在创建上传会话…" });
+    try {
+      await uploadFile(file, (p) => setProgress(p));
+      setProgress({ step: "done", message: "上传完成，解析中…" });
+      setTimeout(() => {
+        onUploaded();
+        onClose();
+      }, 800);
+    } catch (err: unknown) {
+      setProgress({
+        step: "error",
+        message: err instanceof Error ? err.message : "上传失败",
+      });
+    }
+  }
+
+  function onFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const f = e.target.files?.[0];
+    if (f) handleFile(f);
+    // reset so same file can be picked again
+    e.target.value = "";
+  }
+
+  function onDrop(e: DragEvent<HTMLDivElement>) {
+    e.preventDefault();
+    setDragOver(false);
+    const f = e.dataTransfer.files[0];
+    if (f) handleFile(f);
+  }
+
+  if (progress) {
+    const isError = progress.step === "error";
+    return (
+      <div className="library-modal-overlay" onClick={isError ? onClose : undefined}>
+        <div className="library-modal" onClick={(e) => e.stopPropagation()}>
+          <header className="library-modal-header">
+            <strong>{isError ? "上传失败" : "正在上传"}</strong>
+            <button aria-label="关闭" onClick={onClose} type="button"><X size={17} /></button>
+          </header>
+          <div className="library-upload-zone" style={{ textAlign: "center", padding: "40px 24px" }}>
+            {isError ? (
+              <>
+                <FileWarning size={32} color="#e74c3c" />
+                <p style={{ color: "#e74c3c", marginTop: 12 }}>{progress.message}</p>
+                <button className="button secondary" onClick={() => setProgress(null)} style={{ marginTop: 12 }}>
+                  重新上传
+                </button>
+              </>
+            ) : (
+              <>
+                <Loader size={32} className="spin" />
+                <p style={{ marginTop: 12 }}>{progress.message}</p>
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="library-modal-overlay" onClick={onClose}>
       <div className="library-modal" onClick={(e) => e.stopPropagation()}>
@@ -163,12 +248,19 @@ function UploadModal({ onClose }: { onClose: () => void }) {
           <strong>添加资料</strong>
           <button aria-label="关闭" onClick={onClose} type="button"><X size={17} /></button>
         </header>
+        <input
+          ref={fileInputRef}
+          accept={ACCEPTED_TYPES}
+          style={{ display: "none" }}
+          type="file"
+          onChange={onFileChange}
+        />
         <div
           className={`library-upload-zone${dragOver ? " drag-over" : ""}`}
           onDragEnter={() => setDragOver(true)}
           onDragLeave={() => setDragOver(false)}
           onDragOver={(e) => e.preventDefault()}
-          onDrop={(e) => { e.preventDefault(); setDragOver(false); }}
+          onDrop={onDrop}
         >
           <Upload size={28} />
           <strong>拖拽文件到此处上传</strong>
@@ -176,8 +268,8 @@ function UploadModal({ onClose }: { onClose: () => void }) {
         </div>
         <div className="library-modal-separator"><span>或者</span></div>
         <div className="library-add-options">
-          <button className="button secondary" type="button"><Folders size={16} />从本地选择文件</button>
-          <button className="button secondary" type="button"><Globe size={16} />添加网页链接</button>
+          <button className="button secondary" type="button" onClick={pickFile}><Folders size={16} />从本地选择文件</button>
+          <button className="button secondary" type="button" onClick={() => {}}><Globe size={16} />添加网页链接</button>
         </div>
         <p className="library-upload-note">上传资料仅进入资源库，不会自动授权任何课程访问。</p>
       </div>
@@ -305,9 +397,40 @@ function FolderSidebar({
 
 /* ── main page ─────────────────────────────────────── */
 
+function sourceToLibraryItem(s: SourceItem): LibraryItem {
+  const v = s.latestVersion;
+  const status: ParseState = v
+    ? v.processingStatus === "completed" ? "ready"
+    : v.processingStatus === "failed" ? "failed"
+    : v.processingStatus === "processing" ? "reading"
+    : "pending"
+    : "pending";
+  const filename = v?.originalFilename ?? "";
+  const ext = filename.split(".").pop()?.toLowerCase() ?? "";
+  const typeMap: Record<string, LibraryItemType> = {
+    pdf: "pdf", docx: "docx", pptx: "pptx",
+    png: "image", jpg: "image", jpeg: "image",
+    mp4: "video", mp3: "audio",
+  };
+  return {
+    id: v?.id ?? s.id,
+    name: s.displayTitle || filename || "未命名",
+    type: typeMap[ext] ?? "pdf",
+    tags: [],
+    parseState: status,
+    updatedAt: new Date().toISOString().slice(0, 10),
+    usedBy: [],
+    role: "primary" as const,
+    version: v?.versionNumber ?? 1,
+    folderId: null,
+  };
+}
+
 export function LibraryPage() {
-  const [items, setItems] = useState(libraryItems);
-  const [folders, setFolders] = useState(libraryFolders);
+  const [items, setItems] = useState<LibraryItem[]>([]);
+  const [folders, setFolders] = useState<LibraryFolder[]>(libraryFolders);
+  const [loading, setLoading] = useState(true);
+  const sourceIdMap = useRef<Map<string, string>>(new Map());
 
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState<LibraryItemType | "all">("all");
@@ -317,6 +440,26 @@ export function LibraryPage() {
   const [showUpload, setShowUpload] = useState(false);
   const [typeMenuOpen, setTypeMenuOpen] = useState(false);
   const [tagMenuOpen, setTagMenuOpen] = useState(false);
+
+  const loadSources = useCallback(async () => {
+    try {
+      const sources = await fetchSources();
+      const map = new Map<string, string>();
+      const mapped = sources.map((s) => {
+        const item = sourceToLibraryItem(s);
+        map.set(item.id, s.id);  // LibraryItem.id → source.id
+        return item;
+      });
+      sourceIdMap.current = map;
+      setItems(mapped);
+    } catch {
+      // 保留现有数据
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { loadSources(); }, [loadSources]);
 
   /* folder operations */
   function handleCreateFolder() {
@@ -339,6 +482,29 @@ export function LibraryPage() {
 
   function getFolderCount(folderId: string | null): number {
     return items.filter((item) => item.folderId === folderId).length;
+  }
+
+  async function handleDeleteItem(itemId: string) {
+    const sourceId = sourceIdMap.current.get(itemId);
+    if (!sourceId) return;
+    try {
+      await deleteSource(sourceId);
+      setItems((prev) => prev.filter((i) => i.id !== itemId));
+      setSelectedItem(null);
+    } catch {
+      // 删除失败静默
+    }
+  }
+
+  async function handleReparseItem(itemId: string) {
+    const sourceId = sourceIdMap.current.get(itemId);
+    if (!sourceId) return;
+    try {
+      await reparseSource(sourceId);
+      loadSources();  // 刷新列表（更新解析状态）
+    } catch {
+      // 重新解析失败静默
+    }
   }
 
   const activeFolderName = activeFolder ? folders.find((f) => f.id === activeFolder)?.name ?? "" : "";
@@ -501,7 +667,12 @@ export function LibraryPage() {
                   <span>操作</span>
                 </div>
 
-                {filtered.length === 0 ? (
+                {loading ? (
+                  <div className="library-empty">
+                    <Loader size={28} className="spin" />
+                    <strong>正在加载…</strong>
+                  </div>
+                ) : filtered.length === 0 ? (
                   <div className="library-empty">
                     <Search size={28} />
                     <strong>没有匹配的资料</strong>
@@ -551,14 +722,14 @@ export function LibraryPage() {
               </div>
 
               {selectedItem && (
-                <LibraryDetailPanel item={selectedItem} onClose={() => setSelectedItem(null)} />
+                <LibraryDetailPanel item={selectedItem} onClose={() => setSelectedItem(null)} onDelete={() => handleDeleteItem(selectedItem.id)} onReparse={() => handleReparseItem(selectedItem.id)} />
               )}
             </div>
           </div>
         </div>
       </div>
 
-      {showUpload && <UploadModal onClose={() => setShowUpload(false)} />}
+      {showUpload && <UploadModal onClose={() => setShowUpload(false)} onUploaded={loadSources} />}
     </AppShell>
   );
 }

@@ -13,7 +13,7 @@ const log = createLogger("window");
 
 /** 开发模式放行 Vite origin/ws 以支持 HMR；生产禁止 `unsafe-eval`（§4） */
 function contentSecurityPolicy(): string {
-  const devConnect = isDev ? " http://localhost:5173 ws://localhost:5173" : "";
+  const devConnect = isDev ? " http://localhost:5173 ws://localhost:5173 http://127.0.0.1:9000" : "";
   const devScript = isDev ? " 'unsafe-inline'" : "";
   return [
     "default-src 'self'",

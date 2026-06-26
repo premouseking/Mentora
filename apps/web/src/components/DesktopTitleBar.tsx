@@ -72,6 +72,7 @@ export function DesktopTitleBar({
             className={`ai-toggle-button${aiOpen ? " active" : ""}`}
             type="button"
             onClick={onToggleAi}
+            onDoubleClick={(e) => e.stopPropagation()}
             aria-label={aiOpen ? "关闭 AI 对话" : "打开 AI 对话"}
             title="AI 对话"
           >

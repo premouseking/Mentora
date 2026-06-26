@@ -280,12 +280,14 @@ type Phase = {
 
 export function ConfirmPlanPage() {
   const navigate = useNavigate();
-  const { items, sessionId } = useCourseCreation();
+  const { items, addItem, sessionId } = useCourseCreation();
+  const [courseTitle, setCourseTitle] = useState("");
   const [phases, setPhases] = useState<Phase[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [activePhaseId, setActivePhaseId] = useState("");
   const [planExpanded, setPlanExpanded] = useState(false);
+  const [starting, setStarting] = useState(false);
 
   const activePhase = useMemo(
     () => phases.find((phase) => phase.id === activePhaseId) ?? phases[0],
@@ -303,6 +305,11 @@ export function ConfirmPlanPage() {
     import("../services/courseApi").then(async ({ generatePlan }) => {
       try {
         const resp = await generatePlan(sessionId);
+        // 存储 AI 生成的标题
+        if (resp.title) {
+          setCourseTitle(resp.title);
+          addItem({ key: "title", title: "课程名称", value: resp.title, source: "AI 生成" });
+        }
         const mapped: Phase[] = resp.phases.map((p, i) => ({
           id: `phase_${i}`,
           name: p.name,
@@ -313,6 +320,10 @@ export function ConfirmPlanPage() {
         setPhases(mapped);
         if (mapped.length > 0) {
           setActivePhaseId(mapped[0].id);
+        }
+        // 存储 revision_id 供「开始学习」使用
+        if (resp.revision_id) {
+          sessionStorage.setItem("mentora-revision-id", resp.revision_id);
         }
       } catch (err: unknown) {
         setError(err instanceof Error ? err.message : "方案生成失败");
@@ -327,8 +338,16 @@ export function ConfirmPlanPage() {
     setPlanExpanded(true);
   }
 
-  function startCourse() {
-    sessionStorage.setItem("mentora-course-started", "true");
+  async function startCourse() {
+    if (!sessionId || starting) return;
+    setStarting(true);
+    try {
+      const { startCourse: apiStartCourse } = await import("../services/courseApi");
+      await apiStartCourse(sessionId);
+    } catch {
+      // API 调用失败也允许进入学习（方案已在前端展示）
+    }
+    sessionStorage.setItem("mentora-course-started", sessionId);
     navigate("/courses");
   }
 
@@ -361,13 +380,13 @@ export function ConfirmPlanPage() {
           <button className="button secondary" onClick={() => navigate("/courses/new/inquiry")} type="button">
             返回修改需求
           </button>
-          <button className="button primary" disabled={loading} onClick={startCourse} type="button">开始学习</button>
+          <button className="button primary" disabled={loading || starting} onClick={startCourse} type="button">{starting ? "启动中…" : "开始学习"}</button>
         </div>
       }
     >
       <div className="plan-page">
         <div className="setup-heading compact-heading">
-          <h1>确认学习方案</h1>
+          <h1>{courseTitle ? `「${courseTitle}」学习方案` : "确认学习方案"}</h1>
           <p>{loading ? "AI 正在生成方案…" : error ? "方案生成遇到问题" : "AI 已根据你的需求生成阶段方案，请确认并按需调整。"}</p>
         </div>
 

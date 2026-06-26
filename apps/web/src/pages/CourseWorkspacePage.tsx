@@ -5,21 +5,30 @@ import {
   ChevronDown,
   ChevronRight,
   Lightbulb,
+  ListChecks,
   MoveLeft,
   PenLine,
   AlertTriangle,
   X,
   XCircle,
 } from "lucide-react";
+import { useParams } from "react-router-dom";
 import { AppShell } from "../components/AppShell";
 import { FileExplorer } from "../components/FileExplorer";
 import type { SectionKey } from "../components/FileExplorer";
+import { MistakeReviewPanel } from "../components/MistakeReviewPanel";
 import { PhaseSummary } from "../components/PhaseSummary";
-import { QuizPanel } from "../components/QuizPanel";
-import { courseFiles } from "../data/files";
+import { QuizPracticeView } from "../components/QuizPracticeView";
+import type { FileNode } from "../data/files";
 import { aiExplanations } from "../data/aiExplanations";
-import { mistakeItems } from "../data/mistakes";
-import { sampleQuestion } from "../data/quiz";
+import { mistakeItems, type MistakeSourceLink } from "../data/mistakes";
+import {
+  fetchSources,
+  fetchSourceDetail,
+  sourcesToFileNodes,
+  type BundleRaw,
+} from "../services/documentApi";
+import { getActivePlan, type ActivePlan } from "../services/courseApi";
 
 const MIN_EXPLORER = 170;
 const MAX_EXPLORER = 360;
@@ -61,6 +70,7 @@ function DetachedSidePanel({
   onResizeStart,
   onMoveBack,
   onOpenPanel,
+  files,
 }: {
   sections: SectionKey[];
   selectedFileId: string | null;
@@ -73,6 +83,7 @@ function DetachedSidePanel({
   onResizeStart: () => void;
   onMoveBack: (section: SectionKey) => void;
   onOpenPanel: (section: SectionKey) => void;
+  files: FileNode[];
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   // null = flex mode; number[] = fraction per section (always sums to 1)
@@ -94,19 +105,7 @@ function DetachedSidePanel({
     });
   }, []);
 
-  // Sort: expanded first (original order), collapsed last (original order)
-  const sortedSections = sections
-    .map((s, i) => ({ section: s, originalIndex: i }))
-    .sort((a, b) => {
-      const aCollapsed = collapsedSections.has(a.section);
-      const bCollapsed = collapsedSections.has(b.section);
-      if (aCollapsed === bCollapsed) return a.originalIndex - b.originalIndex;
-      return aCollapsed ? 1 : -1;
-    })
-    .map(({ section }) => section);
-
-  const expandedSections = sortedSections.filter((s) => !collapsedSections.has(s));
-  const collapsedList = sortedSections.filter((s) => collapsedSections.has(s));
+  const expandedSections = sections.filter((s) => !collapsedSections.has(s));
 
   // Reset heights when sections or collapse change
   useEffect(() => {
@@ -158,7 +157,7 @@ function DetachedSidePanel({
   const renderSectionContent = (section: SectionKey) => {
     switch (section) {
       case "file":
-        return courseFiles.map((n) => (
+        return files.map((n) => (
           <button
             key={n.id}
             className={`fe-row${selectedFileId === n.id ? " selected" : ""}`}
@@ -207,16 +206,20 @@ function DetachedSidePanel({
     <>
       <div className="resize-handle cw-resize" onMouseDown={onResizeStart} role="separator" aria-orientation="vertical" tabIndex={-1} />
       <aside className="detached-side-panel" ref={containerRef} style={{ width, flexShrink: 0 }}>
-        {/* Expanded section area — resize handles + sections are direct children */}
-        {expandedSections.length > 0 && (
-          <div className="fe-expanded-area">
-            {expandedSections.map((section, i) => {
-              const style = heights
-                ? { flex: `0 0 ${(heights[i] * 100).toFixed(2)}%` }
-                : { flex: 1, minHeight: 80 };
-              return (
+        {/* Sections in fixed order, collapsed stays in place */}
+        <div className="fe-expanded-area">
+          {sections.map((section, i) => {
+            const collapsed = collapsedSections.has(section);
+            const expIdx = expandedSections.indexOf(section);
+            const style = !collapsed && heights
+              ? { flex: `0 0 ${(heights[expIdx] * 100).toFixed(2)}%` }
+              : !collapsed
+                ? { flex: 1, minHeight: 80 }
+                : { flex: "0 0 auto", height: 26 };
+
+            return (
               <React.Fragment key={section}>
-                {i > 0 && (
+                {!collapsed && expIdx > 0 && (
                   <div
                     className="fe-resize-handle"
                     onMouseDown={(e) => {
@@ -224,7 +227,7 @@ function DetachedSidePanel({
                       if (!area) return;
                       const areaH = area.getBoundingClientRect().height;
                       if (areaH <= 0) return;
-                      const els = area.querySelectorAll<HTMLElement>(":scope > .fe-section");
+                      const els = area.querySelectorAll<HTMLElement>(":scope > .fe-section:not(.collapsed)");
                       const pixelHeights = Array.from(els).map((el) => el.getBoundingClientRect().height);
                       if (pixelHeights.length < 2) return;
                       const total = pixelHeights.reduce((a, b) => a + b, 0);
@@ -233,7 +236,7 @@ function DetachedSidePanel({
                       dragStartY.current = e.clientY;
                       dragAreaHeight.current = areaH;
                       setHeights(ratios);
-                      dragIdx.current = i - 1;
+                      dragIdx.current = expIdx - 1;
                       document.body.style.cursor = "row-resize";
                       document.body.style.userSelect = "none";
                       document.addEventListener("mousemove", onMoveHandler);
@@ -241,53 +244,88 @@ function DetachedSidePanel({
                     }}
                   />
                 )}
-                <div className="fe-section" style={style}>
-                  <div className={`fe-section-title${i > 0 ? " sub" : ""}`}>
-                    <button className="fe-collapse-toggle" onClick={() => toggleCollapse(section)} title="收起">
-                      <ChevronDown size={12} />
-                    </button>
-                    {sectionIcon(section)}
-                    <span>{SECTION_LABELS[section]}</span>
-                    <button className="fe-ai-popout" onClick={() => onMoveBack(section)} title="移回左侧">
-                      <MoveLeft size={14} />
-                    </button>
+                {collapsed ? (
+                  <div className="fe-section collapsed" style={style}>
+                    <div className="fe-section-title collapsed-title">
+                      <button className="fe-collapse-toggle" onClick={() => toggleCollapse(section)} title="展开">
+                        <ChevronRight size={12} />
+                      </button>
+                      {sectionIcon(section)}
+                      <span>{SECTION_LABELS[section]}</span>
+                      <button className="fe-ai-popout" onClick={() => onMoveBack(section)} title="移回左侧">
+                        <MoveLeft size={14} />
+                      </button>
+                    </div>
                   </div>
-                  <div className="fe-section-content">
-                    {renderSectionContent(section)}
+                ) : (
+                  <div className="fe-section" style={style}>
+                    <div className={`fe-section-title${expIdx > 0 ? " sub" : ""}`}>
+                      <button className="fe-collapse-toggle" onClick={() => toggleCollapse(section)} title="收起">
+                        <ChevronDown size={12} />
+                      </button>
+                      {sectionIcon(section)}
+                      <span>{SECTION_LABELS[section]}</span>
+                      <button className="fe-ai-popout" onClick={() => onMoveBack(section)} title="移回左侧">
+                        <MoveLeft size={14} />
+                      </button>
+                    </div>
+                    <div className="fe-section-content">
+                      {renderSectionContent(section)}
+                    </div>
                   </div>
-                </div>
+                )}
               </React.Fragment>
-              );
-            })}
-          </div>
-        )}
-
-        {/* Collapsed section area — pinned to bottom */}
-        {collapsedList.length > 0 && (
-          <div className="fe-collapsed-area">
-            {collapsedList.map((section) => (
-              <div key={section} className="fe-section collapsed" style={{ flex: "0 0 auto", height: 26 }}>
-                  <div className="fe-section-title collapsed-title">
-                    <button
-                      className="fe-collapse-toggle"
-                      onClick={() => toggleCollapse(section)}
-                      title="展开"
-                    >
-                      <ChevronRight size={12} />
-                    </button>
-                    {sectionIcon(section)}
-                    <span>{SECTION_LABELS[section]}</span>
-                    <button className="fe-ai-popout" onClick={() => onMoveBack(section)} title="移回左侧">
-                      <MoveLeft size={14} />
-                    </button>
-                  </div>
-                </div>
-            ))}
-          </div>
-        )}
+            );
+          })}
+        </div>
       </aside>
     </>
   );
+}
+
+/* ── Document page renderer ── */
+function DocumentRenderer({ bundle }: { bundle: BundleRaw }) {
+  return (
+    <div className="document-reader">
+      {bundle.pages.map((page) => (
+        <div key={page.page_number} className="doc-page">
+          <div className="doc-page-number">第 {page.page_number} 页</div>
+          {page.elements.map((el, i) => {
+            if (el.type === "heading") {
+              const lvl = Math.min(el.heading_level ?? 1, 3);
+              const sizes = [22, 18, 16];
+              return (
+                <div key={i} className="doc-heading" style={{ fontSize: sizes[lvl - 1], fontWeight: 700 }}>
+                  {el.text}
+                </div>
+              );
+            }
+            if (el.type === "paragraph") {
+              return <p key={i} className="doc-paragraph">{el.text}</p>;
+            }
+            if (el.type === "list_item") {
+              return <div key={i} className="doc-list-item">• {el.text}</div>;
+            }
+            if (el.type === "image") {
+              return <div key={i} className="doc-image-placeholder">[图片]</div>;
+            }
+            return <p key={i} className="doc-paragraph">{el.text || `[${el.type}]`}</p>;
+          })}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function findFileNode(nodes: FileNode[], id: string): FileNode | null {
+  for (const node of nodes) {
+    if (node.id === id) return node;
+    if (node.children) {
+      const child = findFileNode(node.children, id);
+      if (child) return child;
+    }
+  }
+  return null;
 }
 
 /* ── Content preview panel ── */
@@ -298,7 +336,12 @@ function ContentPanel({
   selectedMistakeId,
   width,
   onClose,
-  onResizeStart,
+  fileBundle,
+  fileBundleTitle,
+  fileLoading,
+  files,
+  onOpenSourceFile,
+  onStartQuiz,
 }: {
   section: SectionKey;
   selectedFileId: string | null;
@@ -306,7 +349,12 @@ function ContentPanel({
   selectedMistakeId: string | null;
   width?: number;
   onClose: () => void;
-  onResizeStart?: () => void;
+  fileBundle?: BundleRaw | null;
+  fileBundleTitle?: string;
+  fileLoading?: boolean;
+  files: FileNode[];
+  onOpenSourceFile: (id: string) => void;
+  onStartQuiz: () => void;
 }) {
   const icon = SECTION_ICONS[section];
   const label = SECTION_LABELS[section];
@@ -314,11 +362,8 @@ function ContentPanel({
   const getTitle = () => {
     switch (section) {
       case "file":
-        if (!selectedFileId) return label;
-        for (const n of courseFiles)
-          for (const fn of [n, ...(n.children ?? [])])
-            if (fn.id === selectedFileId && fn.type === "file") return fn.name;
-        return selectedFileId;
+        if (fileBundleTitle) return fileBundleTitle;
+        return selectedFileId ? `文件 ${selectedFileId.slice(0, 8)}…` : label;
       case "ai":
         return selectedAiId ? aiExplanations.find((a) => a.id === selectedAiId)?.title ?? label : label;
       case "mistakes":
@@ -326,30 +371,69 @@ function ContentPanel({
     }
   };
 
+  const selectedMistake = selectedMistakeId
+    ? mistakeItems.find((m) => m.id === selectedMistakeId) ?? null
+    : null;
+
+  function canOpenSource(link: MistakeSourceLink) {
+    return !!link.fileId && !!findFileNode(files, link.fileId);
+  }
+
+  function handleOpenSource(link: MistakeSourceLink) {
+    if (link.fileId && canOpenSource(link)) {
+      onOpenSourceFile(link.fileId);
+    }
+  }
+
   return (
     <div className="cw-split-pane" style={width !== undefined ? { width, flex: "0 0 auto" } : { flex: 1 }}>
       <div className="cw-split-title">
         <span className="cw-panel-label">{icon} {getTitle()}</span>
-        <button className="cw-panel-close" onClick={onClose} title="关闭">
-          <X size={14} />
-        </button>
+        <div className="cw-panel-actions">
+          {section === "file" && selectedFileId && (
+            <button className="cw-panel-quiz" onClick={onStartQuiz} title="刷题">
+              <ListChecks size={14} />
+              <span>刷题</span>
+            </button>
+          )}
+          <button className="cw-panel-close" onClick={onClose} title="关闭">
+            <X size={14} />
+          </button>
+        </div>
       </div>
       <div className="cw-split-content">
-        <p className="cw-preview-text">
-          「{getTitle()}」的内容预览将在这里显示。
-        </p>
+        {section === "file" && fileLoading && (
+          <p className="cw-preview-text">加载中…</p>
+        )}
+        {section === "file" && !fileLoading && fileBundle && (
+          <DocumentRenderer bundle={fileBundle} />
+        )}
+        {section === "file" && !fileLoading && !fileBundle && selectedFileId && (
+          <p className="cw-preview-text">无法加载文档内容。</p>
+        )}
+        {section === "mistakes" && selectedMistake && (
+          <MistakeReviewPanel
+            canOpenSource={canOpenSource}
+            mistake={selectedMistake}
+            onOpenSource={handleOpenSource}
+          />
+        )}
+        {section !== "file" && section !== "mistakes" && (
+          <p className="cw-preview-text">
+            「{getTitle()}」的内容预览将在这里显示。
+          </p>
+        )}
+        {section === "mistakes" && !selectedMistake && (
+          <p className="cw-preview-text">请选择一道错题开始复盘。</p>
+        )}
       </div>
-      {onResizeStart && (
-        <div className="cw-split-handle" onMouseDown={onResizeStart} />
-      )}
     </div>
   );
 }
 
 export function CourseWorkspacePage() {
-  const [quizOpen, setQuizOpen] = useState(false);
+  const [quizPracticeOpen, setQuizPracticeOpen] = useState(false);
   const [phaseSummaryOpen, setPhaseSummaryOpen] = useState(false);
-  const [tabHeld, setTabHeld] = useState(false);
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
   const [selectedAi, setSelectedAi] = useState<string | null>(null);
   const [selectedMistake, setSelectedMistake] = useState<string | null>(null);
@@ -359,8 +443,36 @@ export function CourseWorkspacePage() {
   const [openPanels, setOpenPanels] = useState<SectionKey[]>([]);
   const [panelWidths, setPanelWidths] = useState<number[]>([]);
 
-  const l2Ref = useRef<HTMLDivElement>(null);
+  const { courseId } = useParams<{ courseId: string }>();
+
+  /* ── Document data ── */
+  const [fileNodes, setFileNodes] = useState<FileNode[]>([]);
+  const [selectedFileBundle, setSelectedFileBundle] = useState<BundleRaw | null>(null);
+  const [selectedFileName, setSelectedFileName] = useState("");
+  const [fileLoading, setFileLoading] = useState(false);
+
+  /* ── Plan data ── */
+  const [activePlan, setActivePlan] = useState<ActivePlan | null>(null);
+  const [planLoading, setPlanLoading] = useState(false);
+
   const containerRef = useRef<HTMLDivElement>(null);
+
+  /* ── Fetch plan on mount ── */
+  useEffect(() => {
+    if (!courseId) return;
+    setPlanLoading(true);
+    getActivePlan(courseId)
+      .then((plan) => setActivePlan(plan))
+      .catch(() => setActivePlan(null))
+      .finally(() => setPlanLoading(false));
+  }, [courseId]);
+
+  /* ── Fetch sources on mount ── */
+  useEffect(() => {
+    fetchSources()
+      .then((items) => setFileNodes(sourcesToFileNodes(items)))
+      .catch(() => setFileNodes([]));
+  }, []);
 
   /* ── Open / close panel ── */
   const openPanel = useCallback((section: SectionKey) => {
@@ -373,7 +485,12 @@ export function CourseWorkspacePage() {
 
   const closePanel = useCallback((section: SectionKey) => {
     setOpenPanels((prev) => prev.filter((s) => s !== section));
-    if (section === "file") setSelectedFile(null);
+    if (section === "file") {
+      setSelectedFile(null);
+      setSelectedFileBundle(null);
+      setSelectedFileName("");
+      setFileLoading(false);
+    }
     if (section === "ai") setSelectedAi(null);
     if (section === "mistakes") setSelectedMistake(null);
   }, []);
@@ -388,20 +505,40 @@ export function CourseWorkspacePage() {
     });
   }, []);
 
-  /* ── Init panel widths when openPanels change ── */
+  /* ── Init panel widths when openPanels or container size changes ── */
   useEffect(() => {
-    if (openPanels.length > 1 && containerRef.current) {
-      const w = containerRef.current.getBoundingClientRect().width;
-      const eq = Math.floor(w / openPanels.length);
-      setPanelWidths(openPanels.map((_, i) => (i < openPanels.length - 1 ? eq : w - eq * (openPanels.length - 1))));
-    } else {
-      setPanelWidths([]);
-    }
+    const el = containerRef.current;
+    if (!el) return;
+    const calc = () => {
+      if (openPanels.length > 1) {
+        const w = el.getBoundingClientRect().width;
+        const eq = Math.floor(w / openPanels.length);
+        setPanelWidths(openPanels.map((_, i) => (i < openPanels.length - 1 ? eq : w - eq * (openPanels.length - 1))));
+      } else {
+        setPanelWidths([]);
+      }
+    };
+    calc();
+    const ro = new ResizeObserver(() => calc());
+    ro.observe(el);
+    return () => ro.disconnect();
   }, [openPanels.length]);
 
   /* ── Wrapper: select + open panel ── */
   const handleSelectFile = useCallback((id: string) => {
     setSelectedFile(id);
+    setFileLoading(true);
+    setSelectedFileBundle(null);
+    setSelectedFileName("");
+    fetchSourceDetail(id)
+      .then((data) => {
+        if (data.bundle) {
+          setSelectedFileBundle(data.bundle);
+          setSelectedFileName(data.source.displayTitle || data.version.originalFilename || "未命名");
+        }
+        setFileLoading(false);
+      })
+      .catch(() => setFileLoading(false));
     openPanel("file");
   }, [openPanel]);
 
@@ -415,49 +552,15 @@ export function CourseWorkspacePage() {
     openPanel("mistakes");
   }, [openPanel]);
 
-  /* ── Top trigger → open quiz ── */
-  const handleTopClick = useCallback(() => setQuizOpen(true), []);
-
   /* ── Bottom trigger → open phase summary ── */
   const handleBottomClick = useCallback(() => setPhaseSummaryOpen(true), []);
-
-  /* ── Swipe up → close quiz ── */
-  const swipeStart = useRef<{ y: number; moved: boolean; active: boolean }>({ y: 0, moved: false, active: false });
-  const handleL2PointerDown = useCallback((e: React.PointerEvent) => {
-    swipeStart.current = { y: e.clientY, moved: false, active: true };
-    e.currentTarget.setPointerCapture(e.pointerId);
-  }, []);
-  const handleL2PointerMove = useCallback(
-    (e: React.PointerEvent) => {
-      if (!quizOpen || !swipeStart.current.active) return;
-      const dy = e.clientY - swipeStart.current.y;
-      if (dy < -20) swipeStart.current.moved = true;
-      if (swipeStart.current.moved && l2Ref.current) {
-        l2Ref.current.style.transform = `translateY(${Math.min(0, dy)}px)`;
-        l2Ref.current.style.opacity = String(Math.max(0.3, 1 - Math.abs(dy) / 300));
-      }
-    },
-    [quizOpen],
-  );
-  const handleL2PointerUp = useCallback(
-    (e: React.PointerEvent) => {
-      if (!quizOpen || !swipeStart.current.active) return;
-      swipeStart.current.active = false;
-      const dy = e.clientY - swipeStart.current.y;
-      if (l2Ref.current) {
-        l2Ref.current.style.transform = "";
-        l2Ref.current.style.opacity = "";
-      }
-      if (swipeStart.current.moved && dy < -60) setQuizOpen(false);
-    },
-    [quizOpen],
-  );
 
   /* ── Swipe down → close phase summary ── */
   const psRef = useRef<HTMLDivElement>(null);
   const psSwipeStart = useRef<{ y: number; moved: boolean; active: boolean }>({ y: 0, moved: false, active: false });
   const handlePSPointerDown = useCallback((e: React.PointerEvent) => {
     psSwipeStart.current = { y: e.clientY, moved: false, active: true };
+    if (psRef.current) psRef.current.style.transition = "none";
     e.currentTarget.setPointerCapture(e.pointerId);
   }, []);
   const handlePSPointerMove = useCallback(
@@ -480,38 +583,12 @@ export function CourseWorkspacePage() {
       if (psRef.current) {
         psRef.current.style.transform = "";
         psRef.current.style.opacity = "";
+        psRef.current.style.transition = "";
       }
       if (psSwipeStart.current.moved && dy > 60) setPhaseSummaryOpen(false);
     },
     [phaseSummaryOpen],
   );
-
-  /* ── Tab peek ── */
-  const tabTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  useEffect(() => {
-    const down = (e: KeyboardEvent) => {
-      if (e.key === "Tab" && quizOpen) {
-        e.preventDefault();
-        setTabHeld(true);
-        if (tabTimerRef.current) clearTimeout(tabTimerRef.current);
-        tabTimerRef.current = setTimeout(() => setTabHeld(false), 2000);
-      }
-      if (e.key === "Escape" && quizOpen) setQuizOpen(false);
-    };
-    const up = (e: KeyboardEvent) => {
-      if (e.key === "Tab") {
-        if (tabTimerRef.current) clearTimeout(tabTimerRef.current);
-        setTabHeld(false);
-      }
-    };
-    window.addEventListener("keydown", down);
-    window.addEventListener("keyup", up);
-    return () => {
-      if (tabTimerRef.current) clearTimeout(tabTimerRef.current);
-      window.removeEventListener("keydown", down);
-      window.removeEventListener("keyup", up);
-    };
-  }, [quizOpen]);
 
   /* ── Resize file explorer ── */
   const explorerResizeRef = useRef(false);
@@ -583,7 +660,7 @@ export function CourseWorkspacePage() {
     const idx = splitResizeIdx.current;
     const rect = containerRef.current.getBoundingClientRect();
     const x = e.clientX - rect.left;
-    const totalW = rect.width - 6 * (openPanels.length - 1);
+    const totalW = rect.width - (openPanels.length - 1);
     const newLeft = Math.max(120, Math.min(totalW - (openPanels.length - idx - 1) * 120, x));
     setPanelWidths((prev) => {
       const next = [...prev];
@@ -592,7 +669,7 @@ export function CourseWorkspacePage() {
         if (i === idx) {
           next[i] = Math.max(120, newLeft - acc);
         }
-        acc += next[i] + 6;
+        acc += next[i] + 1;
       }
       const remaining = totalW - next.reduce((a, b) => a + b, 0);
       if (remaining > 0) next[openPanels.length - 1] += remaining;
@@ -624,17 +701,26 @@ export function CourseWorkspacePage() {
   const hasLeftSections = detachedSections.size < 3;
 
   /* ── Render ── */
-  const showFileOverlay = quizOpen && tabHeld;
-
   return (
     <AppShell>
+      {quizPracticeOpen ? (
+        <QuizPracticeView
+          files={fileNodes}
+          defaultSourceId={selectedFile}
+          onBack={() => setQuizPracticeOpen(false)}
+          onOpenSource={(id) => {
+            setQuizPracticeOpen(false);
+            handleSelectFile(id);
+          }}
+        />
+      ) : (
       <div className="course-workspace-new">
         {/* File Explorer (left sidebar - shows non-detached sections) */}
         {hasLeftSections && (
           <>
             <div style={{ width: explorerWidth, flexShrink: 0, overflow: "hidden", display: "flex", flexDirection: "column" }}>
               <FileExplorer
-                files={courseFiles}
+                files={fileNodes}
                 aiItems={aiExplanations}
                 mistakeItems={mistakeItems}
                 selectedFileId={selectedFile}
@@ -653,13 +739,6 @@ export function CourseWorkspacePage() {
 
         {/* Content Area */}
         <div className="cw-content" ref={containerRef}>
-          {!quizOpen && !phaseSummaryOpen && (
-            <div className="cw-top-trigger" onClick={handleTopClick}>
-              <div className="cw-top-trigger-bar" />
-              <span className="cw-top-hint">点击进入刷题模式</span>
-            </div>
-          )}
-
           {openPanels.length === 0 ? (
             /* Empty state */
             <div className="cw-file-view">
@@ -677,29 +756,48 @@ export function CourseWorkspacePage() {
               selectedAiId={selectedAi}
               selectedMistakeId={selectedMistake}
               onClose={() => closePanel(openPanels[0])}
+              fileBundle={selectedFileBundle}
+              fileBundleTitle={selectedFileName}
+              fileLoading={fileLoading}
+              files={fileNodes}
+              onOpenSourceFile={handleSelectFile}
+              onStartQuiz={() => setQuizPracticeOpen(true)}
             />
           ) : (
             /* Multi-panel split */
             <div className="cw-split">
               {openPanels.map((section, i) => (
-                <ContentPanel
-                  key={section}
-                  section={section}
-                  selectedFileId={selectedFile}
-                  selectedAiId={selectedAi}
-                  selectedMistakeId={selectedMistake}
-                  width={panelWidths[i]}
-                  onClose={() => closePanel(section)}
-                  onResizeStart={i < openPanels.length - 1 ? () => startSplitResize(i) : undefined}
-                />
+                <React.Fragment key={section}>
+                  <ContentPanel
+                    section={section}
+                    selectedFileId={selectedFile}
+                    selectedAiId={selectedAi}
+                    selectedMistakeId={selectedMistake}
+                    width={panelWidths[i]}
+                    onClose={() => closePanel(section)}
+                    fileBundle={selectedFileBundle}
+                    fileBundleTitle={selectedFileName}
+                    fileLoading={fileLoading}
+                    files={fileNodes}
+                    onOpenSourceFile={handleSelectFile}
+                    onStartQuiz={() => setQuizPracticeOpen(true)}
+                  />
+                  {i < openPanels.length - 1 && (
+                    <div
+                      className="cw-split-handle"
+                      onMouseDown={() => startSplitResize(i)}
+                    />
+                  )}
+                </React.Fragment>
               ))}
             </div>
           )}
 
           {/* Bottom trigger → open phase summary — inside cw-content only */}
-          {!quizOpen && !phaseSummaryOpen && (
+          {!phaseSummaryOpen && (
             <div className="cw-bottom-trigger" onClick={handleBottomClick}>
               <div className="cw-bottom-trigger-bar" />
+              <span className="cw-bottom-hint">点击查看学习方案</span>
             </div>
           )}
         </div>
@@ -717,25 +815,8 @@ export function CourseWorkspacePage() {
           onResizeStart={startSideResize}
           onMoveBack={toggleDetach}
           onOpenPanel={openPanel}
+          files={fileNodes}
         />
-
-        {/* Quiz overlay */}
-        <div
-          ref={l2Ref}
-          className={`cw-level2-overlay${quizOpen ? " open" : ""}${showFileOverlay ? " peeking" : ""}`}
-          onPointerDown={(e) => {
-            if (showFileOverlay) {
-              if (tabTimerRef.current) clearTimeout(tabTimerRef.current);
-              tabTimerRef.current = setTimeout(() => setTabHeld(false), 800);
-            } else {
-              handleL2PointerDown(e);
-            }
-          }}
-          onPointerMove={showFileOverlay ? undefined : handleL2PointerMove}
-          onPointerUp={showFileOverlay ? undefined : handleL2PointerUp}
-        >
-          {quizOpen && <QuizPanel question={sampleQuestion} onClose={() => setQuizOpen(false)} />}
-        </div>
 
         {/* Phase summary overlay */}
         <div
@@ -745,9 +826,18 @@ export function CourseWorkspacePage() {
           onPointerMove={handlePSPointerMove}
           onPointerUp={handlePSPointerUp}
         >
-          {phaseSummaryOpen && <PhaseSummary onClose={() => setPhaseSummaryOpen(false)} />}
+          {phaseSummaryOpen && (
+            planLoading ? (
+              <div className="phase-summary"><div className="ps-body" style={{ padding: 40, textAlign: "center", color: "var(--quiet)" }}>加载方案中…</div></div>
+            ) : activePlan ? (
+              <PhaseSummary plan={activePlan} onClose={() => setPhaseSummaryOpen(false)} />
+            ) : (
+              <div className="phase-summary"><div className="ps-body" style={{ padding: 40, textAlign: "center" }}><p style={{ color: "var(--quiet)" }}>暂无学习方案</p></div></div>
+            )
+          )}
         </div>
       </div>
+      )}
     </AppShell>
   );
 }

@@ -47,6 +47,8 @@ services:
     profiles: ["app"]
     build:
       context: ../../apps/api
+    env_file:
+      - ../../.env
     environment:
       DJANGO_DEBUG: "true"
       POSTGRES_DB: ${POSTGRES_DB:-mentora}

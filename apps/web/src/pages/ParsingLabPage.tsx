@@ -69,7 +69,7 @@ type Tab = "preview" | "benchmark";
 
 /* ── helpers ───────────────────────────────────────── */
 
-const API = "http://localhost:8000/api";
+const API = "/api";
 
 const typeColors: Record<string, string> = {
   heading: "#197367", paragraph: "#2778c4", table: "#7253a7",

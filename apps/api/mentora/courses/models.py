@@ -23,7 +23,8 @@ class SessionStatus(models.TextChoices):
     COLLECTING = "collecting", "收集基础信息中"
     INQUIRING = "inquiring", "AI 追问中"
     GENERATING_PLAN = "generating_plan", "生成方案中"
-    COMPLETED = "completed", "已完成"
+    COMPLETED = "completed", "方案已生成"
+    STARTED = "started", "已开始学习"
 
 
 class CourseCreationSession(models.Model):
@@ -38,6 +39,9 @@ class CourseCreationSession(models.Model):
 
     # 步骤 1：学习目标
     goal = models.TextField(blank=True, default="")
+
+    # 由 PlannerAgent 生成的课程标题（步骤 5）
+    title = models.CharField(max_length=128, blank=True, default="")
 
     # 步骤 2：当前基础 / 推进方式 / 学校
     level = models.CharField(max_length=64, blank=True, default="")
