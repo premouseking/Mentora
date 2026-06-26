@@ -3,9 +3,9 @@
 import json
 import uuid
 
-from django.http import JsonResponse
-from django.views.decorators.csrf import csrf_exempt
-from django.views.decorators.http import require_http_methods
+from rest_framework.response import Response
+from rest_framework.decorators import api_view
+from drf_spectacular.utils import extend_schema
 
 from mentora.knowledge.models import CourseSource, Source
 from mentora.knowledge.services.upload import (
@@ -21,8 +21,8 @@ def _parse_json_body(request) -> dict:
     return json.loads(request.body.decode("utf-8"))
 
 
-@csrf_exempt
-@require_http_methods(["POST"])
+@api_view(["POST"])
+@extend_schema(summary="Upload Create")
 def upload_create(request):
     """
     POST /api/uploads/
@@ -32,14 +32,14 @@ def upload_create(request):
     try:
         body = _parse_json_body(request)
     except json.JSONDecodeError:
-        return JsonResponse({"error": "无效 JSON"}, status=400)
+        return Response({"error": "无效 JSON"}, status=400)
 
     upload_id = body.get("uploadId")
     if upload_id is not None:
         try:
             uuid.UUID(str(upload_id))
         except ValueError:
-            return JsonResponse({"error": "uploadId 格式无效"}, status=400)
+            return Response({"error": "uploadId 格式无效"}, status=400)
 
     result = create_upload_session(
         owner_id=body.get("ownerId", DEV_OWNER_ID),
@@ -48,11 +48,11 @@ def upload_create(request):
         filename=body.get("filename", "original.pdf"),
         media_type=body.get("mediaType", "application/pdf"),
     )
-    return JsonResponse(result)
+    return Response(result)
 
 
-@csrf_exempt
-@require_http_methods(["POST"])
+@api_view(["POST"])
+@extend_schema(summary="Upload Complete")
 def upload_complete(request):
     """
     POST /api/uploads/complete/
@@ -62,14 +62,14 @@ def upload_complete(request):
     try:
         body = _parse_json_body(request)
     except json.JSONDecodeError:
-        return JsonResponse({"error": "无效 JSON"}, status=400)
+        return Response({"error": "无效 JSON"}, status=400)
 
     upload_id = body.get("uploadId")
     sha256 = body.get("sha256")
     size = body.get("size")
 
     if not upload_id or not sha256 or size is None:
-        return JsonResponse({"error": "缺少 uploadId、sha256 或 size"}, status=400)
+        return Response({"error": "缺少 uploadId、sha256 或 size"}, status=400)
 
     try:
         result = complete_upload(
@@ -80,12 +80,13 @@ def upload_complete(request):
             sync_processing=body.get("sync", True),
         )
     except ValueError as exc:
-        return JsonResponse({"error": str(exc)}, status=400)
+        return Response({"error": str(exc)}, status=400)
 
-    return JsonResponse(result)
+    return Response(result)
 
 
-@require_http_methods(["GET"])
+@api_view(["GET"])
+@extend_schema(summary="List Sources")
 def list_sources(request):
     """GET /api/library/sources/?ownerId=&courseId= — 列出资料。
 
@@ -135,10 +136,11 @@ def list_sources(request):
                 },
             }
         )
-    return JsonResponse({"items": items, "count": len(items)})
+    return Response({"items": items, "count": len(items)})
 
 
-@require_http_methods(["GET"])
+@api_view(["GET"])
+@extend_schema(summary="Source Detail")
 def source_detail(request, source_version_id):
     """GET /api/library/sources/<source_version_id>/ — 获取资料版本详情与解析正文。"""
     from mentora.common.storage import ObjectStorageError, ObjectStorageService
@@ -147,7 +149,7 @@ def source_detail(request, source_version_id):
     try:
         version = SourceVersion.objects.select_related("source").get(id=source_version_id)
     except SourceVersion.DoesNotExist:
-        return JsonResponse({"error": "资料版本不存在"}, status=404)
+        return Response({"error": "资料版本不存在"}, status=404)
 
     bundle_data = None
     if version.artifact_ref:
@@ -158,7 +160,7 @@ def source_detail(request, source_version_id):
         except (ObjectStorageError, json.JSONDecodeError):
             pass
 
-    return JsonResponse({
+    return Response({
         "source": {
             "id": str(version.source.id),
             "displayTitle": version.source.display_title,
@@ -180,21 +182,21 @@ def source_detail(request, source_version_id):
     })
 
 
-@csrf_exempt
-@require_http_methods(["DELETE"])
+@api_view(["DELETE"])
+@extend_schema(summary="Source Delete")
 def source_delete(request, source_id):
     """DELETE /api/library/sources/<source_id>/ — 删除资料及关联的版本和解析数据。"""
     try:
         source = Source.objects.get(id=source_id)
     except Source.DoesNotExist:
-        return JsonResponse({"error": "资料不存在"}, status=404)
+        return Response({"error": "资料不存在"}, status=404)
 
     source.delete()  # CASCADE: SourceVersion → UploadSession, ProcessingRun
-    return JsonResponse({"status": "deleted"})
+    return Response({"status": "deleted"})
 
 
-@csrf_exempt
-@require_http_methods(["POST"])
+@api_view(["POST"])
+@extend_schema(summary="Source Reparse")
 def source_reparse(request, source_id):
     """POST /api/library/sources/<source_id>/reparse/ — 重新解析资料。"""
     from mentora.knowledge.models import ProcessingRun, ProcessingRunStatus, ProcessingStatus
@@ -203,11 +205,11 @@ def source_reparse(request, source_id):
     try:
         source = Source.objects.get(id=source_id)
     except Source.DoesNotExist:
-        return JsonResponse({"error": "资料不存在"}, status=404)
+        return Response({"error": "资料不存在"}, status=404)
 
     version = source.latest_version
     if version is None:
-        return JsonResponse({"error": "资料没有版本记录"}, status=400)
+        return Response({"error": "资料没有版本记录"}, status=400)
 
     # 清理旧解析数据
     ProcessingRun.objects.filter(source_version=version).delete()
@@ -220,7 +222,7 @@ def source_reparse(request, source_id):
     version.save(update_fields=["processing_status"])
     result = run_processing_for_version(str(version.id), sync=True)
 
-    return JsonResponse({
+    return Response({
         "status": result.status,
         "processingStatus": version.processing_status,
     })

@@ -1,0 +1,665 @@
+openapi: 3.0.3
+info:
+  title: Mentora API
+  version: 1.0.0
+  description: Mentora 智能学习工作空间 API
+paths:
+  /api/assessment/sessions/{session_id}/:
+    get:
+      operationId: assessment_sessions_retrieve
+      parameters:
+      - in: path
+        name: session_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - assessment
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - {}
+      responses:
+        '200':
+          description: No response body
+  /api/assessment/sessions/{session_id}/attempts/:
+    post:
+      operationId: assessment_sessions_attempts_create
+      parameters:
+      - in: path
+        name: session_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - assessment
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - {}
+      responses:
+        '200':
+          description: No response body
+  /api/assessment/sessions/{session_id}/complete/:
+    post:
+      operationId: assessment_sessions_complete_create
+      parameters:
+      - in: path
+        name: session_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - assessment
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - {}
+      responses:
+        '200':
+          description: No response body
+  /api/assessment/sessions/generate/:
+    post:
+      operationId: assessment_sessions_generate_create
+      description: LLM 根据课程资料自动生成题目并创建测验会话
+      summary: 生成测验试卷
+      tags:
+      - assessment
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                course_session_id:
+                  type: string
+                source_version_ids:
+                  type: array
+                  items:
+                    type: string
+                count:
+                  type: integer
+                  default: 5
+                difficulty:
+                  type: string
+                  default: 综合
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - {}
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+                description: Unspecified response body
+          description: ''
+  /api/chat/:
+    post:
+      operationId: chat_create
+      description: POST /api/chat/
+      tags:
+      - chat
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - {}
+      responses:
+        '200':
+          description: No response body
+  /api/chat/stream/:
+    post:
+      operationId: chat_stream_create
+      description: POST /api/chat/stream/
+      tags:
+      - chat
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - {}
+      responses:
+        '200':
+          description: No response body
+  /api/courses/:
+    get:
+      operationId: courses_retrieve
+      description: |-
+        GET /api/courses/
+
+        返回课程列表（按创建时间倒序）。
+      tags:
+      - courses
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - {}
+      responses:
+        '200':
+          description: No response body
+  /api/courses/{course_id}/:
+    get:
+      operationId: courses_retrieve_2
+      description: |-
+        GET /api/courses/<uuid:id>/
+
+        返回课程详情：画像字段 + 当前作用域
+      parameters:
+      - in: path
+        name: course_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - courses
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - {}
+      responses:
+        '200':
+          description: No response body
+  /api/courses/{course_id}/activate/:
+    post:
+      operationId: courses_activate_create
+      description: |-
+        POST /api/courses/<uuid:id>/activate/
+
+        流程: draft → confirmed → plan_generate → create_plan_revision → active
+      parameters:
+      - in: path
+        name: course_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - courses
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - {}
+      responses:
+        '200':
+          description: No response body
+  /api/courses/{course_id}/profile/:
+    patch:
+      operationId: courses_profile_partial_update
+      description: |-
+        PATCH /api/courses/<uuid:id>/profile/
+
+        请求体：{"goal"?, "level"?, "pace"?, "school"?}
+        返回：{profile_revision_id, status, goal, ...}
+      parameters:
+      - in: path
+        name: course_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - courses
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - {}
+      responses:
+        '200':
+          description: No response body
+  /api/courses/{course_id}/scope/:
+    post:
+      operationId: courses_scope_create
+      description: |-
+        POST /api/courses/<uuid:id>/scope/
+
+        请求体：{"source_version_ids": [...], "role"?: "reference"}
+        返回：{scope_revision_id, source_version_ids, superseded_revision_id}
+      parameters:
+      - in: path
+        name: course_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - courses
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - {}
+      responses:
+        '200':
+          description: No response body
+  /api/courses/{course_id}/scope-suggest/:
+    get:
+      operationId: courses_scope_suggest_retrieve
+      description: |-
+        GET /api/courses/<uuid:id>/scope-suggest/
+
+        返回当前作用域和可加入的新资料列表。
+      parameters:
+      - in: path
+        name: course_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - courses
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - {}
+      responses:
+        '200':
+          description: No response body
+  /api/courses/confirm/:
+    post:
+      operationId: courses_confirm_create
+      description: |-
+        POST /api/courses/confirm/
+
+        请求体：{"session_id": "..."}
+        返回：{course_id, profile_revision_id, scope_revision_id, source_version_ids}
+      tags:
+      - courses
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - {}
+      responses:
+        '200':
+          description: No response body
+  /api/courses/sessions/:
+    get:
+      operationId: courses_sessions_retrieve
+      description: |-
+        GET  /api/courses/sessions/ → 列出所有建课会话
+        POST /api/courses/sessions/ → 创建新会话
+      tags:
+      - courses
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - {}
+      responses:
+        '200':
+          description: No response body
+    post:
+      operationId: courses_sessions_create
+      description: |-
+        GET  /api/courses/sessions/ → 列出所有建课会话
+        POST /api/courses/sessions/ → 创建新会话
+      tags:
+      - courses
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - {}
+      responses:
+        '200':
+          description: No response body
+  /api/courses/sessions/{session_id}/:
+    get:
+      operationId: courses_sessions_retrieve_2
+      description: |-
+        GET /api/courses/sessions/<uuid:id>/
+
+        返回：{ "id", "goal", "level", "pace", "inquiry_history", "status", ... }
+      parameters:
+      - in: path
+        name: session_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - courses
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - {}
+      responses:
+        '200':
+          description: No response body
+  /api/courses/sessions/{session_id}/apply-candidate/:
+    post:
+      operationId: courses_sessions_apply_candidate_create
+      description: |-
+        POST /api/courses/sessions/<uuid:id>/apply-candidate/
+
+        请求体: {goal, level, pace}
+        流程:
+          1. 写入 session goal/level/pace
+          2. 创建 Course + CourseProfileRevision(draft)
+        返回: {course_id, profile_revision_id, goal, level, pace, status: "draft"}
+
+        用户可继续 PATCH /api/courses/<id>/profile/ 编辑草稿，
+        确认后 POST /api/courses/<id>/activate/ 触发 plan_generate 并激活。
+      parameters:
+      - in: path
+        name: session_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - courses
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - {}
+      responses:
+        '200':
+          description: No response body
+  /api/courses/sessions/{session_id}/candidates/:
+    post:
+      operationId: courses_sessions_candidates_create
+      description: |-
+        POST /api/courses/sessions/<uuid:id>/candidates/
+
+        基于追问历史生成 2-4 个差异化画像方案供学生选择。
+      parameters:
+      - in: path
+        name: session_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - courses
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - {}
+      responses:
+        '200':
+          description: No response body
+  /api/courses/sessions/{session_id}/inquiry/:
+    post:
+      operationId: courses_sessions_inquiry_create
+      description: |-
+        POST /api/courses/sessions/<uuid:id>/inquiry/
+
+        请求体（可选）：{ "answer": "用户回答" }
+        返回：
+        - 继续追问: { "ready": false, "questions": [{ "text","type","options","guidance" }] }
+        - 信息充足: { "ready": true, "summary": "总结文本" }
+
+        约束：
+        - 首次调用不传 answer，触发首个问题
+        - 每次回答后追加到 inquiry_history，发给 LLM 判断是否继续
+        - 追问超过 MAX_INQUIRY_ROUNDS 轮后强制 ready=true
+      parameters:
+      - in: path
+        name: session_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - courses
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - {}
+      responses:
+        '200':
+          description: No response body
+  /api/courses/sessions/{session_id}/plan/:
+    get:
+      operationId: courses_sessions_plan_retrieve
+      description: |-
+        GET  /api/courses/sessions/<uuid:id>/plan/ → 返回当前生效的学习方案
+        POST /api/courses/sessions/<uuid:id>/plan/ → 生成学习方案
+      parameters:
+      - in: path
+        name: session_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - courses
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - {}
+      responses:
+        '200':
+          description: No response body
+    post:
+      operationId: courses_sessions_plan_create
+      description: |-
+        GET  /api/courses/sessions/<uuid:id>/plan/ → 返回当前生效的学习方案
+        POST /api/courses/sessions/<uuid:id>/plan/ → 生成学习方案
+      parameters:
+      - in: path
+        name: session_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - courses
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - {}
+      responses:
+        '200':
+          description: No response body
+  /api/courses/sessions/{session_id}/update/:
+    patch:
+      operationId: courses_sessions_update_partial_update
+      description: |-
+        PATCH /api/courses/sessions/<uuid:id>/
+
+        请求体：{ "level"?, "pace"? }
+        返回：{ "status": "ok" }
+      parameters:
+      - in: path
+        name: session_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - courses
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - {}
+      responses:
+        '200':
+          description: No response body
+  /api/library/sources/:
+    get:
+      operationId: library_sources_retrieve
+      description: |-
+        GET /api/library/sources/?ownerId=&courseId= — 列出资料。
+
+        courseId 可选：传入时仅返回已关联到该课程的资料。
+      tags:
+      - library
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - {}
+      responses:
+        '200':
+          description: No response body
+  /api/library/sources/{source_id}/delete/:
+    delete:
+      operationId: library_sources_delete_destroy
+      description: DELETE /api/library/sources/<source_id>/ — 删除资料及关联的版本和解析数据。
+      parameters:
+      - in: path
+        name: source_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - library
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - {}
+      responses:
+        '204':
+          description: No response body
+  /api/library/sources/{source_id}/reparse/:
+    post:
+      operationId: library_sources_reparse_create
+      description: POST /api/library/sources/<source_id>/reparse/ — 重新解析资料。
+      parameters:
+      - in: path
+        name: source_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - library
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - {}
+      responses:
+        '200':
+          description: No response body
+  /api/library/sources/{source_version_id}/:
+    get:
+      operationId: library_sources_retrieve_2
+      description: GET /api/library/sources/<source_version_id>/ — 获取资料版本详情与解析正文。
+      parameters:
+      - in: path
+        name: source_version_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - library
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - {}
+      responses:
+        '200':
+          description: No response body
+  /api/parsing/benchmark:
+    get:
+      operationId: parsing_benchmark_retrieve
+      description: |-
+        GET /api/parsing/benchmark
+
+        运行基准测试并返回 JSON 报告。
+      tags:
+      - parsing
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - {}
+      responses:
+        '200':
+          description: No response body
+  /api/parsing/preview:
+    post:
+      operationId: parsing_preview_create
+      description: |-
+        POST /api/parsing/preview
+
+        上传一个 PDF 文件，返回 ParsedBundle 和 EvidenceUnit 列表。
+        用于前端解析实验室页面预览解析效果。
+      tags:
+      - parsing
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - {}
+      responses:
+        '200':
+          description: No response body
+  /api/retrieval/evidence/{evidence_id}/location:
+    get:
+      operationId: retrieval_evidence_location_retrieve
+      description: 返回 EvidenceUnit 的页码、坐标与同页上下文。
+      summary: 证据引用定位
+      parameters:
+      - in: path
+        name: evidence_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - retrieval
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - {}
+      responses:
+        '200':
+          description: No response body
+  /api/retrieval/search:
+    get:
+      operationId: retrieval_search_retrieve
+      description: FTS + Trgm + Vector RRF 三路融合检索，支持 fts/grep 两种模式。通过 course_id 限定作用域。
+      summary: 混合检索
+      tags:
+      - retrieval
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - {}
+      responses:
+        '200':
+          description: No response body
+  /api/uploads/:
+    post:
+      operationId: uploads_create
+      description: |-
+        POST /api/uploads/
+
+        创建上传会话，返回预签名 PUT URL。客户端应携带 uploadId 以便 complete 关联。
+      tags:
+      - uploads
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - {}
+      responses:
+        '200':
+          description: No response body
+  /api/uploads/complete/:
+    post:
+      operationId: uploads_complete_create
+      description: |-
+        POST /api/uploads/complete/
+
+        校验上传完成，创建 SourceVersion 并触发解析。
+      tags:
+      - uploads
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - {}
+      responses:
+        '200':
+          description: No response body
+components:
+  securitySchemes:
+    basicAuth:
+      type: http
+      scheme: basic
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: sessionid

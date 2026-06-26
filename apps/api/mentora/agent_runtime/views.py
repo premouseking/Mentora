@@ -17,9 +17,10 @@ import json
 import uuid
 
 from django.conf import settings
-from django.http import JsonResponse, StreamingHttpResponse
-from django.views.decorators.csrf import csrf_exempt
-from django.views.decorators.http import require_http_methods
+from django.http import StreamingHttpResponse
+from rest_framework.response import Response
+from rest_framework.decorators import api_view
+from drf_spectacular.utils import extend_schema
 
 from mentora.agent_runtime.runtime import build_orchestrator
 from mentora.agent_runtime.schemas.task import OrchestratorTask
@@ -52,12 +53,12 @@ def get_prompt_manager() -> PromptManager:
     return _prompt_manager
 
 
-@csrf_exempt
-@require_http_methods(["POST"])
+@api_view(["POST"])
+@extend_schema(summary="Chat Api")
 def chat_api(request):
     """POST /api/chat/"""
     if not settings.LLM_API_KEY:
-        return JsonResponse(
+        return Response(
             {"error": "LLM_API_KEY 未配置，请在 .env 中设置"},
             status=503,
         )
@@ -65,11 +66,11 @@ def chat_api(request):
     try:
         body = json.loads(request.body.decode("utf-8"))
     except (json.JSONDecodeError, UnicodeDecodeError):
-        return JsonResponse({"error": "无效 JSON"}, status=400)
+        return Response({"error": "无效 JSON"}, status=400)
 
     user_message = body.get("message", "").strip()
     if not user_message:
-        return JsonResponse({"error": "message 不能为空"}, status=400)
+        return Response({"error": "message 不能为空"}, status=400)
 
     task = OrchestratorTask(
         id=f"chat-{uuid.uuid4().hex[:12]}",
@@ -85,7 +86,7 @@ def chat_api(request):
         result = asyncio.run(orch.run(task))
         reply = result.final_output.final_message if result.final_output else ""
 
-        return JsonResponse({
+        return Response({
             "reply": reply,
             "status": result.status,
             "usage": (
@@ -95,15 +96,15 @@ def chat_api(request):
             ),
         })
     except Exception as exc:
-        return JsonResponse({
+        return Response({
             "reply": "",
             "status": "failed",
             "error": str(exc),
         }, status=500)
 
 
-@csrf_exempt
-@require_http_methods(["POST"])
+@api_view(["POST"])
+@extend_schema(summary="Chat Stream")
 def chat_stream(request):
     """POST /api/chat/stream/"""
     if not settings.LLM_API_KEY:

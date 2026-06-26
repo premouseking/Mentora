@@ -1,5 +1,9 @@
 from django.http import JsonResponse
 from django.urls import path
+from drf_spectacular.views import (
+    SpectacularAPIView,
+    SpectacularSwaggerView,
+)
 
 from mentora.assessment.views import (
     complete_quiz_session,
@@ -9,19 +13,17 @@ from mentora.assessment.views import (
 )
 from mentora.agent_runtime.views import chat_api, chat_stream
 from mentora.courses.views import (
-    apply_candidate,
     course_activate,
+    apply_candidate,
     course_confirm,
     course_detail,
     course_list,
     course_profile_revise,
     course_scope_extend,
     course_scope_suggest,
-    course_sources_manage,
     inquiry_next,
     plan_handler,
     profile_candidates,
-    session_delete,
     session_detail,
     session_list_or_create,
     session_start,
@@ -37,6 +39,9 @@ def health(_: object) -> JsonResponse:
 
 
 urlpatterns = [
+    # Swagger / OpenAPI
+    path("api/schema/", SpectacularAPIView.as_view(), name="schema"),
+    path("api/docs/", SpectacularSwaggerView.as_view(url_name="schema"), name="swagger-ui"),
     path("api/health/", health, name="health"),
     # 聊天
     path("api/chat/", chat_api, name="chat"),
@@ -49,11 +54,8 @@ urlpatterns = [
     path("api/courses/sessions/", session_list_or_create, name="session-list-create"),
     path("api/courses/sessions/<uuid:session_id>/", session_detail, name="session-detail"),
     path("api/courses/sessions/<uuid:session_id>/update/", session_update, name="session-update"),
-    path("api/courses/sessions/<uuid:session_id>/delete/", session_delete, name="session-delete"),
     path("api/courses/sessions/<uuid:session_id>/inquiry/", inquiry_next, name="inquiry-next"),
     path("api/courses/sessions/<uuid:session_id>/plan/", plan_handler, name="plan-handler"),
-    path("api/courses/sessions/<uuid:session_id>/start/", session_start, name="session-start"),
-    path("api/courses/sessions/<uuid:session_id>/sources/", course_sources_manage, name="session-sources"),
     path("api/courses/sessions/<uuid:session_id>/candidates/", profile_candidates, name="profile-candidates"),
     path("api/courses/sessions/<uuid:session_id>/apply-candidate/", apply_candidate, name="apply-candidate"),
     # 课程管理

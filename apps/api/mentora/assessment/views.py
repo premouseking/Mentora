@@ -6,9 +6,9 @@ import asyncio
 import json
 
 from django.conf import settings
-from django.http import JsonResponse
-from django.views.decorators.csrf import csrf_exempt
-from django.views.decorators.http import require_http_methods
+from rest_framework.response import Response
+from rest_framework.decorators import api_view
+from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiResponse
 
 from mentora.assessment.models import AssessmentItem, AssessmentSession
 from mentora.assessment.schemas import GeneratedQuizPaper
@@ -33,8 +33,8 @@ def _parse_json(request) -> dict:
         raise ValueError("无效 JSON")
 
 
-def _json_error(message: str, status: int = 400) -> JsonResponse:
-    return JsonResponse({"error": message}, status=status)
+def _json_error(message: str, status: int = 400) -> Response:
+    return Response({"error": message}, status=status)
 
 
 def _get_source_titles(source_version_ids: list[str]) -> dict[str, str]:
@@ -165,8 +165,19 @@ def _serialize_session(session_id: str) -> dict | None:
     }
 
 
-@csrf_exempt
-@require_http_methods(["POST"])
+@extend_schema(
+    summary="生成测验试卷",
+    description="LLM 根据课程资料自动生成题目并创建测验会话",
+    request={"application/json": {"type": "object", "properties": {
+        "course_session_id": {"type": "string"},
+        "source_version_ids": {"type": "array", "items": {"type": "string"}},
+        "count": {"type": "integer", "default": 5},
+        "difficulty": {"type": "string", "default": "综合"},
+    }}},
+    responses={201: OpenApiParameter("session_id", str)},
+)
+@api_view(["POST"])
+@extend_schema(summary="Generate Quiz Session")
 def generate_quiz_session(request):
     if not settings.LLM_API_KEY:
         return _json_error("LLM_API_KEY 未配置，无法生成题目", 503)
@@ -249,19 +260,20 @@ def generate_quiz_session(request):
         return _json_error(f"保存题目失败: {str(exc)}", 500)
 
     data = _serialize_session(session["session_id"])
-    return JsonResponse(data or session, status=201)
+    return Response(data or session, status=201)
 
 
-@require_http_methods(["GET"])
+@api_view(["GET"])
+@extend_schema(summary="Quiz Session Detail")
 def quiz_session_detail(request, session_id):
     data = _serialize_session(str(session_id))
     if data is None:
         return _json_error("测验不存在", 404)
-    return JsonResponse(data)
+    return Response(data)
 
 
-@csrf_exempt
-@require_http_methods(["POST"])
+@api_view(["POST"])
+@extend_schema(summary="Submit Quiz Attempt")
 def submit_quiz_attempt(request, session_id):
     try:
         body = _parse_json(request)
@@ -282,15 +294,15 @@ def submit_quiz_attempt(request, session_id):
         )
     except Exception as exc:
         return _json_error(f"提交答案失败: {str(exc)}", 400)
-    return JsonResponse(result)
+    return Response(result)
 
 
-@csrf_exempt
-@require_http_methods(["POST"])
+@api_view(["POST"])
+@extend_schema(summary="Complete Quiz Session")
 def complete_quiz_session(request, session_id):
     try:
         result = complete_session(str(session_id))
     except Exception as exc:
         return _json_error(f"完成测验失败: {str(exc)}", 400)
     data = _serialize_session(result["session_id"])
-    return JsonResponse(data or result)
+    return Response(data or result)
