@@ -8,6 +8,7 @@ from mentora.courses.views import (
     course_detail,
     course_profile_revise,
     course_scope_extend,
+    course_scope_suggest,
     inquiry_next,
     plan_generate,
     profile_candidates,
@@ -41,6 +42,7 @@ urlpatterns = [
     path("api/courses/<uuid:course_id>/", course_detail, name="course-detail"),
     path("api/courses/<uuid:course_id>/profile/", course_profile_revise, name="course-profile-revise"),
     path("api/courses/<uuid:course_id>/scope/", course_scope_extend, name="course-scope-extend"),
+    path("api/courses/<uuid:course_id>/scope-suggest/", course_scope_suggest, name="course-scope-suggest"),
     path("api/courses/<uuid:course_id>/activate/", course_activate, name="course-activate"),
     # 上传
     path("api/uploads/", upload_create, name="upload-create"),

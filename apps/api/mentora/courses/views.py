@@ -519,6 +519,23 @@ def course_scope_extend(request, course_id):
 
 
 @csrf_exempt
+@require_http_methods(["GET"])
+def course_scope_suggest(request, course_id):
+    """
+    GET /api/courses/<uuid:id>/scope-suggest/
+
+    返回当前作用域和可加入的新资料列表。
+    """
+    from mentora.courses.services import suggest_scope_updates
+
+    try:
+        result = suggest_scope_updates(course_id)
+        return JsonResponse(result)
+    except Exception as exc:
+        return JsonResponse({"error": str(exc)}, status=500)
+
+
+@csrf_exempt
 @require_http_methods(["POST"])
 def course_activate(request, course_id):
     """

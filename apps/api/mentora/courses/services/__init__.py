@@ -239,3 +239,26 @@ def revise_profile(
         "level": new.level,
         "pace": new.pace,
     }
+
+
+def suggest_scope_updates(course_id: str) -> dict:
+    """检查是否有已完成解析的新资料可加入课程作用域。"""
+    current_scope = get_course_scope(course_id) or []
+
+    from mentora.knowledge.models import SourceVersion
+    all_completed = list(
+        SourceVersion.objects.filter(
+            processing_status="completed",
+        ).values_list("id", flat=True)
+    )
+
+    new_sources = [
+        str(s) for s in all_completed
+        if str(s) not in current_scope
+    ]
+
+    return {
+        "current_scope": current_scope,
+        "new_sources_available": new_sources,
+        "suggested": len(new_sources) > 0,
+    }
