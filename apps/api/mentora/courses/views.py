@@ -15,8 +15,8 @@ import asyncio
 import json
 import uuid
 
-from django.http import JsonResponse
-from django.views.decorators.csrf import csrf_exempt
+from rest_framework.response import Response
+from rest_framework.decorators import api_view
 from drf_spectacular.utils import extend_schema
 from django.views.decorators.http import require_http_methods
 
@@ -77,7 +77,7 @@ def _format_history(inquiry_history: list[dict]) -> str:
 # ── Session CRUD ──
 
 
-@csrf_exempt
+@api_view(["GET", "POST"])
 @extend_schema(summary="Session List Or Create")
 def session_list_or_create(request):
     """
@@ -99,20 +99,20 @@ def session_list_or_create(request):
                 "created_at": s.created_at.isoformat(),
                 "updated_at": s.updated_at.isoformat(),
             })
-        return JsonResponse(data, safe=False)
+        return Response(data, safe=False)
 
     # POST
     try:
         body = _parse_json(request)
     except ValueError as exc:
-        return JsonResponse({"error": str(exc)}, status=400)
+        return Response({"error": str(exc)}, status=400)
 
     serializer = SessionCreateSerializer(data=body)
     if not serializer.is_valid():
-        return JsonResponse({"error": serializer.errors}, status=400)
+        return Response({"error": serializer.errors}, status=400)
 
     session = serializer.save()
-    return JsonResponse(
+    return Response(
         {
             "id": str(session.id),
             "goal": session.goal,
@@ -123,8 +123,7 @@ def session_list_or_create(request):
     )
 
 
-@csrf_exempt
-@require_http_methods(["GET"])
+@api_view(["GET"])
 @extend_schema(summary="Session Detail")
 def session_detail(request, session_id):
     """
@@ -135,15 +134,14 @@ def session_detail(request, session_id):
     try:
         session = _get_session(session_id)
     except ValueError as exc:
-        return JsonResponse({"error": str(exc)}, status=404)
+        return Response({"error": str(exc)}, status=404)
 
     data = SessionDetailSerializer(session).data
     data["id"] = str(data["id"])
-    return JsonResponse(data)
+    return Response(data)
 
 
-@csrf_exempt
-@require_http_methods(["PATCH"])
+@api_view(["PATCH"])
 @extend_schema(summary="Session Update")
 def session_update(request, session_id):
     """
@@ -155,26 +153,25 @@ def session_update(request, session_id):
     try:
         session = _get_session(session_id)
     except ValueError as exc:
-        return JsonResponse({"error": str(exc)}, status=404)
+        return Response({"error": str(exc)}, status=404)
 
     try:
         body = _parse_json(request)
     except ValueError as exc:
-        return JsonResponse({"error": str(exc)}, status=400)
+        return Response({"error": str(exc)}, status=400)
 
     serializer = SessionUpdateSerializer(session, data=body, partial=True)
     if not serializer.is_valid():
-        return JsonResponse({"error": serializer.errors}, status=400)
+        return Response({"error": serializer.errors}, status=400)
 
     serializer.save()
-    return JsonResponse({"status": "ok"})
+    return Response({"status": "ok"})
 
 
 # ── Inquiry 追问 ──
 
 
-@csrf_exempt
-@require_http_methods(["POST"])
+@api_view(["POST"])
 @extend_schema(summary="Inquiry Next")
 def inquiry_next(request, session_id):
     """
@@ -193,12 +190,12 @@ def inquiry_next(request, session_id):
     try:
         session = _get_session(session_id)
     except ValueError as exc:
-        return JsonResponse({"error": str(exc)}, status=404)
+        return Response({"error": str(exc)}, status=404)
 
     try:
         body = _parse_json(request)
     except ValueError as exc:
-        return JsonResponse({"error": str(exc)}, status=400)
+        return Response({"error": str(exc)}, status=400)
 
     answer = body.get("answer", "").strip()
 
@@ -217,7 +214,7 @@ def inquiry_next(request, session_id):
     if len(session.inquiry_history) >= MAX_INQUIRY_ROUNDS:
         session.status = SessionStatus.GENERATING_PLAN
         session.save(update_fields=["status", "updated_at"])
-        return JsonResponse(
+        return Response(
             {
                 "ready": True,
                 "summary": "已收集足够信息，可以生成学习方案。",
@@ -253,14 +250,14 @@ def inquiry_next(request, session_id):
             )
         )
     except Exception as exc:
-        return JsonResponse(
+        return Response(
             {"error": f"LLM 调用失败: {str(exc)}"},
             status=502,
         )
 
     # 结构化输出校验失败
     if resp.parsed_output is None:
-        return JsonResponse(
+        return Response(
             {
                 "error": "LLM 返回格式异常，请重试",
                 "raw_content": resp.content,
@@ -286,7 +283,7 @@ def inquiry_next(request, session_id):
         session.status = SessionStatus.GENERATING_PLAN
         session.save(update_fields=["status", "updated_at"])
 
-    return JsonResponse(result)
+    return Response(result)
 
 
 # ── Plan 方案生成 ──
@@ -338,7 +335,7 @@ def _plan_to_learning_snapshot(plan_output: dict) -> dict:
     }
 
 
-@csrf_exempt
+@api_view(["GET", "POST"])
 @extend_schema(summary="Plan Handler")
 def plan_handler(request, session_id):
     """
@@ -355,18 +352,17 @@ def _plan_detail(request, session_id):
     try:
         _get_session(session_id)
     except ValueError as exc:
-        return JsonResponse({"error": str(exc)}, status=404)
+        return Response({"error": str(exc)}, status=404)
 
     from mentora.learning.services import get_active_plan
 
     plan = get_active_plan(session_id)
     if plan is None:
-        return JsonResponse({"error": "该课程尚未生成学习方案"}, status=404)
+        return Response({"error": "该课程尚未生成学习方案"}, status=404)
 
-    return JsonResponse(plan)
+    return Response(plan)
 
 
-@csrf_exempt
 def _plan_generate(request, session_id):
     """
     POST /api/courses/sessions/<uuid:id>/plan/
@@ -380,7 +376,7 @@ def _plan_generate(request, session_id):
     try:
         session = _get_session(session_id)
     except ValueError as exc:
-        return JsonResponse({"error": str(exc)}, status=404)
+        return Response({"error": str(exc)}, status=404)
 
     gateway, prompt_mgr = _get_gateway_and_prompts()
 
@@ -410,13 +406,13 @@ def _plan_generate(request, session_id):
             )
         )
     except Exception as exc:
-        return JsonResponse(
+        return Response(
             {"error": f"LLM 调用失败: {str(exc)}"},
             status=502,
         )
 
     if resp.parsed_output is None:
-        return JsonResponse(
+        return Response(
             {
                 "error": "LLM 返回格式异常，请重试",
                 "raw_content": resp.content,
@@ -453,14 +449,13 @@ def _plan_generate(request, session_id):
     session.status = SessionStatus.COMPLETED
     session.save(update_fields=["title", "status", "updated_at"])
 
-    return JsonResponse({**plan_output, "revision_id": revision_id})
+    return Response({**plan_output, "revision_id": revision_id})
 
 
 # ── 开始学习 ──
 
 
-@csrf_exempt
-@require_http_methods(["POST"])
+@api_view(["POST"])
 @extend_schema(summary="Session Start")
 def session_start(request, session_id):
     """
@@ -473,10 +468,10 @@ def session_start(request, session_id):
     try:
         session = _get_session(session_id)
     except ValueError as exc:
-        return JsonResponse({"error": str(exc)}, status=404)
+        return Response({"error": str(exc)}, status=404)
 
     if session.status != SessionStatus.COMPLETED:
-        return JsonResponse(
+        return Response(
             {"error": "方案尚未生成，无法开始学习"},
             status=400,
         )
@@ -485,21 +480,20 @@ def session_start(request, session_id):
 
     plan = get_active_plan(session_id)
     if plan is None:
-        return JsonResponse({"error": "未找到关联的学习计划"}, status=404)
+        return Response({"error": "未找到关联的学习计划"}, status=404)
 
     result = activate_revision(plan["revision_id"])
 
     session.status = SessionStatus.STARTED
     session.save(update_fields=["status", "updated_at"])
 
-    return JsonResponse(resp.parsed_output)
+    return Response(resp.parsed_output)
 
 
 # ── Profile Candidates 画像候选项 ──
 
 
-@csrf_exempt
-@require_http_methods(["POST"])
+@api_view(["POST"])
 @extend_schema(summary="Profile Candidates")
 def profile_candidates(request, session_id):
     """
@@ -510,7 +504,7 @@ def profile_candidates(request, session_id):
     try:
         session = _get_session(session_id)
     except ValueError as exc:
-        return JsonResponse({"error": str(exc)}, status=404)
+        return Response({"error": str(exc)}, status=404)
 
     gateway, prompt_mgr = _get_gateway_and_prompts()
 
@@ -541,22 +535,21 @@ def profile_candidates(request, session_id):
             )
         )
     except Exception as exc:
-        return JsonResponse({"error": f"LLM 调用失败: {str(exc)}"}, status=502)
+        return Response({"error": f"LLM 调用失败: {str(exc)}"}, status=502)
 
     if resp.parsed_output is None:
-        return JsonResponse(
+        return Response(
             {"error": "LLM 返回格式异常", "raw_content": resp.content},
             status=502,
         )
 
-    return JsonResponse(resp.parsed_output)
+    return Response(resp.parsed_output)
 
 
 # ── Course list ──
 
 
-@csrf_exempt
-@require_http_methods(["GET"])
+@api_view(["GET"])
 @extend_schema(summary="Course List")
 def course_list(request):
     """
@@ -586,14 +579,13 @@ def course_list(request):
             "status": status,
             "created_at": c["created_at"].isoformat(),
         })
-    return JsonResponse(result, safe=False)
+    return Response(result, safe=False)
 
 
 # ── Apply Candidate → Auto Plan ──
 
 
-@csrf_exempt
-@require_http_methods(["POST"])
+@api_view(["POST"])
 @extend_schema(summary="Apply Candidate")
 def apply_candidate(request, session_id):
     """
@@ -611,19 +603,19 @@ def apply_candidate(request, session_id):
     try:
         session = _get_session(session_id)
     except ValueError as exc:
-        return JsonResponse({"error": str(exc)}, status=404)
+        return Response({"error": str(exc)}, status=404)
 
     try:
         body = _parse_json(request)
     except ValueError as exc:
-        return JsonResponse({"error": str(exc)}, status=400)
+        return Response({"error": str(exc)}, status=400)
 
     goal = body.get("goal", "").strip()
     level = body.get("level", "").strip()
     pace = body.get("pace", "").strip()
 
     if not goal:
-        return JsonResponse({"error": "缺少 goal"}, status=400)
+        return Response({"error": "缺少 goal"}, status=400)
 
     # 更新 session
     session.goal = goal
@@ -655,7 +647,7 @@ def apply_candidate(request, session_id):
     session.status = SessionStatus.COMPLETED
     session.save(update_fields=["status", "updated_at"])
 
-    return JsonResponse({
+    return Response({
         "course_id": str(course.id),
         "profile_revision_id": str(profile.id),
         "goal": profile.goal,
@@ -669,8 +661,7 @@ def apply_candidate(request, session_id):
 # ── Course 管理 ──
 
 
-@csrf_exempt
-@require_http_methods(["POST"])
+@api_view(["POST"])
 @extend_schema(summary="Course Confirm")
 def course_confirm(request):
     """
@@ -682,25 +673,24 @@ def course_confirm(request):
     try:
         body = _parse_json(request)
     except ValueError as exc:
-        return JsonResponse({"error": str(exc)}, status=400)
+        return Response({"error": str(exc)}, status=400)
 
     session_id = body.get("session_id", "")
     if not session_id:
-        return JsonResponse({"error": "缺少 session_id"}, status=400)
+        return Response({"error": "缺少 session_id"}, status=400)
 
     from mentora.courses.services import confirm_course_from_session
 
     try:
         result = confirm_course_from_session(session_id)
-        return JsonResponse(result, status=201)
+        return Response(result, status=201)
     except CourseCreationSession.DoesNotExist:
-        return JsonResponse({"error": f"会话 {session_id} 不存在"}, status=404)
+        return Response({"error": f"会话 {session_id} 不存在"}, status=404)
     except Exception as exc:
-        return JsonResponse({"error": str(exc)}, status=500)
+        return Response({"error": str(exc)}, status=500)
 
 
-@csrf_exempt
-@require_http_methods(["GET"])
+@api_view(["GET"])
 @extend_schema(summary="Course Detail")
 def course_detail(request, course_id):
     """
@@ -714,7 +704,7 @@ def course_detail(request, course_id):
     try:
         course = Course.objects.get(id=course_id)
     except Course.DoesNotExist:
-        return JsonResponse({"error": "课程不存在"}, status=404)
+        return Response({"error": "课程不存在"}, status=404)
 
     profile = None
     if course.active_profile_revision_id:
@@ -723,7 +713,7 @@ def course_detail(request, course_id):
         except CourseProfileRevision.DoesNotExist:
             pass
 
-    return JsonResponse({
+    return Response({
         "course_id": str(course.id),
         "goal": profile.goal if profile else "",
         "level": profile.level if profile else "",
@@ -736,8 +726,7 @@ def course_detail(request, course_id):
     })
 
 
-@csrf_exempt
-@require_http_methods(["PATCH"])
+@api_view(["PATCH"])
 @extend_schema(summary="Course Profile Revise")
 def course_profile_revise(request, course_id):
     """
@@ -749,26 +738,25 @@ def course_profile_revise(request, course_id):
     try:
         body = _parse_json(request)
     except ValueError as exc:
-        return JsonResponse({"error": str(exc)}, status=400)
+        return Response({"error": str(exc)}, status=400)
 
     from mentora.courses.services import revise_profile
 
     kwargs = {k: v for k, v in body.items()
               if k in ("goal", "level", "pace", "school", "topics_json", "plan_revision_id")}
     if not kwargs:
-        return JsonResponse({"error": "无有效字段"}, status=400)
+        return Response({"error": "无有效字段"}, status=400)
 
     try:
         result = revise_profile(course_id, **kwargs)
-        return JsonResponse(result)
+        return Response(result)
     except Course.DoesNotExist:
-        return JsonResponse({"error": "课程不存在"}, status=404)
+        return Response({"error": "课程不存在"}, status=404)
     except Exception as exc:
-        return JsonResponse({"error": str(exc)}, status=500)
+        return Response({"error": str(exc)}, status=500)
 
 
-@csrf_exempt
-@require_http_methods(["POST"])
+@api_view(["POST"])
 @extend_schema(summary="Course Scope Extend")
 def course_scope_extend(request, course_id):
     """
@@ -780,26 +768,25 @@ def course_scope_extend(request, course_id):
     try:
         body = _parse_json(request)
     except ValueError as exc:
-        return JsonResponse({"error": str(exc)}, status=400)
+        return Response({"error": str(exc)}, status=400)
 
     sv_ids = body.get("source_version_ids", [])
     if not sv_ids:
-        return JsonResponse({"error": "缺少 source_version_ids"}, status=400)
+        return Response({"error": "缺少 source_version_ids"}, status=400)
 
     from mentora.courses.services import extend_scope
 
     role = body.get("role", "reference")
     try:
         result = extend_scope(course_id, sv_ids, role=role)
-        return JsonResponse(result)
+        return Response(result)
     except Course.DoesNotExist:
-        return JsonResponse({"error": "课程不存在"}, status=404)
+        return Response({"error": "课程不存在"}, status=404)
     except Exception as exc:
-        return JsonResponse({"error": str(exc)}, status=500)
+        return Response({"error": str(exc)}, status=500)
 
 
-@csrf_exempt
-@require_http_methods(["GET"])
+@api_view(["GET"])
 @extend_schema(summary="Course Scope Suggest")
 def course_scope_suggest(request, course_id):
     """
@@ -811,13 +798,12 @@ def course_scope_suggest(request, course_id):
 
     try:
         result = suggest_scope_updates(course_id)
-        return JsonResponse(result)
+        return Response(result)
     except Exception as exc:
-        return JsonResponse({"error": str(exc)}, status=500)
+        return Response({"error": str(exc)}, status=500)
 
 
-@csrf_exempt
-@require_http_methods(["POST"])
+@api_view(["POST"])
 @extend_schema(summary="Course Activate")
 def course_activate(request, course_id):
     """
@@ -831,17 +817,17 @@ def course_activate(request, course_id):
     try:
         course = Course.objects.get(id=course_id)
     except Course.DoesNotExist:
-        return JsonResponse({"error": "课程不存在"}, status=404)
+        return Response({"error": "课程不存在"}, status=404)
 
     try:
         profile = CourseProfileRevision.objects.get(
             id=course.active_profile_revision_id,
         )
     except CourseProfileRevision.DoesNotExist:
-        return JsonResponse({"error": "无活动画像修订"}, status=400)
+        return Response({"error": "无活动画像修订"}, status=400)
 
     if profile.status != CourseProfileRevision.Status.DRAFT:
-        return JsonResponse({"error": f"画像状态为 {profile.status}，需为 draft"}, status=400)
+        return Response({"error": f"画像状态为 {profile.status}，需为 draft"}, status=400)
 
     # 1. 调 PlannerAgent 生成计划
     session = course.session
@@ -870,10 +856,10 @@ def course_activate(request, course_id):
             )
         )
     except Exception as exc:
-        return JsonResponse({"error": f"LLM 调用失败: {str(exc)}"}, status=502)
+        return Response({"error": f"LLM 调用失败: {str(exc)}"}, status=502)
 
     if resp.parsed_output is None:
-        return JsonResponse({"error": "LLM 返回格式异常"}, status=502)
+        return Response({"error": "LLM 返回格式异常"}, status=502)
 
     plan_output = resp.parsed_output
 
@@ -899,9 +885,9 @@ def course_activate(request, course_id):
     try:
         result = activate_course(course_id)
     except Exception as exc:
-        return JsonResponse({"error": str(exc)}, status=500)
+        return Response({"error": str(exc)}, status=500)
 
-    return JsonResponse({
+    return Response({
         **result,
         "plan": {"phases": plan_output.get("phases", []), "revision_id": plan_result["revision_id"]},
     })
