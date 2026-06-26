@@ -1,5 +1,9 @@
 from django.http import JsonResponse
 from django.urls import path
+from drf_spectacular.views import (
+    SpectacularAPIView,
+    SpectacularSwaggerView,
+)
 
 from mentora.assessment.views import (
     complete_quiz_session,
@@ -35,6 +39,9 @@ def health(_: object) -> JsonResponse:
 
 
 urlpatterns = [
+    # Swagger / OpenAPI
+    path("api/schema/", SpectacularAPIView.as_view(), name="schema"),
+    path("api/docs/", SpectacularSwaggerView.as_view(url_name="schema"), name="swagger-ui"),
     path("api/health/", health, name="health"),
     # 聊天
     path("api/chat/", chat_api, name="chat"),

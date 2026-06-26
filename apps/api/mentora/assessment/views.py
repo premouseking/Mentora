@@ -9,6 +9,7 @@ from django.conf import settings
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
+from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiResponse
 
 from mentora.assessment.models import AssessmentItem, AssessmentSession
 from mentora.assessment.schemas import GeneratedQuizPaper
@@ -165,6 +166,17 @@ def _serialize_session(session_id: str) -> dict | None:
     }
 
 
+@extend_schema(
+    summary="生成测验试卷",
+    description="LLM 根据课程资料自动生成题目并创建测验会话",
+    request={"application/json": {"type": "object", "properties": {
+        "course_session_id": {"type": "string"},
+        "source_version_ids": {"type": "array", "items": {"type": "string"}},
+        "count": {"type": "integer", "default": 5},
+        "difficulty": {"type": "string", "default": "综合"},
+    }}},
+    responses={201: OpenApiParameter("session_id", str)},
+)
 @csrf_exempt
 @require_http_methods(["POST"])
 def generate_quiz_session(request):

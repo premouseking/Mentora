@@ -51,7 +51,19 @@ INSTALLED_APPS = [
     "mentora.parsing",
     "mentora.retrieval",
     "mentora.model_gateway",
+    "drf_spectacular",
 ]
+
+REST_FRAMEWORK = {
+    "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
+}
+
+SPECTACULAR_SETTINGS = {
+    "TITLE": "Mentora API",
+    "DESCRIPTION": "Mentora 智能学习工作空间 API",
+    "VERSION": "1.0.0",
+    "SERVE_INCLUDE_SCHEMA": False,
+}
 
 MIDDLEWARE = [
     "config.cors.CorsMiddleware",
