@@ -1,26 +1,18 @@
 """检索和引用定位 API。"""
 
-import json
-
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 
-from mentora.retrieval.benchmark import _make_gold_corpus
-from mentora.retrieval.locator import load_corpus as load_locator_corpus, locate_evidence
-from mentora.retrieval.search import load_corpus as load_search_corpus, search
-
-
-# 加载语料库（S2-LH-03 升级为 PG 原生查询）
-_corpus, _ = _make_gold_corpus()
-load_search_corpus(_corpus)
-load_locator_corpus(_corpus)
+from mentora.retrieval.locator import locate_evidence
+from mentora.retrieval.search import search
 
 
 def search_view(request):
     """
-    GET /api/retrieval/search?q=<查询>&top_k=10
+    GET /api/retrieval/search?q=<查询>&top_k=10&course_id=<课程ID>&mode=fts
 
     混合检索入口，返回 ranked EvidenceUnit 列表。
+    作用域通过 course_id 从 courses 服务读取，不直接信任前端参数。
     """
     if request.method != "GET":
         return JsonResponse({"error": "仅支持 GET"}, status=405)
@@ -34,11 +26,14 @@ def search_view(request):
     except ValueError:
         top_k = 10
 
-    # 作用域过滤：逗号分隔的 source_version_id 列表
-    sv_param = request.GET.get("source_version_ids", "")
-    source_version_ids = [s.strip() for s in sv_param.split(",") if s.strip()] or None
-
     mode = request.GET.get("mode", "fts")
+
+    # 作用域：优先 course_id → 服务端读 courses scope
+    source_version_ids = None
+    course_id = request.GET.get("course_id", "").strip()
+    if course_id:
+        from mentora.courses.services import get_course_scope
+        source_version_ids = get_course_scope(course_id)
 
     result_set = search(
         query, top_k=top_k,

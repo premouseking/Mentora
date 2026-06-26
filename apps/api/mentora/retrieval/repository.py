@@ -209,3 +209,12 @@ def get_snapshot_by_id(snapshot_id: str) -> "EvidenceSnapshot | None":
     from mentora.retrieval.models import EvidenceSnapshot
 
     return EvidenceSnapshot.objects.filter(id=snapshot_id).first()
+
+
+def replace_evidence_for_version(source_version_id: str, rows: list) -> int:
+    """原子替换指定版本下的全部证据（先删后插），供 knowledge 模块调用。"""
+    from mentora.retrieval.models import EvidenceUnit
+
+    EvidenceUnit.objects.filter(source_version_id=source_version_id).delete()
+    EvidenceUnit.objects.bulk_create(rows)
+    return len(rows)

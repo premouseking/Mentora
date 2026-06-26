@@ -83,7 +83,7 @@ RETRIEVE_EVIDENCE_DEFINITION = ToolDefinition(
         },
         "required": ["query"],
     },
-    agent_roles={"tutor", "planner"},
+    agent_roles={"tutor", "planner", "assessor"},
 )
 
 CREATE_LEARNING_PLAN_DEFINITION = ToolDefinition(
