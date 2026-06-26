@@ -19,6 +19,7 @@ import uuid
 from django.conf import settings
 from django.http import JsonResponse, StreamingHttpResponse
 from django.views.decorators.csrf import csrf_exempt
+from drf_spectacular.utils import extend_schema
 from django.views.decorators.http import require_http_methods
 
 from mentora.agent_runtime.runtime import build_orchestrator
@@ -54,6 +55,7 @@ def get_prompt_manager() -> PromptManager:
 
 @csrf_exempt
 @require_http_methods(["POST"])
+@extend_schema(summary="Chat Api")
 def chat_api(request):
     """POST /api/chat/"""
     if not settings.LLM_API_KEY:
@@ -104,6 +106,7 @@ def chat_api(request):
 
 @csrf_exempt
 @require_http_methods(["POST"])
+@extend_schema(summary="Chat Stream")
 def chat_stream(request):
     """POST /api/chat/stream/"""
     if not settings.LLM_API_KEY:

@@ -17,6 +17,7 @@ import uuid
 
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
+from drf_spectacular.utils import extend_schema
 from django.views.decorators.http import require_http_methods
 
 from mentora.courses.models import CourseCreationSession, SessionStatus
@@ -77,6 +78,7 @@ def _format_history(inquiry_history: list[dict]) -> str:
 
 
 @csrf_exempt
+@extend_schema(summary="Session List Or Create")
 def session_list_or_create(request):
     """
     GET  /api/courses/sessions/ → 列出所有建课会话
@@ -123,6 +125,7 @@ def session_list_or_create(request):
 
 @csrf_exempt
 @require_http_methods(["GET"])
+@extend_schema(summary="Session Detail")
 def session_detail(request, session_id):
     """
     GET /api/courses/sessions/<uuid:id>/
@@ -141,6 +144,7 @@ def session_detail(request, session_id):
 
 @csrf_exempt
 @require_http_methods(["PATCH"])
+@extend_schema(summary="Session Update")
 def session_update(request, session_id):
     """
     PATCH /api/courses/sessions/<uuid:id>/
@@ -171,6 +175,7 @@ def session_update(request, session_id):
 
 @csrf_exempt
 @require_http_methods(["POST"])
+@extend_schema(summary="Inquiry Next")
 def inquiry_next(request, session_id):
     """
     POST /api/courses/sessions/<uuid:id>/inquiry/
@@ -334,6 +339,7 @@ def _plan_to_learning_snapshot(plan_output: dict) -> dict:
 
 
 @csrf_exempt
+@extend_schema(summary="Plan Handler")
 def plan_handler(request, session_id):
     """
     GET  /api/courses/sessions/<uuid:id>/plan/ → 返回当前生效的学习方案
@@ -455,6 +461,7 @@ def _plan_generate(request, session_id):
 
 @csrf_exempt
 @require_http_methods(["POST"])
+@extend_schema(summary="Session Start")
 def session_start(request, session_id):
     """
     POST /api/courses/sessions/<uuid:id>/start/
@@ -493,6 +500,7 @@ def session_start(request, session_id):
 
 @csrf_exempt
 @require_http_methods(["POST"])
+@extend_schema(summary="Profile Candidates")
 def profile_candidates(request, session_id):
     """
     POST /api/courses/sessions/<uuid:id>/candidates/
@@ -549,6 +557,7 @@ def profile_candidates(request, session_id):
 
 @csrf_exempt
 @require_http_methods(["GET"])
+@extend_schema(summary="Course List")
 def course_list(request):
     """
     GET /api/courses/
@@ -585,6 +594,7 @@ def course_list(request):
 
 @csrf_exempt
 @require_http_methods(["POST"])
+@extend_schema(summary="Apply Candidate")
 def apply_candidate(request, session_id):
     """
     POST /api/courses/sessions/<uuid:id>/apply-candidate/
@@ -661,6 +671,7 @@ def apply_candidate(request, session_id):
 
 @csrf_exempt
 @require_http_methods(["POST"])
+@extend_schema(summary="Course Confirm")
 def course_confirm(request):
     """
     POST /api/courses/confirm/
@@ -690,6 +701,7 @@ def course_confirm(request):
 
 @csrf_exempt
 @require_http_methods(["GET"])
+@extend_schema(summary="Course Detail")
 def course_detail(request, course_id):
     """
     GET /api/courses/<uuid:id>/
@@ -726,6 +738,7 @@ def course_detail(request, course_id):
 
 @csrf_exempt
 @require_http_methods(["PATCH"])
+@extend_schema(summary="Course Profile Revise")
 def course_profile_revise(request, course_id):
     """
     PATCH /api/courses/<uuid:id>/profile/
@@ -756,6 +769,7 @@ def course_profile_revise(request, course_id):
 
 @csrf_exempt
 @require_http_methods(["POST"])
+@extend_schema(summary="Course Scope Extend")
 def course_scope_extend(request, course_id):
     """
     POST /api/courses/<uuid:id>/scope/
@@ -786,6 +800,7 @@ def course_scope_extend(request, course_id):
 
 @csrf_exempt
 @require_http_methods(["GET"])
+@extend_schema(summary="Course Scope Suggest")
 def course_scope_suggest(request, course_id):
     """
     GET /api/courses/<uuid:id>/scope-suggest/
@@ -803,6 +818,7 @@ def course_scope_suggest(request, course_id):
 
 @csrf_exempt
 @require_http_methods(["POST"])
+@extend_schema(summary="Course Activate")
 def course_activate(request, course_id):
     """
     POST /api/courses/<uuid:id>/activate/

@@ -179,6 +179,7 @@ def _serialize_session(session_id: str) -> dict | None:
 )
 @csrf_exempt
 @require_http_methods(["POST"])
+@extend_schema(summary="Generate Quiz Session")
 def generate_quiz_session(request):
     if not settings.LLM_API_KEY:
         return _json_error("LLM_API_KEY 未配置，无法生成题目", 503)
@@ -265,6 +266,7 @@ def generate_quiz_session(request):
 
 
 @require_http_methods(["GET"])
+@extend_schema(summary="Quiz Session Detail")
 def quiz_session_detail(request, session_id):
     data = _serialize_session(str(session_id))
     if data is None:
@@ -274,6 +276,7 @@ def quiz_session_detail(request, session_id):
 
 @csrf_exempt
 @require_http_methods(["POST"])
+@extend_schema(summary="Submit Quiz Attempt")
 def submit_quiz_attempt(request, session_id):
     try:
         body = _parse_json(request)
@@ -299,6 +302,7 @@ def submit_quiz_attempt(request, session_id):
 
 @csrf_exempt
 @require_http_methods(["POST"])
+@extend_schema(summary="Complete Quiz Session")
 def complete_quiz_session(request, session_id):
     try:
         result = complete_session(str(session_id))

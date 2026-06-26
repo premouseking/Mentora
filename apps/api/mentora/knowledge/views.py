@@ -5,6 +5,7 @@ import uuid
 
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
+from drf_spectacular.utils import extend_schema
 from django.views.decorators.http import require_http_methods
 
 from mentora.knowledge.models import CourseSource, Source
@@ -23,6 +24,7 @@ def _parse_json_body(request) -> dict:
 
 @csrf_exempt
 @require_http_methods(["POST"])
+@extend_schema(summary="Upload Create")
 def upload_create(request):
     """
     POST /api/uploads/
@@ -53,6 +55,7 @@ def upload_create(request):
 
 @csrf_exempt
 @require_http_methods(["POST"])
+@extend_schema(summary="Upload Complete")
 def upload_complete(request):
     """
     POST /api/uploads/complete/
@@ -86,6 +89,7 @@ def upload_complete(request):
 
 
 @require_http_methods(["GET"])
+@extend_schema(summary="List Sources")
 def list_sources(request):
     """GET /api/library/sources/?ownerId=&courseId= — 列出资料。
 
@@ -123,6 +127,7 @@ def list_sources(request):
 
 
 @require_http_methods(["GET"])
+@extend_schema(summary="Source Detail")
 def source_detail(request, source_version_id):
     """GET /api/library/sources/<source_version_id>/ — 获取资料版本详情与解析正文。"""
     from mentora.common.storage import ObjectStorageError, ObjectStorageService
@@ -166,6 +171,7 @@ def source_detail(request, source_version_id):
 
 @csrf_exempt
 @require_http_methods(["DELETE"])
+@extend_schema(summary="Source Delete")
 def source_delete(request, source_id):
     """DELETE /api/library/sources/<source_id>/ — 删除资料及关联的版本和解析数据。"""
     try:
@@ -179,6 +185,7 @@ def source_delete(request, source_id):
 
 @csrf_exempt
 @require_http_methods(["POST"])
+@extend_schema(summary="Source Reparse")
 def source_reparse(request, source_id):
     """POST /api/library/sources/<source_id>/reparse/ — 重新解析资料。"""
     from mentora.knowledge.models import ProcessingRun, ProcessingRunStatus, ProcessingStatus

@@ -6,6 +6,7 @@ import time
 
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
+from drf_spectacular.utils import extend_schema
 
 from mentora.parsing.adapters import parse
 from mentora.parsing.adapters.exceptions import ParsingError
@@ -14,6 +15,7 @@ from mentora.parsing.evidence import split_evidence
 
 
 @csrf_exempt
+@extend_schema(summary="Preview Parse")
 def preview_parse(request):
     """
     POST /api/parsing/preview
@@ -61,6 +63,7 @@ def preview_parse(request):
         os.unlink(tmp_path)
 
 
+@extend_schema(summary="Get Benchmark")
 def get_benchmark(request):
     """
     GET /api/parsing/benchmark

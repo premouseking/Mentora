@@ -1,0 +1,7 @@
+openapi: 3.0.3
+info:
+  title: Mentora API
+  version: 1.0.0
+  description: Mentora 智能学习工作空间 API
+paths: {}
+components: {}
