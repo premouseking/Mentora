@@ -40,6 +40,7 @@ def persist_evidence_units(
                 element_indices=unit.element_indices,
                 token_count=unit.token_count,
                 structure_type=unit.structure_type,
+                artifact_ref=unit.artifact_ref,
             )
         )
 

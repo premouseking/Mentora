@@ -74,6 +74,12 @@ class EvidenceUnit(models.Model):
         blank=True,
         help_text="Token 估算值，供上下文预算使用。",
     )
+    artifact_ref = models.CharField(
+        max_length=512,
+        blank=True,
+        default="",
+        help_text="对象存储引用，图片类型指向 MinIO 中的图片文件。",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
