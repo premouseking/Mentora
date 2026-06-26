@@ -31,7 +31,7 @@ def create_item(
     options_json: list | None = None,
     explanation: str = "",
     source_evidence_ids: list | None = None,
-    status: str = "published",
+    status: str = "draft",
 ) -> dict:
     """创建题目 + 首版修订。"""
     item = AssessmentItem.objects.create(
@@ -199,12 +199,15 @@ def get_session_result(session_id: str) -> dict | None:
     attempts = session.attempts.select_related("item").order_by("position")
     items = []
     for a in attempts:
+        rev = AssessmentItemRevision.objects.filter(
+            id=a.item.current_revision_id,
+        ).first()
         items.append({
             "attempt_id": str(a.id),
             "item_id": str(a.item.id),
-            "question_text": a.item.question_text,
+            "question_text": rev.question_text if rev else "",
             "question_type": a.item.question_type,
-            "correct_answer": a.item.correct_answer,
+            "correct_answer": rev.correct_answer if rev else "",
             "user_answer": a.user_answer,
             "is_correct": a.is_correct,
             "score": a.score,
@@ -242,3 +245,110 @@ def get_latest_session_for_unit(unit_id: str) -> dict | None:
         "total_items": session.total_items,
         "completed_at": session.completed_at.isoformat() if session.completed_at else None,
     }
+
+
+def validate_item(revision_id: str) -> dict:
+    """
+    AI 自检：三要素校验。
+
+    1. 选项互斥（无语义重叠）
+    2. 答案唯一（单选题只有 1 个正确选项）
+    3. 资料依据（答案能在 source_evidence_ids 中找到原文支撑）
+
+    通过 → status=published；不通过 → 写入 validation_issues。
+    """
+    revision = AssessmentItemRevision.objects.select_related("item").get(id=revision_id)
+    item = revision.item
+
+    # 收集资料原文
+    evidence_texts: list[str] = []
+    if revision.source_evidence_ids:
+        from mentora.retrieval.models import EvidenceUnit
+        units = EvidenceUnit.objects.filter(
+            id__in=revision.source_evidence_ids,
+        )
+        evidence_texts = [u.content for u in units]
+
+    # 构建 LLM 校验请求
+    options_str = ""
+    if revision.options_json:
+        options_str = "\n".join(
+            f"{o.get('label', '')}: {o.get('text', '')}"
+            for o in revision.options_json
+        )
+
+    prompt_parts = [
+        f"题干：{revision.question_text}",
+        f"题型：{item.get_question_type_display()}",
+    ]
+    if options_str:
+        prompt_parts.append(f"选项：\n{options_str}")
+    prompt_parts.append(f"答案：{revision.correct_answer}")
+    if evidence_texts:
+        prompt_parts.append(f"资料原文：\n{' '.join(evidence_texts[:3])}")
+
+    check_rules = (
+        "请逐项检查：\n"
+        "1. 选项互斥——选择题选项中不存在语义重叠\n"
+        "2. 答案唯一——单选题有且仅有一个正确选项\n"
+        "3. 资料依据——正确答案能从资料原文中找到支撑\n\n"
+        "如果资料原文为空，只检查第 1、2 项。"
+    )
+
+    try:
+        from mentora.model_gateway.gateway import ModelGateway
+        from mentora.agent_runtime.views import get_gateway
+        from mentora.model_gateway.schemas import Message
+
+        gateway = get_gateway()
+        messages = [
+            Message(role="system", content="你是题目质量审核员。" + check_rules),
+            Message(role="user", content="\n\n".join(prompt_parts)),
+        ]
+        resp = gateway.chat_sync(
+            task_type="assessor",
+            messages=messages,
+            structured_output_schema=None,
+        )
+        content = (resp.content or "").lower()
+        valid = "通过" in content or "valid" in content or "yes" in content
+    except Exception:
+        # LLM 不可用时跳过校验，标记为手动确认
+        return {
+            "revision_id": revision_id,
+            "valid": False,
+            "issues": ["AI 自检不可用，需手动确认"],
+        }
+
+    issues = []
+    if not valid:
+        issues.append("AI 自检未通过，请人工审核题目内容")
+        revision.status = AssessmentItemRevision.Status.DRAFT
+        revision.validation_issues = issues
+        revision.save(update_fields=["status", "validation_issues"])
+    else:
+        revision.status = AssessmentItemRevision.Status.PUBLISHED
+        revision.validation_issues = []
+        revision.save(update_fields=["status", "validation_issues"])
+
+    return {
+        "revision_id": revision_id,
+        "valid": valid,
+        "issues": issues,
+        "status": revision.status,
+    }
+
+
+@transaction.atomic
+def publish_item(item_id: str) -> dict:
+    """手动发布题目的当前修订版本。"""
+    item = AssessmentItem.objects.get(id=item_id)
+    revision = AssessmentItemRevision.objects.get(id=item.current_revision_id)
+
+    if revision.status == AssessmentItemRevision.Status.PUBLISHED:
+        return {"item_id": item_id, "status": "published", "message": "已发布"}
+
+    revision.status = AssessmentItemRevision.Status.PUBLISHED
+    revision.validation_issues = []
+    revision.save(update_fields=["status", "validation_issues"])
+    return {"item_id": item_id, "revision_id": str(revision.id), "status": "published"}

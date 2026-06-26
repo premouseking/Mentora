@@ -47,7 +47,7 @@ class AssessmentItemRevision(models.Model):
     class Status(models.TextChoices):
         DRAFT = "draft", "草稿"
         PUBLISHED = "published", "已发布"
-        RETIRED = "retired", "已停用"
+        RETIRED = "retired", "已停用" 
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     item = models.ForeignKey(
@@ -60,6 +60,7 @@ class AssessmentItemRevision(models.Model):
     correct_answer = models.TextField(help_text="正确答案")
     explanation = models.TextField(blank=True, default="", help_text="答案解析")
     source_evidence_ids = models.JSONField(default=list, help_text="题目来源证据 ID 列表")
+    validation_issues = models.JSONField(default=list, help_text="AI 自检未通过的问题列表")
     status = models.CharField(max_length=16, choices=Status.choices, default=Status.DRAFT)
     created_at = models.DateTimeField(auto_now_add=True)
 
