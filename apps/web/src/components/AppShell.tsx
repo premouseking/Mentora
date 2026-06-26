@@ -29,7 +29,7 @@ const navItems = [
   { to: "/lab/parsing", label: "解析实验室", icon: Beaker },
 ];
 
-const setupSteps = ["描述目标", "补充信息", "资料上传", "信息追问", "确认方案"];
+const setupSteps = ["描述目标", "基础信息", "资料上传", "信息追问", "确认方案"];
 
 const MIN_SIDEBAR = 160;
 const MAX_SIDEBAR = 320;

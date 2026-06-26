@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useState, type ReactNode } from "react";
 
 /**
- * 课程创建过程中共享的已了解信息项
+ * 课程创建过程中共享的学习档案项
  */
 export interface CourseInfoItem {
   /** 唯一标识，用于去重与更新 */

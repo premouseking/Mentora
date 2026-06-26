@@ -571,6 +571,11 @@ def course_sources_manage(request, session_id):
         )
         created += 1
 
+    # 同步写入 session.extra，供 course_confirm 创建作用域时使用
+    session = _get_session(session_id)
+    session.extra["source_version_ids"] = version_ids
+    session.save(update_fields=["extra", "updated_at"])
+
     return JsonResponse({"status": "ok", "source_count": created})
 
 
@@ -620,6 +625,8 @@ def profile_candidates(request, session_id):
         "goal": session.goal or "未填写",
         "level": session.level or "未选择",
         "pace": session.pace or "未选择",
+        "time_budget": session.time_budget or "未选择",
+        "deadline": session.deadline.isoformat() if session.deadline else "未设定",
         "inquiry_history": _format_history(session.inquiry_history),
     }
     system_text = prompt_mgr.render("clarifier", variables)
@@ -945,6 +952,8 @@ def course_activate(request, course_id):
         "goal": profile.goal,
         "level": profile.level or "未选择",
         "pace": profile.pace or "未选择",
+        "time_budget": session.time_budget or "未选择",
+        "deadline": session.deadline.isoformat() if session.deadline else "未设定",
         "inquiry_history": _format_history(session.inquiry_history),
     }
     system_text = prompt_mgr.render("planner", variables)

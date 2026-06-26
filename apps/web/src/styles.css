@@ -1086,6 +1086,16 @@ p {
   word-break: break-word;
 }
 
+/* 追问信息多行显示，每行带缩进 */
+.inquiry-value {
+  white-space: pre-line;
+  padding-left: 0.75em;
+}
+
+.plan-info-list .inquiry-value {
+  padding-left: 0.75em;
+}
+
 [data-tooltip] {
   position: relative;
   cursor: default;
@@ -1214,7 +1224,7 @@ p {
   margin: 0;
 }
 
-/* ── 步骤 2：补充信息页 ── */
+/* ── 步骤 2：基础信息页 ── */
 
 .info-block {
   margin-bottom: 28px;

@@ -97,10 +97,26 @@ def list_sources(request):
     qs = Source.objects.filter(owner_id=owner_id).select_related("latest_version")
 
     if course_id:
-        linked_version_ids = CourseSource.objects.filter(
-            course_session_id=course_id,
-        ).values_list("source_version_id", flat=True)
-        qs = qs.filter(latest_version__id__in=linked_version_ids)
+        # 优先读正式课程作用域，没有则回退到临时关联记录
+        from mentora.courses.services import get_course_scope
+        from mentora.courses.models import Course
+
+        linked_version_ids = None
+        try:
+            course = Course.objects.get(session_id=course_id)
+            linked_version_ids = get_course_scope(str(course.id))
+        except Course.DoesNotExist:
+            pass
+
+        if not linked_version_ids:
+            linked_version_ids = list(
+                CourseSource.objects.filter(
+                    course_session_id=course_id,
+                ).values_list("source_version_id", flat=True)
+            )
+
+        if linked_version_ids:
+            qs = qs.filter(latest_version__id__in=linked_version_ids)
 
     items = []
     for source in qs.order_by("-created_at"):

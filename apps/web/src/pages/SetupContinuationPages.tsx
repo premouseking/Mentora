@@ -59,14 +59,21 @@ export function AiInquiryPage() {
     fetchNext().finally(() => setLoading(false));
   }, [fetchNext]);
 
+  // 追问记录攒到一起
+  const [inquiryLog, setInquiryLog] = useState<string[]>([]);
+
   async function handleAnswer(value: string) {
     if (!current) return;
-    // 同步到底栏
+    // 同步到底栏 — 追问信息汇总为一条
+    const roundLabel = current.text.replace(/[？?]$/, "");
+    const entry = `${roundLabel}：${value}`;
+    const updated = [...inquiryLog, entry];
+    setInquiryLog(updated);
     addItem({
-      key: `inquiry_r${round}`,
-      title: current.text.replace(/[？?]$/, ""),
-      value,
-      source: "你的回答",
+      key: "inquiry",
+      title: "补充信息",
+      value: updated.join("\n"),
+      source: "AI 追问",
     });
 
     const prevQuestion = current;
@@ -426,12 +433,15 @@ export function ConfirmPlanPage() {
               <Sparkles size={16} /> 学习方案概览
             </h3>
             <dl className="info-bar-list plan-info-list">
-              {items.map((item) => (
-                <div className="info-bar-row" key={item.key}>
-                  <dt>{item.title}</dt>
-                  <dd>{item.value}</dd>
-                </div>
-              ))}
+              {items.map((item) => {
+                const isInquiry = item.key === "inquiry";
+                return (
+                  <div className="info-bar-row" key={item.key}>
+                    <dt>{item.title}</dt>
+                    <dd className={isInquiry ? "inquiry-value" : ""}>{item.value}</dd>
+                  </div>
+                );
+              })}
             </dl>
             {!planExpanded && (
               <button className="plan-expand-btn" onClick={triggerExpand} type="button">
