@@ -122,6 +122,7 @@ def upload_complete(request):
         OpenApiParameter(name="ownerId", type=str, description="所有者 ID", required=False),
         OpenApiParameter(name="courseId", type=str, description="课程会话 ID，传入时仅返回已关联资料", required=False),
         OpenApiParameter(name="tags", type=str, description="逗号分隔的标签，取交集过滤", required=False),
+        OpenApiParameter(name="status", type=str, description="过滤状态: active/archived", required=False),
     ],
     responses={200: {"description": "资料列表"}},
 )
@@ -130,8 +131,12 @@ def list_sources(request):
     owner_id = request.GET.get("ownerId", DEV_OWNER_ID)
     course_id = request.GET.get("courseId", "").strip()
     tags_filter = [t.strip() for t in request.GET.get("tags", "").split(",") if t.strip()]
+    status_filter = request.GET.get("status", "").strip()
 
     qs = Source.objects.filter(owner_id=owner_id).select_related("latest_version")
+
+    if status_filter in ("active", "archived"):
+        qs = qs.filter(status=status_filter)
 
     if course_id:
         linked_version_ids = CourseSource.objects.filter(
@@ -319,6 +324,45 @@ def source_update_tags(request, source_id):
 )
 @api_view(["GET"])
 def list_tags(request):
+    owner_id = request.GET.get("ownerId", DEV_OWNER_ID)
+    sources = Source.objects.filter(owner_id=owner_id).values_list("tags", flat=True)
+    all_tags: set[str] = set()
+    for tags in sources:
+        if isinstance(tags, list):
+            all_tags.update(tags)
+    return Response({"tags": sorted(all_tags)})
+
+
+@extend_schema(
+    summary="归档资料",
+    description="将资料状态设为 archived，保留历史回答可追溯。",
+    responses={200: {"description": "归档成功"}, 404: {"description": "资料不存在"}},
+)
+@api_view(["PATCH"])
+def source_archive(request, source_id):
+    try:
+        source = Source.objects.get(id=source_id)
+    except Source.DoesNotExist:
+        return Response({"error": "资料不存在"}, status=404)
+    source.status = Source.SourceStatus.ARCHIVED
+    source.save(update_fields=["status"])
+    return Response({"status": source.status})
+
+
+@extend_schema(
+    summary="取消归档",
+    description="将资料恢复为 active 状态。",
+    responses={200: {"description": "恢复成功"}, 404: {"description": "资料不存在"}},
+)
+@api_view(["PATCH"])
+def source_unarchive(request, source_id):
+    try:
+        source = Source.objects.get(id=source_id)
+    except Source.DoesNotExist:
+        return Response({"error": "资料不存在"}, status=404)
+    source.status = Source.SourceStatus.ACTIVE
+    source.save(update_fields=["status"])
+    return Response({"status": source.status})
     owner_id = request.GET.get("ownerId", DEV_OWNER_ID)
     sources = Source.objects.filter(owner_id=owner_id).values_list("tags", flat=True)
     all_tags: set[str] = set()
