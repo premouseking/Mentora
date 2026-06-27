@@ -14,7 +14,6 @@ from mentora.assessment.views import (
 from mentora.agent_runtime.views import chat_api, chat_stream
 from mentora.courses.views import (
     course_activate,
-    apply_candidate,
     course_confirm,
     course_detail,
     course_list,
@@ -23,13 +22,12 @@ from mentora.courses.views import (
     course_scope_suggest,
     inquiry_next,
     plan_handler,
-    profile_candidates,
     session_detail,
     session_list_or_create,
     session_start,
     session_update,
 )
-from mentora.knowledge.views import list_sources, source_delete, source_detail, source_reparse, upload_complete, upload_create
+from mentora.knowledge.views import folder_create, folder_delete, folder_list, folder_rename, list_sources, list_tags, source_archive, source_delete, source_detail, source_move, source_reparse, source_unarchive, source_update_tags, upload_complete, upload_create
 from mentora.parsing.views import get_benchmark, preview_parse
 from mentora.retrieval.views import locate_view, search_view
 
@@ -56,8 +54,6 @@ urlpatterns = [
     path("api/courses/sessions/<uuid:session_id>/update/", session_update, name="session-update"),
     path("api/courses/sessions/<uuid:session_id>/inquiry/", inquiry_next, name="inquiry-next"),
     path("api/courses/sessions/<uuid:session_id>/plan/", plan_handler, name="plan-handler"),
-    path("api/courses/sessions/<uuid:session_id>/candidates/", profile_candidates, name="profile-candidates"),
-    path("api/courses/sessions/<uuid:session_id>/apply-candidate/", apply_candidate, name="apply-candidate"),
     # 课程管理
     path("api/courses/", course_list, name="course-list"),
     path("api/courses/confirm/", course_confirm, name="course-confirm"),
@@ -73,6 +69,15 @@ urlpatterns = [
     path("api/library/sources/<uuid:source_version_id>/", source_detail, name="library-source-detail"),
     path("api/library/sources/<uuid:source_id>/delete/", source_delete, name="library-source-delete"),
     path("api/library/sources/<uuid:source_id>/reparse/", source_reparse, name="library-source-reparse"),
+    path("api/library/sources/<uuid:source_id>/tags/", source_update_tags, name="library-source-tags"),
+    path("api/library/sources/<uuid:source_id>/archive/", source_archive, name="library-source-archive"),
+    path("api/library/sources/<uuid:source_id>/unarchive/", source_unarchive, name="library-source-unarchive"),
+    path("api/library/tags/", list_tags, name="library-tags"),
+    path("api/library/sources/<uuid:source_id>/move/", source_move, name="library-source-move"),
+    path("api/library/folders/", folder_list, name="library-folder-list"),
+    path("api/library/folders/create/", folder_create, name="library-folder-create"),
+    path("api/library/folders/<uuid:folder_id>/", folder_rename, name="library-folder-rename"),
+    path("api/library/folders/<uuid:folder_id>/delete/", folder_delete, name="library-folder-delete"),
     # 解析
     path("api/parsing/preview", preview_parse, name="parsing-preview"),
     path("api/parsing/benchmark", get_benchmark, name="parsing-benchmark"),
