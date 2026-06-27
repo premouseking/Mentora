@@ -123,6 +123,7 @@ def upload_complete(request):
         OpenApiParameter(name="courseId", type=str, description="课程会话 ID，传入时仅返回已关联资料", required=False),
         OpenApiParameter(name="tags", type=str, description="逗号分隔的标签，取交集过滤", required=False),
         OpenApiParameter(name="status", type=str, description="过滤状态: active/archived", required=False),
+        OpenApiParameter(name="q", type=str, description="搜索关键词，模糊匹配资料标题", required=False),
     ],
     responses={200: {"description": "资料列表"}},
 )
@@ -132,8 +133,12 @@ def list_sources(request):
     course_id = request.GET.get("courseId", "").strip()
     tags_filter = [t.strip() for t in request.GET.get("tags", "").split(",") if t.strip()]
     status_filter = request.GET.get("status", "").strip()
+    q = request.GET.get("q", "").strip()
 
     qs = Source.objects.filter(owner_id=owner_id).select_related("latest_version")
+
+    if q:
+        qs = qs.filter(display_title__icontains=q)
 
     if status_filter in ("active", "archived"):
         qs = qs.filter(status=status_filter)
