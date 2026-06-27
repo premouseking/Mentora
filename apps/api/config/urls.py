@@ -12,6 +12,7 @@ from mentora.assessment.views import (
     submit_quiz_attempt,
 )
 from mentora.agent_runtime.views import chat_api, chat_stream
+from mentora.learning.views import history_list
 from mentora.courses.views import (
     course_activate,
     course_confirm,
@@ -50,6 +51,7 @@ urlpatterns = [
     path("api/schema/", SpectacularAPIView.as_view(), name="schema"),
     path("api/docs/", SpectacularSwaggerView.as_view(url_name="schema"), name="swagger-ui"),
     path("api/health/", health, name="health"),
+    path("api/history/", history_list, name="history-list"),
     # 聊天
     path("api/chat/", chat_api, name="chat"),
     path("api/chat/stream/", chat_stream, name="chat-stream"),
