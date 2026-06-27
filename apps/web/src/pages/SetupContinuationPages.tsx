@@ -1,14 +1,7 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  ArrowDown,
   ArrowLeft,
-  ArrowRight,
-  ArrowUp,
-  FileText,
-  ListTree,
-  LockKeyhole,
   Sparkles,
-  Target,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
@@ -281,244 +274,119 @@ function FreeTextQ({ onAnswer, disabled = false }: { onAnswer: (v: string) => vo
   );
 }
 
-/* ── 步骤 5：确认方案 ── */
+/* ── 步骤 5：确认方案（v5 真滚动 + scroll-snap + 箭头形阶段块）── */
 
-type Phase = {
-  id: string;
-  name: string;
-  goal: string;
-  share: number;
-  tasks: string[];
-};
+const MOCK_PHASES = [
+  { name: "基础入门" },
+  { name: "知识梳理" },
+  { name: "专项训练" },
+  { name: "综合应用" },
+  { name: "考前冲刺" },
+];
+
+/** 计算 block 在给定 index 的 offsetLeft（含 margin-left: -4px 累积偏移） */
+function offsetOf(index: number, blockBasis: number) {
+  if (index <= 0) return 0;
+  return index * blockBasis - 4 * index;
+}
 
 export function ConfirmPlanPage() {
   const navigate = useNavigate();
-  const { items, addItem, sessionId } = useCourseCreation();
-  const [courseTitle, setCourseTitle] = useState("");
-  const [phases, setPhases] = useState<Phase[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
-  const [activePhaseId, setActivePhaseId] = useState("");
-  const [starting, setStarting] = useState(false);
 
-  const planRef = useRef(false); // 防 StrictMode 多次生成
+  const courseTitle = "高中数学一轮复习";
+  const phases = MOCK_PHASES;
+  const N = phases.length;
 
-  const activePhase = useMemo(
-    () => phases.find((phase) => phase.id === activePhaseId) ?? phases[0],
-    [activePhaseId, phases],
+  const [activeIndex, setActiveIndex] = useState(0);
+  const navRef = useRef<HTMLDivElement>(null);
+  const targetRef = useRef(0); // 当前滚动的目标 phase index
+
+  /* ── 统一滚动到 phase[index]，含「目标在第 3 可见位」规则 ── */
+  const scrollToPhase = useCallback(
+    (index: number) => {
+      const el = navRef.current;
+      if (!el) return;
+      targetRef.current = index;
+      setActiveIndex(index);
+      const basis = el.clientWidth / 4;
+      // 目标 block 落在左起第 3 位（index - 2 的 snap）；snapIndex 不能超过 N-4（保证始终 4 块可见）
+      const snapIndex = Math.max(0, Math.min(index - 2, N - 4));
+      el.scrollTo({ left: offsetOf(snapIndex, basis), behavior: "smooth" });
+    },
+    [N],
   );
 
-  // 页面加载 → 调用 plan API
-  useEffect(() => {
-    if (planRef.current) return;
-    planRef.current = true;
-    if (!sessionId) {
-      setError("未找到建课会话，请返回第一步重新开始。");
-      setLoading(false);
-      return;
-    }
+  /* ── Wheel → 滚动一块并 snap ── */
+  const handleWheel = useCallback(
+    (e: React.WheelEvent) => {
+      e.preventDefault();
+      if (N <= 1) return;
+      const dir = e.deltaY > 0 ? 1 : -1;
+      const next = Math.max(0, Math.min(N - 1, targetRef.current + dir));
+      if (next === targetRef.current) return;
+      scrollToPhase(next);
+    },
+    [N, scrollToPhase],
+  );
 
-    import("../services/courseApi").then(async ({ generatePlan }) => {
-      try {
-        const resp = await generatePlan(sessionId);
-        // 存储 AI 生成的标题
-        if (resp.title) {
-          setCourseTitle(resp.title);
-          addItem({ key: "title", title: "课程名称", value: resp.title, source: "AI 生成" });
-        }
-        const mapped: Phase[] = resp.phases.map((p, i) => ({
-          id: `phase_${i}`,
-          name: p.name,
-          goal: p.goal,
-          share: p.share,
-          tasks: p.tasks,
-        }));
-        setPhases(mapped);
-        if (mapped.length > 0) {
-          setActivePhaseId(mapped[0].id);
-        }
-        // 存储 revision_id 供「开始学习」使用
-        if (resp.revision_id) {
-          sessionStorage.setItem("mentora-revision-id", resp.revision_id);
-        }
-      } catch (err: unknown) {
-        setError(err instanceof Error ? err.message : "方案生成失败");
-      } finally {
-        setLoading(false);
-      }
-    });
-  }, [sessionId]);
-
-  async function startCourse() {
-    if (!sessionId || starting) return;
-    setStarting(true);
-    try {
-      const { startCourse: apiStartCourse } = await import("../services/courseApi");
-      await apiStartCourse(sessionId);
-    } catch {
-      // API 调用失败也允许进入学习（方案已在前端展示）
-    }
-    sessionStorage.setItem("mentora-course-started", sessionId);
-    navigate("/courses");
-  }
-
-  function adjustActivePhase(direction: "simplify" | "deepen") {
-    setPhases((current) =>
-      current.map((phase) => {
-        if (phase.id !== activePhaseId) return phase;
-        if (direction === "simplify") {
-          return {
-            ...phase,
-            share: Math.max(10, phase.share - 5),
-            tasks: phase.tasks.length > 2 ? phase.tasks.slice(0, -1) : phase.tasks,
-          };
-        }
-        return {
-          ...phase,
-          share: Math.min(50, phase.share + 5),
-          tasks: phase.tasks.includes("补充迁移练习") ? phase.tasks : [...phase.tasks, "补充迁移练习"],
-        };
-      }),
-    );
-  }
+  /* ── Click → 滚动到目标块 ── */
+  const handleClick = useCallback(
+    (index: number) => {
+      if (index === targetRef.current) return;
+      scrollToPhase(index);
+    },
+    [scrollToPhase],
+  );
 
   return (
     <SetupShell
       current={5}
-      hideInfoBar
       footer={
         <div className="setup-footer">
           <button className="button secondary" onClick={() => navigate("/courses/new/inquiry")} type="button">
             返回修改需求
           </button>
-          <button className="button primary" disabled={loading || starting} onClick={startCourse} type="button">{starting ? "启动中…" : "开始学习"}</button>
+          <div className="footer-buttons">
+            <button className="button secondary" type="button">
+              调整计划
+            </button>
+            <button className="button primary" onClick={() => navigate("/courses")} type="button">
+              开始学习
+            </button>
+          </div>
         </div>
       }
     >
       <div className="plan-page">
         <div className="setup-heading compact-heading">
-          {courseTitle && <h1 className="course-title-main">「{courseTitle}」</h1>}
-          <h2 className="course-title-sub">学习方案确认</h2>
-          <p>{loading ? "AI 正在生成方案…" : error ? "方案生成遇到问题" : "AI 已根据你的需求生成阶段方案，请确认并按需调整。"}</p>
+          <h1 className="course-title-main">「{courseTitle}」学习方案确认</h1>
+          <p>AI 已根据你的需求生成阶段方案，请确认并按需调整。</p>
         </div>
-
-        {loading && (
-          <div className="question-block">
-            <MentoraLoader
-              message="AI 正在根据你的信息生成个性化学习方案…"
-              size={160}
-            >
-              <p style={{ margin: 0, fontSize: 13, color: "var(--quiet)", maxWidth: 320, textAlign: "center", lineHeight: 1.7 }}>
-                这将需要一点时间，请稍候。
-              </p>
-            </MentoraLoader>
-          </div>
-        )}
-
-        {error && (
-          <div className="question-block">
-            <p className="error-text">{error}</p>
-            <button className="button secondary" onClick={() => window.location.reload()} type="button">
-              重试
-            </button>
-          </div>
-        )}
-
-        {!loading && !error && phases.length > 0 && (
-          <>
-          <div className="plan-info-section plan-expanded">
-            <h3 className="plan-info-heading">
-              <Sparkles size={16} /> 学习档案
-            </h3>
-            <dl className="info-bar-list plan-info-list">
-              {/* 课程名称放最前 */}
-              {(() => {
-                const titleItem = items.find((i) => i.key === "title");
-                if (!titleItem) return null;
-                return (
-                  <div className="info-bar-row" key={titleItem.key}>
-                    <dt data-tooltip={titleItem.title}><span className="info-bar-label">{titleItem.title}</span></dt>
-                    <dd data-tooltip={titleItem.value}>
-                      <span className="info-bar-value">{titleItem.value}</span>
-                    </dd>
-                  </div>
-                );
-              })()}
-              {items.filter((item) => item.key !== "title").map((item) => {
-                const isInquiry = item.key === "inquiry";
-                return (
-                  <div className="info-bar-row" key={item.key}>
-                    <dt data-tooltip={item.title}><span className="info-bar-label">{item.title}</span></dt>
-                    <dd data-tooltip={isInquiry ? item.value.replace(/\n/g, " ") : item.value}>
-                      <span className={`info-bar-value${isInquiry ? " inquiry-value" : ""}`}>{item.value}</span>
-                    </dd>
-                  </div>
-                );
-              })}
-            </dl>
-          </div>
 
         <div className="phase-heading">
           <h2>学习计划 <span>（共 {phases.length} 个阶段）</span></h2>
-          <small>阶段是主要结构，完成节奏可根据实际情况调整。</small>
         </div>
 
-        <div className="phase-path">
-          {phases.map((phase, index) => (
-            <div className="phase-path-item" key={phase.id}>
-              <button
-                aria-pressed={phase.id === activePhaseId}
-                className={phase.id === activePhaseId ? "active" : ""}
-                onClick={() => setActivePhaseId(phase.id)}
-                type="button"
+        {/* ── 真滚动滑轨 ── */}
+        <div className="phase-track" ref={navRef} onWheel={handleWheel}>
+          <div className="phase-track-window">
+            {phases.map((phase, i) => (
+              <div
+                key={i}
+                className={`phase-block${i === activeIndex ? " active" : ""}`}
+                onClick={() => handleClick(i)}
               >
-                <span>{index + 1}</span>
-                {phase.name}
-              </button>
-              {index < phases.length - 1 ? <ArrowRight size={18} /> : null}
-            </div>
-          ))}
+                <span className="phase-block-num">{i + 1}</span>
+                <span className="phase-block-name">{phase.name}</span>
+              </div>
+            ))}
+          </div>
         </div>
 
-        <section className="phase-detail">
-          <div className="phase-detail-row">
-            <span><Target size={18} /> 阶段目标</span>
-            <p>{activePhase?.goal || "请在左侧选择一个阶段"}</p>
-          </div>
-          <div className="phase-detail-row">
-            <span><ListTree size={18} /> 相对学习量</span>
-            <div className="share-display">
-              <strong>约占全部内容的 {activePhase?.share ?? 0}%</strong>
-              <div>
-                {[10, 20, 30, 40, 50, 60].map((threshold) => (
-                  <i className={(activePhase?.share ?? 0) >= threshold ? "filled" : ""} key={threshold} />
-                ))}
-              </div>
-            </div>
-          </div>
-          <div className="phase-detail-row task-detail">
-            <span><FileText size={18} /> 代表性任务</span>
-            <ul>
-              {(activePhase?.tasks ?? []).slice(0, 5).map((task) => <li key={task}>{task}</li>)}
-            </ul>
-          </div>
-          <div className="phase-operations">
-            <span>本阶段操作</span>
-            <button onClick={() => adjustActivePhase("simplify")} type="button">
-              <ArrowDown size={16} /> 简化阶段
-            </button>
-            <button onClick={() => adjustActivePhase("deepen")} type="button">
-              <ArrowUp size={16} /> 加强阶段
-            </button>
-            <button type="button">
-              <ListTree size={16} /> 查看全部任务
-            </button>
-          </div>
-        </section>
-        <p className="privacy-note"><LockKeyhole size={13} /> 开始后仍可调整阶段顺序、内容重点和学习节奏。</p>
-        </>
-        )}
+        {/* ── 阶段详情区（留空占位）── */}
+        <div className="phase-detail-placeholder" />
+
       </div>
     </SetupShell>
-  );
+  )
 }

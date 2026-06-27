@@ -907,14 +907,14 @@ p {
   padding-bottom: 80px;
 }
 
-/* 内容框 — 内部滚动（隐藏滚动条） */
+/* 内容框 — flex column，子元素自行处理滚动 */
 .setup-content-box {
   width: min(900px, calc(100% - 48px));
   flex: 1;
   min-height: 0;
-  overflow-y: auto;
-  scrollbar-width: none;
-  -ms-overflow-style: none;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
   border: 2px solid var(--border);
   border-radius: 10px;
   padding: 20px 24px;
@@ -922,7 +922,20 @@ p {
   box-shadow: 0 1px 3px rgb(0 0 0 / 0.04);
 }
 
-.setup-content-box::-webkit-scrollbar {
+/* 步骤 1-4 页面 wrapper — 自身处理垂直滚动 */
+.goal-form,
+.addinfo-page,
+.inquiry-page {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.goal-form::-webkit-scrollbar,
+.addinfo-page::-webkit-scrollbar,
+.inquiry-page::-webkit-scrollbar {
   display: none;
 }
 
@@ -1628,7 +1641,7 @@ p {
 }
 
 .setup-heading {
-  margin-bottom: 28px;
+  margin-bottom: 20px;
   text-align: center;
 }
 
@@ -1992,11 +2005,11 @@ p {
 }
 
 .compact-heading {
-  margin-bottom: 24px;
+  margin-bottom: 18px;
 }
 
 .compact-heading h1 {
-  margin-bottom: 8px;
+  margin-bottom: 4px;
   font-size: 27px;
 }
 
@@ -2016,11 +2029,20 @@ p {
 }
 
 .sources-page,
-.profile-page,
-.plan-page {
+.profile-page {
   width: min(940px, calc(100% - 48px));
   margin: 0 auto;
   padding: 42px 0 26px;
+}
+
+.plan-page {
+  width: min(940px, calc(100% - 48px));
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .source-actions {
@@ -2500,7 +2522,7 @@ p {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
-  margin: 24px 0 12px;
+  margin: 16px 0 8px;
 }
 
 .phase-heading small {
@@ -2678,6 +2700,118 @@ p {
 
 .phase-operations button:hover {
   border-color: var(--green-700);
+}
+
+/* ── v5 建课确认页：真滚动 + scroll-snap 滑轨 ── */
+
+.phase-track {
+  position: relative;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scroll-snap-type: x mandatory;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  margin-top: 14px;
+  border: 1px solid #cfe2dd;
+  border-radius: 8px;
+  padding: 10px 0;
+  background: #f8fbfa;
+  cursor: default;
+  user-select: none;
+}
+
+.phase-track::-webkit-scrollbar {
+  display: none;
+}
+
+.phase-track-window {
+  display: flex;
+  align-items: stretch;
+}
+
+/* ── 箭头形阶段块（所有块始终渲染，首尾用 :first-child/:last-child 识别边界）── */
+
+.phase-block {
+  position: relative;
+  display: flex;
+  flex: 0 0 25%;
+  min-height: 56px;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 1px solid var(--border-strong);
+  background: #fff;
+  color: #56615c;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 650;
+  clip-path: polygon(14px 0, 100% 0, calc(100% - 14px) 100%, 0 100%);
+  margin-left: -4px;
+  scroll-snap-align: start;
+  transition: background .18s, border-color .18s, color .18s;
+}
+
+/* 真正第 1 块：左平边 */
+.phase-block:first-child {
+  clip-path: polygon(0 0, 100% 0, calc(100% - 14px) 100%, 0 100%);
+  margin-left: 0;
+}
+
+/* 真正最后 1 块：右平边 */
+.phase-block:last-child {
+  clip-path: polygon(14px 0, 100% 0, 100% 100%, 0 100%);
+}
+
+.phase-block:hover {
+  border-color: #86b5ab;
+  background: #fbfdfc;
+}
+
+/* 选中态 */
+.phase-block.active {
+  border-color: var(--green-900);
+  background: var(--green-900);
+  color: #fff;
+  z-index: 1;
+}
+
+.phase-block-num {
+  display: inline-flex;
+  width: 20px;
+  height: 20px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #c7d0cc;
+  border-radius: 50%;
+  font-size: 10px;
+  flex: 0 0 auto;
+}
+
+.phase-block.active .phase-block-num {
+  border-color: rgb(255 255 255 / 55%);
+}
+
+.phase-block-name {
+  white-space: nowrap;
+}
+
+/* ── 阶段详情区（留空占位，撑满剩余高度并内部滚动）── */
+
+.phase-detail-placeholder {
+  flex: 1;
+  min-height: 0;
+  margin-top: 14px;
+  margin-bottom: 12px;
+  overflow-y: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  border: 1px dashed #cfe2dd;
+  border-radius: 8px;
+  background: #f8fbfa;
+}
+
+.phase-detail-placeholder::-webkit-scrollbar {
+  display: none;
 }
 
 .course-workspace {
@@ -4562,11 +4696,14 @@ p {
   }
 
   .sources-page,
-  .profile-page,
-  .plan-page {
+  .profile-page {
     width: calc(100% - 32px);
     padding-top: 28px;
     padding-bottom: 90px;
+  }
+
+  .plan-page {
+    width: calc(100% - 32px);
   }
 
   .source-actions {
@@ -4635,18 +4772,18 @@ p {
     display: none;
   }
 
-  .phase-path {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
+  .phase-track {
+    border-radius: 6px;
+    padding: 6px 0;
   }
 
-  .phase-path-item > svg {
-    display: none;
+  .phase-block {
+    min-height: 48px;
+    font-size: 11px;
   }
 
-  .phase-detail-row {
-    grid-template-columns: 1fr;
-    gap: 10px;
+  .phase-detail-placeholder {
+    margin-bottom: 10px;
   }
 
   .share-display {
@@ -4951,8 +5088,7 @@ p {
   }
 
   .sources-page,
-  .profile-page,
-  .plan-page {
+  .profile-page {
     padding-top: 24px;
   }
 
@@ -4989,10 +5125,8 @@ p {
     margin-top: 16px;
   }
 
-  .phase-detail-row {
-    min-height: 50px;
-    padding-top: 7px;
-    padding-bottom: 7px;
+  .phase-detail-placeholder {
+    margin-bottom: 8px;
   }
 
   .task-detail {
