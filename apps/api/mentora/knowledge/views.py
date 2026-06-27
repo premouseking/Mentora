@@ -3,6 +3,7 @@
 import json
 import uuid
 
+from django.conf import settings
 from rest_framework.response import Response
 from rest_framework.decorators import api_view
 from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiExample
@@ -28,6 +29,15 @@ def _parse_optional_uuid(value: object, field_name: str) -> tuple[str | None, Re
         return str(uuid.UUID(str(value))), None
     except (TypeError, ValueError):
         return None, Response({"error": f"{field_name} 格式无效"}, status=400)
+
+
+def _resolve_owner_id(value: object | None) -> tuple[str | None, Response | None]:
+    owner_id = str(value or "").strip()
+    if owner_id:
+        return owner_id, None
+    if settings.DEBUG:
+        return DEV_OWNER_ID, None
+    return None, Response({"error": "缺少 ownerId"}, status=400)
 
 
 @extend_schema(
@@ -65,8 +75,12 @@ def upload_create(request):
         except ValueError:
             return Response({"error": "uploadId 格式无效"}, status=400)
 
+    owner_id, error_response = _resolve_owner_id(body.get("ownerId"))
+    if error_response is not None:
+        return error_response
+
     result = create_upload_session(
-        owner_id=body.get("ownerId", DEV_OWNER_ID),
+        owner_id=owner_id,
         upload_id=str(upload_id) if upload_id else None,
         byte_size=body.get("size"),
         filename=body.get("filename", "original.pdf"),
@@ -110,12 +124,16 @@ def upload_complete(request):
     if not upload_id or not sha256 or size is None:
         return Response({"error": "缺少 uploadId、sha256 或 size"}, status=400)
 
+    owner_id, error_response = _resolve_owner_id(body.get("ownerId"))
+    if error_response is not None:
+        return error_response
+
     try:
         result = complete_upload(
             upload_id=str(upload_id),
             content_sha256=str(sha256),
             byte_size=int(size),
-            owner_id=body.get("ownerId", DEV_OWNER_ID),
+            owner_id=owner_id,
             sync_processing=body.get("sync", True),
         )
     except ValueError as exc:
@@ -139,7 +157,9 @@ def upload_complete(request):
 )
 @api_view(["GET"])
 def list_sources(request):
-    owner_id = request.GET.get("ownerId", DEV_OWNER_ID)
+    owner_id, error_response = _resolve_owner_id(request.GET.get("ownerId"))
+    if error_response is not None:
+        return error_response
     course_id = request.GET.get("courseId", "").strip()
     tags_filter = [t.strip() for t in request.GET.get("tags", "").split(",") if t.strip()]
     status_filter = request.GET.get("status", "").strip()
@@ -361,7 +381,9 @@ def source_update_tags(request, source_id):
 )
 @api_view(["GET"])
 def list_tags(request):
-    owner_id = request.GET.get("ownerId", DEV_OWNER_ID)
+    owner_id, error_response = _resolve_owner_id(request.GET.get("ownerId"))
+    if error_response is not None:
+        return error_response
     sources = Source.objects.filter(owner_id=owner_id).values_list("tags", flat=True)
     all_tags: set[str] = set()
     for tags in sources:
@@ -429,7 +451,9 @@ def folder_create(request):
     name = (body.get("name") or "").strip()
     if not name:
         return Response({"error": "缺少 name"}, status=400)
-    owner_id = body.get("ownerId", DEV_OWNER_ID)
+    owner_id, error_response = _resolve_owner_id(body.get("ownerId"))
+    if error_response is not None:
+        return error_response
     parent_id, error_response = _parse_optional_uuid(body.get("parentId"), "parentId")
     if error_response is not None:
         return error_response
@@ -453,7 +477,9 @@ def folder_create(request):
 )
 @api_view(["GET"])
 def folder_list(request):
-    owner_id = request.GET.get("ownerId", DEV_OWNER_ID)
+    owner_id, error_response = _resolve_owner_id(request.GET.get("ownerId"))
+    if error_response is not None:
+        return error_response
     folders = LibraryFolder.objects.filter(owner_id=owner_id)
     items = []
     for f in folders:

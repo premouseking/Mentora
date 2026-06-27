@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from types import SimpleNamespace
 
-from django.test import RequestFactory
+from django.test import RequestFactory, override_settings
 
 from mentora.knowledge import views
 from mentora.knowledge.models import SourceStatus
@@ -68,3 +68,11 @@ def test_move_rejects_invalid_folder_id(monkeypatch):
     assert response.status_code == 400
     assert source.folder_id is None
     assert source.saved_fields == []
+
+
+@override_settings(DEBUG=False)
+def test_list_sources_requires_owner_id_outside_debug():
+    response = views.list_sources(RequestFactory().get("/"))
+
+    assert response.status_code == 400
+    assert response.data == {"error": "缺少 ownerId"}

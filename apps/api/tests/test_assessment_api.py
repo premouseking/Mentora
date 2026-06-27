@@ -55,6 +55,21 @@ def test_generate_requires_source_ids():
 
 
 @pytest.mark.django_db
+@override_settings(DEBUG=False, LLM_API_KEY="test-key", DEV_COURSE_SESSION_ID=None)
+def test_generate_requires_course_session_id_outside_debug():
+    client = Client()
+
+    response = client.post(
+        "/api/assessment/sessions/generate/",
+        data=json.dumps({"source_version_ids": [str(uuid.uuid4())]}),
+        content_type="application/json",
+    )
+
+    assert response.status_code == 400
+    assert response.json() == {"error": "缺少 course_session_id"}
+
+
+@pytest.mark.django_db
 @override_settings(LLM_API_KEY="test-key")
 def test_generate_submit_and_complete_quiz_session():
     source = Source.objects.create(owner_id="dev", display_title="Cache 讲义")

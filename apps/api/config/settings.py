@@ -151,6 +151,7 @@ OBJECT_STORAGE_FS_ROOT = _env("OBJECT_STORAGE_FS_ROOT")
 # ── 开发种子数据 ─────────────────────────────────────────
 
 DEV_OWNER_ID = _env("DEV_OWNER_ID")
+DEV_COURSE_SESSION_ID = os.getenv("DEV_COURSE_SESSION_ID")
 
 # ── pgvector ─────────────────────────────────────────────
 

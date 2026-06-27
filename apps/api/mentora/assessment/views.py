@@ -20,7 +20,6 @@ from mentora.assessment.services import (
 )
 from mentora.model_gateway.schemas import Message
 
-DEV_COURSE_SESSION_ID = "00000000-0000-0000-0000-000000000000"
 MAX_CONTEXT_EVIDENCE = 18
 
 
@@ -35,6 +34,15 @@ def _parse_json(request) -> dict:
 
 def _json_error(message: str, status: int = 400) -> Response:
     return Response({"error": message}, status=status)
+
+
+def _resolve_course_session_id(body: dict) -> tuple[str | None, Response | None]:
+    course_session_id = str(body.get("course_session_id") or "").strip()
+    if course_session_id:
+        return course_session_id, None
+    if settings.DEBUG and settings.DEV_COURSE_SESSION_ID:
+        return settings.DEV_COURSE_SESSION_ID, None
+    return None, _json_error("缺少 course_session_id", 400)
 
 
 def _get_source_titles(source_version_ids: list[str]) -> dict[str, str]:
@@ -197,7 +205,9 @@ def generate_quiz_session(request):
     except (TypeError, ValueError):
         count = 10
     difficulty = str(body.get("difficulty") or "综合").strip()
-    course_session_id = str(body.get("course_session_id") or DEV_COURSE_SESSION_ID)
+    course_session_id, error_response = _resolve_course_session_id(body)
+    if error_response is not None:
+        return error_response
 
     evidence_units = _get_scoped_evidence(source_version_ids)
     if not evidence_units:
