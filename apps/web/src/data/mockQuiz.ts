@@ -1,7 +1,15 @@
 import type { FileNode } from "./files";
 import type { QuizItem, QuizSession } from "../services/assessmentApi";
 
-export const USE_MOCK_QUIZ = true;
+type MockQuizEnv = {
+  VITE_USE_MOCK_QUIZ?: string | boolean;
+};
+
+export function isMockQuizEnabled(env: MockQuizEnv = import.meta.env as MockQuizEnv): boolean {
+  return env.VITE_USE_MOCK_QUIZ === true || env.VITE_USE_MOCK_QUIZ === "true";
+}
+
+export const USE_MOCK_QUIZ = isMockQuizEnabled();
 
 const MOCK_QUESTIONS: Omit<QuizItem, "attempt_id" | "item_id" | "position" | "source_links" | "user_answer" | "is_correct">[] = [
   {
