@@ -391,6 +391,20 @@ def complete_task(task_id: str) -> dict:
     task.completed_at = timezone.now()
     task.save(update_fields=["status", "completed_at"])
 
+    # 写入学习记录
+    try:
+        course_id = str(task.unit.revision.learning_plan.course_session_id) if task.unit.revision.learning_plan.course_session_id else ""
+    except Exception:
+        course_id = ""
+    write_history_event(
+        course_id=course_id,
+        event_type="task_completed",
+        title=f"完成任务：{task.title}",
+        detail="学习任务已完成。",
+        result="已完成",
+        task_id=str(task.id),
+    )
+
     return {
         "task_id": str(task.id),
         "status": task.status,

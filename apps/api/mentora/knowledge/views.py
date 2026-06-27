@@ -112,6 +112,16 @@ def upload_complete(request):
     except ValueError as exc:
         return Response({"error": str(exc)}, status=400)
 
+    # 写入学习记录
+    from mentora.learning.services import write_history_event
+    write_history_event(
+        course_id="",
+        event_type="source_added",
+        title=f"上传资料：{result.get('original_filename', '') or '新资料'}",
+        detail="资料解析完成。",
+        result=f"{result.get('byte_size', 0)} bytes",
+    )
+
     return Response(result)
 
 
