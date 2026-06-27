@@ -53,6 +53,10 @@ class Source(models.Model):
     owner_id = models.CharField(max_length=64, db_index=True, help_text="资料所有者 ID")
     display_title = models.CharField(max_length=512, blank=True, default="")
     tags = models.JSONField(default=list, help_text="自由标签列表，如 ['408统考', '重点']")
+    folder = models.ForeignKey(
+        "LibraryFolder", null=True, blank=True, on_delete=models.SET_NULL,
+        related_name="sources", help_text="所属文件夹",
+    )
     status = models.CharField(
         max_length=16,
         choices=SourceStatus.choices,
@@ -242,3 +246,26 @@ class CourseSource(models.Model):
 
     def __str__(self) -> str:
         return f"CourseSource({self.course_session_id} ↔ {self.source_version_id})"
+
+
+class LibraryFolder(models.Model):
+    """资料文件夹，支持多级嵌套。"""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    owner_id = models.CharField(max_length=64, db_index=True)
+    name = models.CharField(max_length=128)
+    parent = models.ForeignKey(
+        "self", null=True, blank=True, on_delete=models.CASCADE,
+        related_name="children",
+    )
+    position = models.IntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "knowledge_folder"
+        verbose_name = "资料文件夹"
+        verbose_name_plural = verbose_name
+        ordering = ["position", "name"]
+        indexes = [
+            models.Index(fields=["owner_id"]),
+        ]

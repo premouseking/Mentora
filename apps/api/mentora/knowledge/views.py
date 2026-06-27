@@ -124,6 +124,7 @@ def upload_complete(request):
         OpenApiParameter(name="tags", type=str, description="逗号分隔的标签，取交集过滤", required=False),
         OpenApiParameter(name="status", type=str, description="过滤状态: active/archived", required=False),
         OpenApiParameter(name="q", type=str, description="搜索关键词，模糊匹配资料标题", required=False),
+        OpenApiParameter(name="folderId", type=str, description="文件夹 ID，传入时仅返回该文件夹下的资料", required=False),
     ],
     responses={200: {"description": "资料列表"}},
 )
@@ -134,8 +135,12 @@ def list_sources(request):
     tags_filter = [t.strip() for t in request.GET.get("tags", "").split(",") if t.strip()]
     status_filter = request.GET.get("status", "").strip()
     q = request.GET.get("q", "").strip()
+    folder_id = request.GET.get("folderId", "").strip()
 
     qs = Source.objects.filter(owner_id=owner_id).select_related("latest_version")
+
+    if folder_id:
+        qs = qs.filter(folder_id=folder_id)
 
     if q:
         qs = qs.filter(display_title__icontains=q)
@@ -368,6 +373,144 @@ def source_unarchive(request, source_id):
     source.status = Source.SourceStatus.ACTIVE
     source.save(update_fields=["status"])
     return Response({"status": source.status})
+
+
+# ── Folder 管理 ──
+
+
+@extend_schema(
+    summary="创建文件夹",
+    request={
+        "application/json": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string", "description": "文件夹名称"},
+                "parentId": {"type": "string", "description": "父文件夹 ID（可选）"},
+                "ownerId": {"type": "string", "description": "所有者 ID"},
+            },
+            "required": ["name"],
+        },
+    },
+    responses={201: {"description": "创建成功"}},
+)
+@api_view(["POST"])
+def folder_create(request):
+    from mentora.knowledge.models import LibraryFolder
+    try:
+        body = _parse_json_body(request)
+    except json.JSONDecodeError:
+        return Response({"error": "无效 JSON"}, status=400)
+    name = (body.get("name") or "").strip()
+    if not name:
+        return Response({"error": "缺少 name"}, status=400)
+    folder = LibraryFolder.objects.create(
+        owner_id=body.get("ownerId", DEV_OWNER_ID),
+        name=name,
+        parent_id=body.get("parentId") or None,
+    )
+    return Response({"id": str(folder.id), "name": folder.name, "parentId": str(folder.parent_id) if folder.parent_id else None}, status=201)
+
+
+@extend_schema(
+    summary="列出文件夹",
+    description="返回当前用户的文件夹列表，含子文件夹数和资料数。",
+    parameters=[
+        OpenApiParameter(name="ownerId", type=str, description="所有者 ID", required=False),
+    ],
+    responses={200: {"description": "文件夹列表"}},
+)
+@api_view(["GET"])
+def folder_list(request):
+    from mentora.knowledge.models import LibraryFolder
+    owner_id = request.GET.get("ownerId", DEV_OWNER_ID)
+    folders = LibraryFolder.objects.filter(owner_id=owner_id)
+    items = []
+    for f in folders:
+        items.append({
+            "id": str(f.id),
+            "name": f.name,
+            "parentId": str(f.parent_id) if f.parent_id else None,
+            "childCount": f.children.count(),
+            "sourceCount": f.sources.count(),
+            "position": f.position,
+        })
+    return Response({"items": items, "count": len(items)})
+
+
+@extend_schema(
+    summary="重命名文件夹",
+    request={
+        "application/json": {
+            "type": "object",
+            "properties": {"name": {"type": "string", "description": "新名称"}},
+            "required": ["name"],
+        },
+    },
+    responses={200: {"description": "重命名成功"}, 404: {"description": "文件夹不存在"}},
+)
+@api_view(["PATCH"])
+def folder_rename(request, folder_id):
+    from mentora.knowledge.models import LibraryFolder
+    try:
+        folder = LibraryFolder.objects.get(id=folder_id)
+    except LibraryFolder.DoesNotExist:
+        return Response({"error": "文件夹不存在"}, status=404)
+    try:
+        body = _parse_json_body(request)
+    except json.JSONDecodeError:
+        return Response({"error": "无效 JSON"}, status=400)
+    name = (body.get("name") or "").strip()
+    if not name:
+        return Response({"error": "缺少 name"}, status=400)
+    folder.name = name
+    folder.save(update_fields=["name"])
+    return Response({"id": str(folder.id), "name": folder.name})
+
+
+@extend_schema(
+    summary="删除文件夹",
+    description="只能删除空文件夹（无子文件夹且无资料）。",
+    responses={200: {"description": "删除成功"}, 400: {"description": "文件夹非空"}, 404: {"description": "文件夹不存在"}},
+)
+@api_view(["DELETE"])
+def folder_delete(request, folder_id):
+    from mentora.knowledge.models import LibraryFolder
+    try:
+        folder = LibraryFolder.objects.get(id=folder_id)
+    except LibraryFolder.DoesNotExist:
+        return Response({"error": "文件夹不存在"}, status=404)
+    if folder.children.exists() or folder.sources.exists():
+        return Response({"error": "文件夹非空，不能删除"}, status=400)
+    folder.delete()
+    return Response({"status": "deleted"})
+
+
+@extend_schema(
+    summary="移动资料",
+    description="将资料移入/移出文件夹。folderId 传 null 可移出文件夹。",
+    request={
+        "application/json": {
+            "type": "object",
+            "properties": {"folderId": {"type": ["string", "null"], "description": "目标文件夹 ID，null 移出"}},
+            "required": ["folderId"],
+        },
+    },
+    responses={200: {"description": "移动成功"}, 404: {"description": "资料不存在"}},
+)
+@api_view(["PATCH"])
+def source_move(request, source_id):
+    try:
+        source = Source.objects.get(id=source_id)
+    except Source.DoesNotExist:
+        return Response({"error": "资料不存在"}, status=404)
+    try:
+        body = _parse_json_body(request)
+    except json.JSONDecodeError:
+        return Response({"error": "无效 JSON"}, status=400)
+    folder_id = body.get("folderId")
+    source.folder_id = folder_id if folder_id else None
+    source.save(update_fields=["folder"])
+    return Response({"id": str(source.id), "folderId": str(source.folder_id) if source.folder_id else None})
     owner_id = request.GET.get("ownerId", DEV_OWNER_ID)
     sources = Source.objects.filter(owner_id=owner_id).values_list("tags", flat=True)
     all_tags: set[str] = set()
