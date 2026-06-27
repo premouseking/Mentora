@@ -5,7 +5,7 @@ import uuid
 
 from rest_framework.response import Response
 from rest_framework.decorators import api_view
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiExample
 
 from mentora.knowledge.models import CourseSource, Source
 from mentora.knowledge.services.upload import (
@@ -21,14 +21,29 @@ def _parse_json_body(request) -> dict:
     return json.loads(request.body.decode("utf-8"))
 
 
+@extend_schema(
+    summary="创建上传会话",
+    description="创建上传会话，返回对象存储键和上传 ID。客户端应携带 uploadId 以便 complete 关联。",
+    request={
+        "application/json": {
+            "type": "object",
+            "properties": {
+                "filename": {"type": "string", "description": "原始文件名"},
+                "size": {"type": "integer", "description": "文件字节大小"},
+                "mediaType": {"type": "string", "description": "MIME 类型，默认 application/pdf"},
+                "ownerId": {"type": "string", "description": "所有者 ID"},
+                "uploadId": {"type": "string", "description": "客户端生成的 UUID，用于幂等关联"},
+            },
+            "required": ["filename", "size"],
+        },
+    },
+    responses={
+        200: {"description": "上传会话创建成功"},
+        400: {"description": "参数无效"},
+    },
+)
 @api_view(["POST"])
-@extend_schema(summary="Upload Create")
 def upload_create(request):
-    """
-    POST /api/uploads/
-
-    创建上传会话，返回预签名 PUT URL。客户端应携带 uploadId 以便 complete 关联。
-    """
     try:
         body = _parse_json_body(request)
     except json.JSONDecodeError:
@@ -51,14 +66,29 @@ def upload_create(request):
     return Response(result)
 
 
+@extend_schema(
+    summary="完成上传并触发解析",
+    description="校验文件 SHA256 与大小，创建 Source/SourceVersion，触发异步解析管线。",
+    request={
+        "application/json": {
+            "type": "object",
+            "properties": {
+                "uploadId": {"type": "string", "description": "上传会话 UUID"},
+                "sha256": {"type": "string", "description": "文件 SHA-256 哈希（十六进制）"},
+                "size": {"type": "integer", "description": "实际文件字节大小"},
+                "ownerId": {"type": "string", "description": "所有者 ID"},
+                "sync": {"type": "boolean", "description": "是否同步等待解析完成，默认 true"},
+            },
+            "required": ["uploadId", "sha256", "size"],
+        },
+    },
+    responses={
+        200: {"description": "上传完成，解析已触发"},
+        400: {"description": "校验失败（SHA256/大小不匹配）"},
+    },
+)
 @api_view(["POST"])
-@extend_schema(summary="Upload Complete")
 def upload_complete(request):
-    """
-    POST /api/uploads/complete/
-
-    校验上传完成，创建 SourceVersion 并触发解析。
-    """
     try:
         body = _parse_json_body(request)
     except json.JSONDecodeError:
@@ -85,13 +115,17 @@ def upload_complete(request):
     return Response(result)
 
 
+@extend_schema(
+    summary="列出资料库",
+    description="按所有者列出全部资料，可选按课程过滤已关联的资料。",
+    parameters=[
+        OpenApiParameter(name="ownerId", type=str, description="所有者 ID", required=False),
+        OpenApiParameter(name="courseId", type=str, description="课程会话 ID，传入时仅返回已关联资料", required=False),
+    ],
+    responses={200: {"description": "资料列表"}},
+)
 @api_view(["GET"])
-@extend_schema(summary="List Sources")
 def list_sources(request):
-    """GET /api/library/sources/?ownerId=&courseId= — 列出资料。
-
-    courseId 可选：传入时仅返回已关联到该课程的资料。
-    """
     owner_id = request.GET.get("ownerId", DEV_OWNER_ID)
     course_id = request.GET.get("courseId", "").strip()
 
@@ -123,10 +157,16 @@ def list_sources(request):
     return Response({"items": items, "count": len(items)})
 
 
+@extend_schema(
+    summary="获取资料版本详情",
+    description="返回资料元数据、版本信息与 ParsedBundle JSON（如已解析）。",
+    responses={
+        200: {"description": "资料详情"},
+        404: {"description": "资料版本不存在"},
+    },
+)
 @api_view(["GET"])
-@extend_schema(summary="Source Detail")
 def source_detail(request, source_version_id):
-    """GET /api/library/sources/<source_version_id>/ — 获取资料版本详情与解析正文。"""
     from mentora.common.storage import ObjectStorageError, ObjectStorageService
     from mentora.knowledge.models import SourceVersion
 
@@ -166,10 +206,16 @@ def source_detail(request, source_version_id):
     })
 
 
+@extend_schema(
+    summary="删除资料",
+    description="删除资料及 CASCADE 关联的版本、解析数据和检索证据。",
+    responses={
+        200: {"description": "删除成功"},
+        404: {"description": "资料不存在"},
+    },
+)
 @api_view(["DELETE"])
-@extend_schema(summary="Source Delete")
 def source_delete(request, source_id):
-    """DELETE /api/library/sources/<source_id>/ — 删除资料及关联的版本和解析数据。"""
     try:
         source = Source.objects.get(id=source_id)
     except Source.DoesNotExist:
@@ -179,10 +225,17 @@ def source_delete(request, source_id):
     return Response({"status": "deleted"})
 
 
+@extend_schema(
+    summary="重新解析资料",
+    description="清理旧解析数据后重新触发同步解析管线。",
+    responses={
+        200: {"description": "重新解析完成"},
+        400: {"description": "资料无版本记录"},
+        404: {"description": "资料不存在"},
+    },
+)
 @api_view(["POST"])
-@extend_schema(summary="Source Reparse")
 def source_reparse(request, source_id):
-    """POST /api/library/sources/<source_id>/reparse/ — 重新解析资料。"""
     from mentora.knowledge.models import ProcessingRun, ProcessingRunStatus, ProcessingStatus
     from mentora.knowledge.services.processing import run_processing_for_version
 
