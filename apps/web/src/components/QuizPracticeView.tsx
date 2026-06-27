@@ -11,6 +11,7 @@ import {
   X,
 } from "lucide-react";
 import type { FileNode } from "../data/files";
+import { completeMockQuizSession, createMockQuizSession, USE_MOCK_QUIZ } from "../data/mockQuiz";
 import {
   completeQuizSession,
   generateQuizSession,
@@ -50,11 +51,13 @@ export function QuizPracticeView({
   const [generating, setGenerating] = useState(false);
   const [finishing, setFinishing] = useState(false);
   const [error, setError] = useState("");
+  const [confirmSubmitOpen, setConfirmSubmitOpen] = useState(false);
 
   const currentItem = session?.items[currentIndex] ?? null;
   const answeredCount = session
     ? session.items.filter((item) => answers[item.item_id] || item.user_answer).length
     : 0;
+  const unansweredCount = session ? session.items.length - answeredCount : 0;
   const submitted = session?.status === "completed";
 
   function toggleSource(id: string) {
@@ -71,11 +74,14 @@ export function QuizPracticeView({
     setGenerating(true);
     setError("");
     try {
-      const nextSession = await generateQuizSession({
-        sourceVersionIds: Array.from(selectedSourceIds),
-        count,
-        difficulty,
-      });
+      const sourceVersionIds = Array.from(selectedSourceIds);
+      const nextSession = USE_MOCK_QUIZ
+        ? createMockQuizSession({ sourceVersionIds, files, count })
+        : await generateQuizSession({
+            sourceVersionIds,
+            count,
+            difficulty,
+          });
       setSession(nextSession);
       setCurrentIndex(0);
       setAnswers(
@@ -95,6 +101,7 @@ export function QuizPracticeView({
   async function handleSelectAnswer(item: QuizItem, answer: string) {
     if (submitted || submittingItems.has(item.item_id)) return;
     setAnswers((prev) => ({ ...prev, [item.item_id]: answer }));
+    if (USE_MOCK_QUIZ) return;
     setSubmittingItems((prev) => new Set(prev).add(item.item_id));
     try {
       await submitQuizAnswer({
@@ -113,12 +120,14 @@ export function QuizPracticeView({
     }
   }
 
-  async function handleComplete() {
-    if (!session || answeredCount < session.items.length) return;
+  async function finishQuiz() {
+    if (!session || finishing || submitted) return;
     setFinishing(true);
     setError("");
     try {
-      const completed = await completeQuizSession(session.session_id);
+      const completed = USE_MOCK_QUIZ
+        ? completeMockQuizSession(session, answers)
+        : await completeQuizSession(session.session_id);
       setSession(completed);
       setAnswers(
         Object.fromEntries(
@@ -132,6 +141,15 @@ export function QuizPracticeView({
     } finally {
       setFinishing(false);
     }
+  }
+
+  async function handleComplete() {
+    if (!session || finishing || submitted) return;
+    if (unansweredCount > 0) {
+      setConfirmSubmitOpen(true);
+      return;
+    }
+    await finishQuiz();
   }
 
   if (!session) {
@@ -230,7 +248,7 @@ export function QuizPracticeView({
         </div>
         <button
           className="quiz-submit-paper"
-          disabled={answeredCount < session.items.length || finishing || submitted}
+          disabled={finishing || submitted}
           onClick={handleComplete}
         >
           {finishing ? <Loader2 size={16} className="spin" /> : <Check size={16} />}
@@ -319,7 +337,7 @@ export function QuizPracticeView({
                     index === currentIndex ? "current" : "",
                     answered ? "answered" : "",
                     submitted && item.is_correct ? "correct" : "",
-                    submitted && answered && !item.is_correct ? "wrong" : "",
+                    submitted && !item.is_correct ? "wrong" : "",
                   ].filter(Boolean).join(" ")}
                   onClick={() => setCurrentIndex(index)}
                 >
@@ -349,6 +367,37 @@ export function QuizPracticeView({
           <ChevronRight size={18} />
         </button>
       </footer>
+
+      {confirmSubmitOpen && (
+        <div className="quiz-confirm-backdrop" role="presentation">
+          <section className="quiz-confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="quiz-confirm-title">
+            <div className="quiz-confirm-icon">
+              <AlertTriangle size={18} />
+            </div>
+            <div>
+              <h3 id="quiz-confirm-title">题目未做完</h3>
+              <p>还有 {unansweredCount} 道题未作答，确认交卷吗？未作答题目将按错误处理。</p>
+              <div className="quiz-confirm-actions">
+                <button
+                  className="quiz-confirm-secondary"
+                  onClick={() => setConfirmSubmitOpen(false)}
+                >
+                  继续作答
+                </button>
+                <button
+                  className="quiz-confirm-primary"
+                  onClick={() => {
+                    setConfirmSubmitOpen(false);
+                    void finishQuiz();
+                  }}
+                >
+                  确认交卷
+                </button>
+              </div>
+            </div>
+          </section>
+        </div>
+      )}
 
       {error && (
         <div className="quiz-floating-error">
