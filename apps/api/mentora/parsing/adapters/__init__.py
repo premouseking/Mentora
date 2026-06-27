@@ -19,11 +19,14 @@ from mentora.parsing.adapters.exceptions import (
     ParsingError,
     UnsupportedFormatError,
 )
+from mentora.parsing.adapters.markdown import MarkdownAdapter
 from mentora.parsing.adapters.pymupdf import PyMuPDFAdapter
 from mentora.parsing.schemas import ParsedBundle
 
 _ADAPTERS: dict[str, type] = {
     ".pdf": PyMuPDFAdapter,
+    ".md": MarkdownAdapter,
+    ".markdown": MarkdownAdapter,
 }
 
 
