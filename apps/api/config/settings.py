@@ -30,9 +30,23 @@ def _load_dotenv() -> None:
 
 _load_dotenv()
 
-SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "dev-only-secret")
-DEBUG = os.getenv("DJANGO_DEBUG", "true").lower() == "true"
-ALLOWED_HOSTS = ["127.0.0.1", "localhost", "testserver"]
+
+def _env(name: str) -> str:
+    value = os.getenv(name)
+    if value:
+        return value
+    raise RuntimeError(f"{name} is required")
+
+
+def _env_list(name: str) -> list[str]:
+    return [item.strip() for item in _env(name).split(",") if item.strip()]
+
+
+SECRET_KEY = _env("DJANGO_SECRET_KEY")
+DEBUG = _env("DJANGO_DEBUG").lower() == "true"
+ALLOWED_HOSTS = _env_list("DJANGO_ALLOWED_HOSTS")
+if "PYTEST_CURRENT_TEST" in os.environ and "testserver" not in ALLOWED_HOSTS:
+    ALLOWED_HOSTS.append("testserver")
 
 INSTALLED_APPS = [
     "django.contrib.auth",
@@ -96,17 +110,17 @@ TEMPLATES = [
 DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.postgresql",
-        "NAME": os.getenv("POSTGRES_DB", "mentora"),
-        "USER": os.getenv("POSTGRES_USER", "mentora"),
-        "PASSWORD": os.getenv("POSTGRES_PASSWORD", "mentora"),
-        "HOST": os.getenv("POSTGRES_HOST", "127.0.0.1"),
-        "PORT": os.getenv("POSTGRES_PORT", "55432"),
+        "NAME": _env("POSTGRES_DB"),
+        "USER": _env("POSTGRES_USER"),
+        "PASSWORD": _env("POSTGRES_PASSWORD"),
+        "HOST": _env("POSTGRES_HOST"),
+        "PORT": _env("POSTGRES_PORT"),
         "CONN_MAX_AGE": 0,
         "DISABLE_SERVER_SIDE_CURSORS": True,
     }
 }
 
-CELERY_BROKER_URL = os.getenv("REDIS_URL", "redis://127.0.0.1:6379/0")
+CELERY_BROKER_URL = _env("REDIS_URL")
 CELERY_RESULT_BACKEND = CELERY_BROKER_URL
 CELERY_TASK_ALWAYS_EAGER = os.getenv("CELERY_TASK_ALWAYS_EAGER", "false").lower() == "true"
 CELERY_TASK_ROUTES = {
@@ -126,17 +140,17 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 # ── 对象存储（MinIO / S3 / COS 同构）────────────────────
 
-OBJECT_STORAGE_BACKEND = os.getenv("OBJECT_STORAGE_BACKEND", "s3")
-OBJECT_STORAGE_ENDPOINT = os.getenv("OBJECT_STORAGE_ENDPOINT", "http://127.0.0.1:9000")
-OBJECT_STORAGE_BUCKET = os.getenv("OBJECT_STORAGE_BUCKET", "mentora")
-OBJECT_STORAGE_ACCESS_KEY = os.getenv("OBJECT_STORAGE_ACCESS_KEY", "mentora")
-OBJECT_STORAGE_SECRET_KEY = os.getenv("OBJECT_STORAGE_SECRET_KEY", "mentora-secret")
-OBJECT_STORAGE_REGION = os.getenv("OBJECT_STORAGE_REGION", "us-east-1")
-OBJECT_STORAGE_FS_ROOT = os.getenv("OBJECT_STORAGE_FS_ROOT", "/tmp/mentora/storage")
+OBJECT_STORAGE_BACKEND = _env("OBJECT_STORAGE_BACKEND")
+OBJECT_STORAGE_ENDPOINT = _env("OBJECT_STORAGE_ENDPOINT")
+OBJECT_STORAGE_BUCKET = _env("OBJECT_STORAGE_BUCKET")
+OBJECT_STORAGE_ACCESS_KEY = _env("OBJECT_STORAGE_ACCESS_KEY")
+OBJECT_STORAGE_SECRET_KEY = _env("OBJECT_STORAGE_SECRET_KEY")
+OBJECT_STORAGE_REGION = _env("OBJECT_STORAGE_REGION")
+OBJECT_STORAGE_FS_ROOT = _env("OBJECT_STORAGE_FS_ROOT")
 
 # ── 开发种子数据 ─────────────────────────────────────────
 
-DEV_OWNER_ID = os.getenv("DEV_OWNER_ID", "dev-user")
+DEV_OWNER_ID = _env("DEV_OWNER_ID")
 
 # ── pgvector ─────────────────────────────────────────────
 

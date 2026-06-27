@@ -11,7 +11,6 @@ import {
   X,
 } from "lucide-react";
 import type { FileNode } from "../data/files";
-import { completeMockQuizSession, createMockQuizSession, USE_MOCK_QUIZ } from "../data/mockQuiz";
 import {
   completeQuizSession,
   generateQuizSession,
@@ -75,13 +74,11 @@ export function QuizPracticeView({
     setError("");
     try {
       const sourceVersionIds = Array.from(selectedSourceIds);
-      const nextSession = USE_MOCK_QUIZ
-        ? createMockQuizSession({ sourceVersionIds, files, count })
-        : await generateQuizSession({
-            sourceVersionIds,
-            count,
-            difficulty,
-          });
+      const nextSession = await generateQuizSession({
+        sourceVersionIds,
+        count,
+        difficulty,
+      });
       setSession(nextSession);
       setCurrentIndex(0);
       setAnswers(
@@ -101,7 +98,6 @@ export function QuizPracticeView({
   async function handleSelectAnswer(item: QuizItem, answer: string) {
     if (submitted || submittingItems.has(item.item_id)) return;
     setAnswers((prev) => ({ ...prev, [item.item_id]: answer }));
-    if (USE_MOCK_QUIZ) return;
     setSubmittingItems((prev) => new Set(prev).add(item.item_id));
     try {
       await submitQuizAnswer({
@@ -125,9 +121,7 @@ export function QuizPracticeView({
     setFinishing(true);
     setError("");
     try {
-      const completed = USE_MOCK_QUIZ
-        ? completeMockQuizSession(session, answers)
-        : await completeQuizSession(session.session_id);
+      const completed = await completeQuizSession(session.session_id);
       setSession(completed);
       setAnswers(
         Object.fromEntries(

@@ -81,111 +81,6 @@ function bboxStr(bbox: BoundingBox | null): string {
   return `(${bbox.x0.toFixed(0)}, ${bbox.y0.toFixed(0)}) → (${bbox.x1.toFixed(0)}, ${bbox.y1.toFixed(0)})`;
 }
 
-/* ── fixture mock data (usable without backend) ─────── */
-
-const FIXTURE_MOCKS: Record<string, PreviewResult> = {
-  normal: {
-    bundle: {
-      id: "mock-normal-001",
-      page_count: 1,
-      element_count: 3,
-      content_hash: "a".repeat(64),
-      quality: { score: 0.9 },
-      warnings: [],
-      parser: { name: "pymupdf", version: "1.0.0" },
-      pages: [
-        {
-          page_number: 1,
-          warnings: [],
-          elements: [
-            { type: "heading", text: "第一章 计算机系统概述", bbox: { x0: 72, y0: 770, x1: 320, y1: 790 }, heading_level: 1 },
-            { type: "paragraph", text: "计算机系统由硬件和软件两部分组成。硬件包括运算器、控制器、存储器、输入设备和输出设备五大部件。", bbox: { x0: 72, y0: 740, x1: 520, y1: 760 }, heading_level: null },
-            { type: "paragraph", text: "软件分为系统软件和应用软件。操作系统是最基本的系统软件，负责管理计算机的硬件资源。", bbox: { x0: 72, y0: 710, x1: 520, y1: 730 }, heading_level: null },
-          ],
-        },
-      ],
-    },
-    evidence_units: [
-      { id: "ev-001", content: "第一章 计算机系统概述\n计算机系统由硬件和软件两部分组成。硬件包括运算器、控制器、存储器、输入设备和输出设备五大部件。", page_number: 1, element_indices: [0, 1] },
-      { id: "ev-002", content: "软件分为系统软件和应用软件。操作系统是最基本的系统软件，负责管理计算机的硬件资源。", page_number: 1, element_indices: [2] },
-    ],
-    elapsed_ms: 42.3,
-  },
-  headings: {
-    bundle: {
-      id: "mock-headings-001",
-      page_count: 1,
-      element_count: 5,
-      content_hash: "b".repeat(64),
-      quality: { score: 0.9 },
-      warnings: [],
-      parser: { name: "pymupdf", version: "1.0.0" },
-      pages: [
-        {
-          page_number: 1,
-          warnings: [],
-          elements: [
-            { type: "heading", text: "计算机组成原理", bbox: { x0: 72, y0: 770, y1: 793, x1: 252 }, heading_level: 1 },
-            { type: "heading", text: "第三章 存储系统", bbox: { x0: 72, y0: 730, y1: 749, x1: 220 }, heading_level: 2 },
-            { type: "paragraph", text: "存储器是计算机系统中用于存储程序和数据的部件。", bbox: { x0: 72, y0: 690, y1: 708, x1: 480 }, heading_level: null },
-            { type: "paragraph", text: "存储系统采用层次化结构，从寄存器、Cache、主存到外存。", bbox: { x0: 72, y0: 650, y1: 668, x1: 490 }, heading_level: null },
-            { type: "heading", text: "Cache 存储原理", bbox: { x0: 72, y0: 600, y1: 617, x1: 196 }, heading_level: 2 },
-          ],
-        },
-      ],
-    },
-    evidence_units: [
-      { id: "ev-h1", content: "第三章 存储系统\n存储器是计算机系统中用于存储程序和数据的部件。", page_number: 1, element_indices: [1, 2] },
-      { id: "ev-h2", content: "存储系统采用层次化结构，从寄存器、Cache、主存到外存。", page_number: 1, element_indices: [3] },
-      { id: "ev-h3", content: "Cache 存储原理", page_number: 1, element_indices: [4] },
-    ],
-    elapsed_ms: 38.7,
-  },
-  multi_column: {
-    bundle: {
-      id: "mock-col-001",
-      page_count: 1,
-      element_count: 3,
-      content_hash: "c".repeat(64),
-      quality: { score: 0.85 },
-      warnings: ["检测到多栏排版，阅读顺序可能不准确"],
-      parser: { name: "pymupdf", version: "1.0.0" },
-      pages: [
-        {
-          page_number: 1,
-          warnings: [],
-          elements: [
-            { type: "paragraph", text: "左栏：计算机组成原理是计算机科学与技术专业的核心课程，介绍各部件的结构与工作原理。", bbox: { x0: 50, y0: 720, y1: 738, x1: 280 }, heading_level: null },
-            { type: "paragraph", text: "右栏：考研中组成原理占比约 15%，是重点科目之一，推荐唐朔飞版教材。", bbox: { x0: 310, y0: 720, y1: 738, x1: 540 }, heading_level: null },
-            { type: "paragraph", text: "左栏：本课程适合计算机专业大二学生，建议先修数字逻辑与计算机导论。", bbox: { x0: 50, y0: 685, y1: 703, x1: 280 }, heading_level: null },
-          ],
-        },
-      ],
-    },
-    evidence_units: [
-      { id: "ev-m1", content: "左栏：计算机组成原理是计算机科学与技术专业的核心课程，介绍各部件的结构与工作原理。", page_number: 1, element_indices: [0] },
-      { id: "ev-m2", content: "右栏：考研中组成原理占比约 15%，是重点科目之一，推荐唐朔飞版教材。", page_number: 1, element_indices: [1] },
-      { id: "ev-m3", content: "左栏：本课程适合计算机专业大二学生，建议先修数字逻辑与计算机导论。", page_number: 1, element_indices: [2] },
-    ],
-    elapsed_ms: 45.1,
-  },
-};
-
-const FIXTURE_BENCHMARK_MOCK: BenchmarkData = {
-  parser_name: "pymupdf",
-  parser_version: "1.0.0",
-  total_fixtures: 3,
-  ok_count: 3,
-  skipped_count: 0,
-  error_count: 0,
-  generated_at: "2026-06-13 17:30:00",
-  fixtures: [
-    { name: "normal.pdf", status: "ok", page_count: 1, element_count: 3, evidence_count: 2, heading_count: 1, paragraph_count: 2, quality_score: 0.9, elapsed_ms: 42.3, warnings: [] },
-    { name: "headings.pdf", status: "ok", page_count: 1, element_count: 5, evidence_count: 3, heading_count: 3, paragraph_count: 2, quality_score: 0.9, elapsed_ms: 38.7, warnings: [] },
-    { name: "multi_column.pdf", status: "ok", page_count: 1, element_count: 3, evidence_count: 3, heading_count: 0, paragraph_count: 3, quality_score: 0.85, elapsed_ms: 45.1, warnings: ["检测到多栏排版"] },
-  ],
-};
-
 /* ── page component ────────────────────────────────── */
 
 export function ParsingLabPage() {
@@ -222,16 +117,6 @@ export function ParsingLabPage() {
     uploadAndParse(f);
   }
 
-  function loadFixture(name: string) {
-    const mock = FIXTURE_MOCKS[name];
-    if (mock) {
-      setFile(new File([], `${name}.pdf`, { type: "application/pdf" }));
-      setResult(mock);
-      setError(null);
-      setExpandedPages(new Set([0]));
-    }
-  }
-
   async function uploadAndParse(f: File) {
     setLoading(true); setError(null);
     try {
@@ -244,16 +129,9 @@ export function ParsingLabPage() {
       }
       const data: PreviewResult = await res.json();
       setResult(data);
-    } catch {
-      // API not available — try fixture mock as fallback
-      const mockName = f.name.replace(".pdf", "").toLowerCase().replace(/\s/g, "_");
-      const mock = FIXTURE_MOCKS[mockName];
-      if (mock) {
-        setResult(mock);
-      } else {
-        setError("API 未启动。已加载内置 Fixture，或启动 Django 后重试上传。");
-        setResult(FIXTURE_MOCKS.normal);
-      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "解析服务不可用，请启动 API 后重试。");
+      setResult(null);
     } finally {
       setLoading(false);
     }
@@ -267,8 +145,9 @@ export function ParsingLabPage() {
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data: BenchmarkData = await res.json();
       setBenchmark(data);
-    } catch {
-      setBenchmark(FIXTURE_BENCHMARK_MOCK);
+    } catch (err) {
+      setBenchError(err instanceof Error ? err.message : "Benchmark 服务不可用，请启动 API 后重试。");
+      setBenchmark(null);
     } finally {
       setBenchLoading(false);
     }
@@ -342,26 +221,6 @@ export function ParsingLabPage() {
                     </label>
                   </>
                 )}
-              </div>
-
-              {loading && (
-                <div className="parsing-loading">
-                  <Loader size={18} className="spin-icon" />
-                  <span>正在解析…</span>
-                </div>
-              )}
-
-              <div className="parsing-fixtures">
-                <span className="parsing-fixtures-label">快速预览内置 Fixture</span>
-                <button onClick={() => loadFixture("normal")} type="button">
-                  <FileText size={13} /> normal.pdf
-                </button>
-                <button onClick={() => loadFixture("headings")} type="button">
-                  <FileText size={13} /> headings.pdf
-                </button>
-                <button onClick={() => loadFixture("multi_column")} type="button">
-                  <FileText size={13} /> multi_column.pdf
-                </button>
               </div>
 
               {loading && (

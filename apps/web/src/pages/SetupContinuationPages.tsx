@@ -1,8 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  ArrowDown,
   ArrowLeft,
-  ArrowUp,
   FileText,
   ListTree,
   LockKeyhole,
@@ -364,26 +362,6 @@ export function ConfirmPlanPage() {
     navigate("/courses");
   }
 
-  function adjustActivePhase(direction: "simplify" | "deepen") {
-    setPhases((current) =>
-      current.map((phase, index) => {
-        if (index !== activeIndex) return phase;
-        if (direction === "simplify") {
-          return {
-            ...phase,
-            share: Math.max(10, phase.share - 5),
-            tasks: phase.tasks.length > 2 ? phase.tasks.slice(0, -1) : phase.tasks,
-          };
-        }
-        return {
-          ...phase,
-          share: Math.min(50, phase.share + 5),
-          tasks: phase.tasks.includes("补充迁移练习") ? phase.tasks : [...phase.tasks, "补充迁移练习"],
-        };
-      }),
-    );
-  }
-
   /* ── 统一滚动到 phase[index]，含「目标在第 3 可见位」规则 ── */
   const scrollToPhase = useCallback(
     (index: number) => {
@@ -540,12 +518,6 @@ export function ConfirmPlanPage() {
               </div>
               <div className="phase-operations">
                 <span>本阶段操作</span>
-                <button onClick={() => adjustActivePhase("simplify")} type="button">
-                  <ArrowDown size={16} /> 简化阶段
-                </button>
-                <button onClick={() => adjustActivePhase("deepen")} type="button">
-                  <ArrowUp size={16} /> 加强阶段
-                </button>
                 <button type="button">
                   <ListTree size={16} /> 查看全部任务
                 </button>

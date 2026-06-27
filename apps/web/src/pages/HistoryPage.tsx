@@ -20,8 +20,8 @@ import {
   getMonthGrid,
   getWeekDates,
   initialTasks,
-  MOCK_TODAY,
   summarizeDay,
+  TODAY_DATE_KEY,
   type Task,
 } from "../data/history";
 
@@ -49,13 +49,13 @@ const emptyForm = (date: string): TaskFormState => ({
 export function HistoryPage() {
   const [tasks, setTasks] = useState<Task[]>(initialTasks);
   const [view, setView] = useState<ViewMode>("day");
-  const [selectedDate, setSelectedDate] = useState(MOCK_TODAY);
+  const [selectedDate, setSelectedDate] = useState(TODAY_DATE_KEY);
   const [courseFilter, setCourseFilter] = useState("all");
   const [search, setSearch] = useState("");
   const [courseMenuOpen, setCourseMenuOpen] = useState(false);
   const [modalMode, setModalMode] = useState<ModalMode>(null);
   const [editingId, setEditingId] = useState<number | null>(null);
-  const [form, setForm] = useState<TaskFormState>(emptyForm(MOCK_TODAY));
+  const [form, setForm] = useState<TaskFormState>(emptyForm(TODAY_DATE_KEY));
   const [todoCollapsed, setTodoCollapsed] = useState(false);
   const [doneCollapsed, setDoneCollapsed] = useState(false);
 

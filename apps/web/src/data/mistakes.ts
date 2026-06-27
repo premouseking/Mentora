@@ -1,3 +1,5 @@
+import { offsetDateKey, TODAY_DATE_KEY } from "./history";
+
 export interface MistakeItem {
   id: string;
   title: string;
@@ -29,7 +31,7 @@ export const mistakeItems: MistakeItem[] = [
     topic: "Cache 映射方式与命中率",
     difficulty: "中等",
     wrongCount: 3,
-    lastWrong: "2026-06-10",
+    lastWrong: offsetDateKey(TODAY_DATE_KEY, -6),
     question:
       "某计算机的 Cache 共有 16 块，采用 2 路组相联映射方式。每个主存块大小为 32 字节，按字节编址。主存 129 号单元所在的主存块应装入的 Cache 组号是多少？",
     options: ["0", "1", "2", "4"],
@@ -61,7 +63,7 @@ export const mistakeItems: MistakeItem[] = [
     topic: "指令流水线",
     difficulty: "困难",
     wrongCount: 5,
-    lastWrong: "2026-06-12",
+    lastWrong: offsetDateKey(TODAY_DATE_KEY, -4),
     question:
       "五级流水线 IF-ID-EX-MEM-WB 中，若后一条指令在 EX 阶段需要使用前一条 load 指令从内存读出的结果，且没有额外转发到 EX 的路径，最直接的处理方式是什么？",
     options: ["继续执行，不需要处理", "插入一个暂停周期", "清空整条流水线", "把后一条指令提前到 MEM 阶段"],
@@ -86,7 +88,7 @@ export const mistakeItems: MistakeItem[] = [
     topic: "浮点数运算",
     difficulty: "中等",
     wrongCount: 2,
-    lastWrong: "2026-06-08",
+    lastWrong: offsetDateKey(TODAY_DATE_KEY, -8),
     question:
       "浮点数加减运算完成尾数相加后，如果结果尾数出现 10.xxxx 的形式，下一步通常应如何规格化？",
     options: ["尾数右移一位，阶码加 1", "尾数左移一位，阶码减 1", "阶码不变，只舍入尾数", "直接判为溢出"],
@@ -111,7 +113,7 @@ export const mistakeItems: MistakeItem[] = [
     topic: "总线与I/O",
     difficulty: "简单",
     wrongCount: 1,
-    lastWrong: "2026-05-30",
+    lastWrong: offsetDateKey(TODAY_DATE_KEY, -17),
     question:
       "当外设需要连续传输一大块数据，并希望尽量减少 CPU 对每个字节的干预时，更适合采用哪种 I/O 方式？",
     options: ["程序查询 I/O", "中断 I/O", "DMA", "条件传送"],
@@ -136,7 +138,7 @@ export const mistakeItems: MistakeItem[] = [
     topic: "虚拟存储器",
     difficulty: "困难",
     wrongCount: 4,
-    lastWrong: "2026-06-11",
+    lastWrong: offsetDateKey(TODAY_DATE_KEY, -5),
     question:
       "某分页系统页面大小为 4KB，虚拟地址为 0x2A3F。若页表给出虚页号 2 对应物理页框号 7，则该地址对应的物理地址是多少？",
     options: ["0x7A3F", "0x73F", "0x2A3F", "0x7000"],
@@ -161,7 +163,7 @@ export const mistakeItems: MistakeItem[] = [
     topic: "总线与I/O",
     difficulty: "中等",
     wrongCount: 2,
-    lastWrong: "2026-06-05",
+    lastWrong: offsetDateKey(TODAY_DATE_KEY, -11),
     question:
       "在集中式总线仲裁中，若多个设备通过一条授权线串行传递授权信号，越靠近仲裁器的设备优先级越高，这属于哪种仲裁方式？",
     options: ["链式查询", "计数器定时查询", "独立请求", "分布式仲裁"],

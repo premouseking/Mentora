@@ -10,6 +10,7 @@
 
 import uuid
 
+from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 
@@ -25,7 +26,7 @@ from mentora.knowledge.models import (
 from mentora.knowledge.services.processing import run_processing_for_version
 
 
-DEV_OWNER_ID = "dev-user"
+DEV_OWNER_ID = settings.DEV_OWNER_ID
 
 
 def create_upload_session(

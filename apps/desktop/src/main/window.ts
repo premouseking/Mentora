@@ -1,6 +1,7 @@
 import { BrowserWindow, session, shell } from "electron";
 
 import {
+  allowedConnectSources,
   allowedNavigationOrigins,
   isDev,
   resolvePreloadPath,
@@ -13,7 +14,7 @@ const log = createLogger("window");
 
 /** 开发模式放行 Vite origin/ws 以支持 HMR；生产禁止 `unsafe-eval`（§4） */
 function contentSecurityPolicy(): string {
-  const devConnect = isDev ? " http://localhost:5173 ws://localhost:5173 http://127.0.0.1:9000" : "";
+  const connectSources = allowedConnectSources().map((origin) => ` ${origin}`).join("");
   const devScript = isDev ? " 'unsafe-inline'" : "";
   return [
     "default-src 'self'",
@@ -21,7 +22,7 @@ function contentSecurityPolicy(): string {
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' data: blob:",
     "font-src 'self' data:",
-    `connect-src 'self'${devConnect}`,
+    `connect-src 'self'${connectSources}`,
     "object-src 'none'",
     "frame-ancestors 'none'",
     "base-uri 'self'",
