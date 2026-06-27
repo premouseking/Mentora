@@ -831,13 +831,7 @@ export function CourseWorkspacePage() {
           onPointerUp={handlePSPointerUp}
         >
           {phaseSummaryOpen && (
-            planLoading ? (
-              <div className="phase-summary"><div className="ps-body" style={{ padding: 40, textAlign: "center", color: "var(--quiet)" }}>加载方案中…</div></div>
-            ) : activePlan ? (
-              <PhaseSummary plan={activePlan} onClose={() => setPhaseSummaryOpen(false)} />
-            ) : (
-              <div className="phase-summary"><div className="ps-body" style={{ padding: 40, textAlign: "center" }}><p style={{ color: "var(--quiet)" }}>暂无学习方案</p></div></div>
-            )
+            <PhaseSummary onClose={() => setPhaseSummaryOpen(false)} />
           )}
         </div>
       </div>
