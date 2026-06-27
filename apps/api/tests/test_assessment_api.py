@@ -92,14 +92,19 @@ def test_generate_submit_and_complete_quiz_session():
     )
 
     client = Client()
+    course_session_id = str(uuid.uuid4())
     with patch("mentora.agent_runtime.views.get_gateway", return_value=FakeQuizGateway()):
         generated = client.post(
             "/api/assessment/sessions/generate/",
-            data=json.dumps({"source_version_ids": [str(version.id)], "count": 1}),
+            data=json.dumps({
+                "course_session_id": course_session_id,
+                "source_version_ids": [str(version.id)],
+                "count": 1,
+            }),
             content_type="application/json",
         )
 
-    assert generated.status_code == 201
+    assert generated.status_code == 201, generated.content
     payload = generated.json()
     assert payload["total_items"] == 1
     item = payload["items"][0]

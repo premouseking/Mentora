@@ -118,11 +118,24 @@ def _serialize_session(session_id: str) -> dict | None:
         return None
 
     from mentora.retrieval.models import EvidenceUnit
+    from mentora.assessment.models import AssessmentItemRevision
 
     attempts = session.attempts.select_related("item").order_by("position")
+    attempts = list(attempts)
+    revision_ids = [
+        attempt.item.current_revision_id
+        for attempt in attempts
+        if attempt.item.current_revision_id
+    ]
+    revision_map = {
+        revision.id: revision
+        for revision in AssessmentItemRevision.objects.filter(id__in=revision_ids)
+    }
     evidence_ids = []
     for attempt in attempts:
-        evidence_ids.extend(attempt.item.source_evidence_ids or [])
+        revision = revision_map.get(attempt.item.current_revision_id)
+        if revision:
+            evidence_ids.extend(revision.source_evidence_ids or [])
     evidence_map = {
         str(unit.id): unit
         for unit in EvidenceUnit.objects.filter(id__in=evidence_ids)
@@ -134,8 +147,10 @@ def _serialize_session(session_id: str) -> dict | None:
     items = []
     for attempt in attempts:
         item = attempt.item
+        revision = revision_map.get(item.current_revision_id)
         source_links = []
-        for evidence_id in item.source_evidence_ids or []:
+        source_evidence_ids = revision.source_evidence_ids if revision else []
+        for evidence_id in source_evidence_ids or []:
             unit = evidence_map.get(str(evidence_id))
             if not unit:
                 continue
@@ -152,10 +167,10 @@ def _serialize_session(session_id: str) -> dict | None:
             "item_id": str(item.id),
             "position": attempt.position,
             "question_type": item.question_type,
-            "question_text": item.question_text,
-            "options": item.options_json or [],
-            "correct_answer": item.correct_answer,
-            "explanation": item.explanation,
+            "question_text": revision.question_text if revision else "",
+            "options": revision.options_json if revision and revision.options_json else [],
+            "correct_answer": revision.correct_answer if revision else "",
+            "explanation": revision.explanation if revision else "",
             "difficulty": item.difficulty,
             "source_links": source_links,
             "user_answer": attempt.user_answer,

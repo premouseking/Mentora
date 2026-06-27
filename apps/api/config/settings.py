@@ -115,6 +115,7 @@ DATABASES = {
         "PASSWORD": _env("POSTGRES_PASSWORD"),
         "HOST": _env("POSTGRES_HOST"),
         "PORT": _env("POSTGRES_PORT"),
+        "OPTIONS": {"connect_timeout": int(_env("POSTGRES_CONNECT_TIMEOUT"))},
         "CONN_MAX_AGE": 0,
         "DISABLE_SERVER_SIDE_CURSORS": True,
     }

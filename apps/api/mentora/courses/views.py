@@ -63,6 +63,10 @@ def _get_gateway_and_prompts():
     return get_gateway(), get_prompt_manager()
 
 
+def _gateway_unavailable_response(exc: Exception) -> Response:
+    return Response({"error": str(exc)}, status=503)
+
+
 def _format_history(inquiry_history: list[dict]) -> str:
     """将追问历史格式化为可读文本，供 prompt 变量使用。"""
     if not inquiry_history:
@@ -223,7 +227,10 @@ def inquiry_next(request, session_id):
         )
 
     # 构建消息并调用 LLM
-    gateway, prompt_mgr = _get_gateway_and_prompts()
+    try:
+        gateway, prompt_mgr = _get_gateway_and_prompts()
+    except RuntimeError as exc:
+        return _gateway_unavailable_response(exc)
 
     variables = {
         "school": session.school or "未填写",
@@ -388,7 +395,10 @@ def _plan_generate(request, session_id):
     except ValueError as exc:
         return Response({"error": str(exc)}, status=404)
 
-    gateway, prompt_mgr = _get_gateway_and_prompts()
+    try:
+        gateway, prompt_mgr = _get_gateway_and_prompts()
+    except RuntimeError as exc:
+        return _gateway_unavailable_response(exc)
 
     variables = {
         "school": session.school or "未填写",
@@ -798,7 +808,10 @@ def course_activate(request, course_id):
 
     # 1. 调 PlannerAgent 生成计划
     session = course.session
-    gateway, prompt_mgr = _get_gateway_and_prompts()
+    try:
+        gateway, prompt_mgr = _get_gateway_and_prompts()
+    except RuntimeError as exc:
+        return _gateway_unavailable_response(exc)
 
     variables = {
         "school": profile.school or "未填写",
