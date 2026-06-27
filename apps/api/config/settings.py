@@ -50,6 +50,7 @@ INSTALLED_APPS = [
     "mentora.agent_runtime",
     "mentora.parsing",
     "mentora.retrieval",
+    "mentora.topics",
     "mentora.model_gateway",
     "drf_spectacular",
 ]
