@@ -30,6 +30,14 @@ from mentora.courses.views import (
 )
 from mentora.knowledge.views import folder_create, folder_delete, folder_list, folder_rename, list_sources, list_tags, source_archive, source_delete, source_detail, source_move, source_reparse, source_unarchive, source_update_tags, upload_complete, upload_create
 from mentora.parsing.views import get_benchmark, preview_parse
+from mentora.topics.views import (
+    topic_add_edge,
+    topic_create_tree,
+    topic_delete,
+    topic_get_tree,
+    topic_link_evidence,
+    topic_update,
+)
 from mentora.retrieval.views import locate_view, search_view
 
 
@@ -79,6 +87,13 @@ urlpatterns = [
     path("api/library/folders/create/", folder_create, name="library-folder-create"),
     path("api/library/folders/<uuid:folder_id>/", folder_rename, name="library-folder-rename"),
     path("api/library/folders/<uuid:folder_id>/delete/", folder_delete, name="library-folder-delete"),
+    # 知识主题
+    path("api/courses/<uuid:course_id>/topics/", topic_get_tree, name="topic-get-tree"),
+    path("api/courses/<uuid:course_id>/topics/create/", topic_create_tree, name="topic-create-tree"),
+    path("api/topics/<uuid:topic_id>/", topic_update, name="topic-update"),
+    path("api/topics/<uuid:topic_id>/delete/", topic_delete, name="topic-delete"),
+    path("api/topics/<uuid:topic_id>/edges/", topic_add_edge, name="topic-add-edge"),
+    path("api/topics/<uuid:topic_id>/evidence/", topic_link_evidence, name="topic-link-evidence"),
     # 解析
     path("api/parsing/preview", preview_parse, name="parsing-preview"),
     path("api/parsing/benchmark", get_benchmark, name="parsing-benchmark"),
