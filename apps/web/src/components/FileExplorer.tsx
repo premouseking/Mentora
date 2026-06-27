@@ -18,6 +18,12 @@ import type { AiExplanation } from "../data/aiExplanations";
 import type { MistakeItem } from "../data/mistakes";
 
 export type SectionKey = "file" | "ai" | "mistakes";
+export type ExplorerItemKind = "file" | "ai" | "mistake";
+
+export interface ExplorerContextMenuTarget {
+  kind: ExplorerItemKind;
+  id: string;
+}
 
 const ICON_SIZE = 14;
 
@@ -32,11 +38,13 @@ function TreeNode({
   node,
   selectedId,
   onSelect,
+  onContextMenu,
   depth = 0,
 }: {
   node: FileNode;
   selectedId: string | null;
   onSelect: (id: string) => void;
+  onContextMenu?: (event: React.MouseEvent, target: ExplorerContextMenuTarget) => void;
   depth?: number;
 }) {
   const [open, setOpen] = useState(depth < 1);
@@ -49,7 +57,6 @@ function TreeNode({
           style={{ paddingLeft: 8 + depth * 16 }}
           onClick={() => {
             setOpen((v) => !v);
-            onSelect(node.id);
           }}
         >
           <span className="fe-chevron">
@@ -65,6 +72,7 @@ function TreeNode({
               node={child}
               selectedId={selectedId}
               onSelect={onSelect}
+              onContextMenu={onContextMenu}
               depth={depth + 1}
             />
           ))}
@@ -77,6 +85,7 @@ function TreeNode({
       className={`fe-row${selectedId === node.id ? " selected" : ""}`}
       style={{ paddingLeft: 28 + depth * 16 }}
       onClick={() => onSelect(node.id)}
+      onContextMenu={(event) => onContextMenu?.(event, { kind: "file", id: node.id })}
     >
       <FileIcon ext={node.extension} />
       <span className="fe-name">{node.name}</span>
@@ -123,6 +132,7 @@ export function FileExplorer({
   onSelectFile,
   onSelectAi,
   onSelectMistake,
+  onContextMenu,
   detachedSections,
   onToggleDetach,
 }: {
@@ -135,6 +145,7 @@ export function FileExplorer({
   onSelectFile: (id: string) => void;
   onSelectAi: (id: string) => void;
   onSelectMistake: (id: string) => void;
+  onContextMenu?: (event: React.MouseEvent, target: ExplorerContextMenuTarget) => void;
   detachedSections: Set<SectionKey>;
   onToggleDetach: (section: SectionKey) => void;
 }) {
@@ -207,7 +218,13 @@ export function FileExplorer({
     switch (section.key) {
       case "file":
         return files.map((node) => (
-          <TreeNode key={node.id} node={node} selectedId={selectedFileId} onSelect={onSelectFile} />
+          <TreeNode
+            key={node.id}
+            node={node}
+            selectedId={selectedFileId}
+            onSelect={onSelectFile}
+            onContextMenu={onContextMenu}
+          />
         ));
       case "ai":
         return aiItems.map((item) => (
@@ -216,6 +233,7 @@ export function FileExplorer({
             className={`fe-row${selectedAiId === item.id ? " selected" : ""}`}
             style={{ paddingLeft: 8 }}
             onClick={() => onSelectAi(item.id)}
+            onContextMenu={(event) => onContextMenu?.(event, { kind: "ai", id: item.id })}
           >
             <AiTypeIcon type={item.type} />
             <div className="fe-ai-info">
@@ -231,6 +249,7 @@ export function FileExplorer({
             className={`fe-row${selectedMistakeId === item.id ? " selected" : ""}`}
             style={{ paddingLeft: 8 }}
             onClick={() => onSelectMistake(item.id)}
+            onContextMenu={(event) => onContextMenu?.(event, { kind: "mistake", id: item.id })}
           >
             <AlertTriangle size={ICON_SIZE} className="fe-ai-icon mistake" />
             <div className="fe-ai-info">

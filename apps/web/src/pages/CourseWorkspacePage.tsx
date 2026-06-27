@@ -1,21 +1,26 @@
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  BrainCircuit,
+  AlertTriangle,
   BookOpen,
+  BrainCircuit,
   ChevronDown,
   ChevronRight,
+  FileText,
   Lightbulb,
   ListChecks,
   MoveLeft,
   PenLine,
-  AlertTriangle,
   X,
   XCircle,
 } from "lucide-react";
 import { useParams } from "react-router-dom";
 import { AppShell } from "../components/AppShell";
-import { FileExplorer } from "../components/FileExplorer";
-import type { SectionKey } from "../components/FileExplorer";
+import {
+  FileExplorer,
+  type ExplorerContextMenuTarget,
+  type ExplorerItemKind,
+  type SectionKey,
+} from "../components/FileExplorer";
 import { MistakeReviewPanel } from "../components/MistakeReviewPanel";
 import { PhaseSummary } from "../components/PhaseSummary";
 import { QuizPracticeView } from "../components/QuizPracticeView";
@@ -34,7 +39,6 @@ const MIN_EXPLORER = 170;
 const MAX_EXPLORER = 360;
 const MIN_SIDE_PANEL = 160;
 const MAX_SIDE_PANEL = 400;
-
 const ICON_SIZE = 14;
 
 const SECTION_LABELS: Record<SectionKey, string> = {
@@ -43,11 +47,33 @@ const SECTION_LABELS: Record<SectionKey, string> = {
   mistakes: "错题集",
 };
 
-const SECTION_ICONS: Record<SectionKey, string> = {
-  file: "📄",
-  ai: "🧠",
-  mistakes: "❌",
+const SECTION_ICONS: Record<SectionKey, React.ReactNode> = {
+  file: <FileText size={14} />,
+  ai: <BrainCircuit size={14} />,
+  mistakes: <XCircle size={14} />,
 };
+
+type WorkspaceTabKind = ExplorerItemKind;
+
+interface WorkspaceTab {
+  id: string;
+  kind: WorkspaceTabKind;
+  itemId: string;
+  title: string;
+}
+
+interface FileBundleState {
+  bundle: BundleRaw | null;
+  title: string;
+  loading: boolean;
+  error: string;
+}
+
+interface ContextMenuState {
+  x: number;
+  y: number;
+  target: ExplorerContextMenuTarget;
+}
 
 function AiTypeIcon({ type }: { type: string }) {
   if (type === "解题思路") return <Lightbulb size={ICON_SIZE} className="fe-ai-icon solve" />;
@@ -57,7 +83,70 @@ function AiTypeIcon({ type }: { type: string }) {
   return <BrainCircuit size={ICON_SIZE} />;
 }
 
-/* ── Right-side detached panel (single column, sections split vertically) ── */
+function findFileNode(nodes: FileNode[], id: string): FileNode | null {
+  for (const node of nodes) {
+    if (node.id === id) return node;
+    if (node.children) {
+      const child = findFileNode(node.children, id);
+      if (child) return child;
+    }
+  }
+  return null;
+}
+
+function flattenFileNodes(nodes: FileNode[]): FileNode[] {
+  return nodes.flatMap((node) => [node, ...(node.children ? flattenFileNodes(node.children) : [])]);
+}
+
+function getTabId(kind: WorkspaceTabKind, itemId: string) {
+  return `${kind}:${itemId}`;
+}
+
+function getTabTitle(kind: WorkspaceTabKind, itemId: string, files: FileNode[]) {
+  if (kind === "file") return findFileNode(files, itemId)?.name ?? `文件 ${itemId.slice(0, 8)}`;
+  if (kind === "ai") return aiExplanations.find((item) => item.id === itemId)?.title ?? "AI 讲解";
+  return mistakeItems.find((item) => item.id === itemId)?.title ?? "错题";
+}
+
+function getTabIcon(kind: WorkspaceTabKind) {
+  if (kind === "file") return <FileText size={14} />;
+  if (kind === "ai") return <BrainCircuit size={14} />;
+  return <AlertTriangle size={14} />;
+}
+
+function DocumentRenderer({ bundle }: { bundle: BundleRaw }) {
+  return (
+    <div className="document-reader">
+      {bundle.pages.map((page) => (
+        <div key={page.page_number} className="doc-page">
+          <div className="doc-page-number">第 {page.page_number} 页</div>
+          {page.elements.map((el, index) => {
+            if (el.type === "heading") {
+              const level = Math.min(el.heading_level ?? 1, 3);
+              const sizes = [22, 18, 16];
+              return (
+                <div key={index} className="doc-heading" style={{ fontSize: sizes[level - 1], fontWeight: 700 }}>
+                  {el.text}
+                </div>
+              );
+            }
+            if (el.type === "paragraph") {
+              return <p key={index} className="doc-paragraph">{el.text}</p>;
+            }
+            if (el.type === "list_item") {
+              return <div key={index} className="doc-list-item">• {el.text}</div>;
+            }
+            if (el.type === "image") {
+              return <div key={index} className="doc-image-placeholder">[图片]</div>;
+            }
+            return <p key={index} className="doc-paragraph">{el.text || `[${el.type}]`}</p>;
+          })}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function DetachedSidePanel({
   sections,
   selectedFileId,
@@ -66,10 +155,10 @@ function DetachedSidePanel({
   onSelectFile,
   onSelectAi,
   onSelectMistake,
+  onContextMenu,
   width,
   onResizeStart,
   onMoveBack,
-  onOpenPanel,
   files,
 }: {
   sections: SectionKey[];
@@ -79,22 +168,21 @@ function DetachedSidePanel({
   onSelectFile: (id: string) => void;
   onSelectAi: (id: string) => void;
   onSelectMistake: (id: string) => void;
+  onContextMenu: (event: React.MouseEvent, target: ExplorerContextMenuTarget) => void;
   width: number;
   onResizeStart: () => void;
   onMoveBack: (section: SectionKey) => void;
-  onOpenPanel: (section: SectionKey) => void;
   files: FileNode[];
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
-  // null = flex mode; number[] = fraction per section (always sums to 1)
   const [heights, setHeights] = useState<number[] | null>(null);
+  const [collapsedSections, setCollapsedSections] = useState<Set<SectionKey>>(new Set());
   const dragIdx = useRef<number | null>(null);
   const dragStartY = useRef(0);
   const dragStartRatios = useRef<number[]>([]);
   const dragAreaHeight = useRef(0);
 
-  /* ── Collapse / expand ── */
-  const [collapsedSections, setCollapsedSections] = useState<Set<SectionKey>>(new Set());
+  const expandedSections = sections.filter((section) => !collapsedSections.has(section));
 
   const toggleCollapse = useCallback((key: SectionKey) => {
     setCollapsedSections((prev) => {
@@ -105,25 +193,20 @@ function DetachedSidePanel({
     });
   }, []);
 
-  const expandedSections = sections.filter((s) => !collapsedSections.has(s));
-
-  // Reset heights when sections or collapse change
   useEffect(() => {
     setHeights(null);
     dragStartRatios.current = [];
     dragAreaHeight.current = 0;
   }, [sections.length, collapsedSections.size]);
 
-  /* ── Resize between expanded sections ── */
-  const onMoveHandler = useCallback((e: MouseEvent) => {
+  const onMoveHandler = useCallback((event: MouseEvent) => {
     if (dragIdx.current === null || dragAreaHeight.current <= 0) return;
-    e.preventDefault();
+    event.preventDefault();
     const idx = dragIdx.current;
     const base = dragStartRatios.current;
-    const dy = (e.clientY - dragStartY.current) / dragAreaHeight.current;
+    const dy = (event.clientY - dragStartY.current) / dragAreaHeight.current;
     const minRatio = 80 / dragAreaHeight.current;
     const next = [...base];
-    // Only adjust the two adjacent sections — they cancel each other out
     const newAbove = base[idx] + dy;
     const newBelow = base[idx + 1] - dy;
     if (newAbove < minRatio) {
@@ -147,33 +230,41 @@ function DetachedSidePanel({
     document.removeEventListener("mouseup", onUpHandler);
   }, [onMoveHandler]);
 
-  /* ── Section icon helper ── */
-  function sectionIcon(section: SectionKey) {
-    if (section === "ai") return <BrainCircuit size={14} />;
-    if (section === "mistakes") return <XCircle size={14} />;
-    return <span>{SECTION_ICONS[section]}</span>;
-  }
+  useEffect(
+    () => () => {
+      document.removeEventListener("mousemove", onMoveHandler);
+      document.removeEventListener("mouseup", onUpHandler);
+    },
+    [onMoveHandler, onUpHandler],
+  );
 
-  const renderSectionContent = (section: SectionKey) => {
+  function renderSectionContent(section: SectionKey) {
     switch (section) {
       case "file":
-        return files.map((n) => (
-          <button
-            key={n.id}
-            className={`fe-row${selectedFileId === n.id ? " selected" : ""}`}
-            style={{ paddingLeft: 8 }}
-            onClick={() => { onSelectFile(n.id); onOpenPanel("file"); }}
-          >
-            <span className="fe-name">{n.name}</span>
-          </button>
-        ));
+        return flattenFileNodes(files)
+          .filter((node) => node.type === "file")
+          .map((node) => (
+            <button
+              key={node.id}
+              className={`fe-row${selectedFileId === node.id ? " selected" : ""}`}
+              style={{ paddingLeft: 8 }}
+              onClick={() => onSelectFile(node.id)}
+              onContextMenu={(event) => onContextMenu(event, { kind: "file", id: node.id })}
+              type="button"
+            >
+              <FileText size={ICON_SIZE} />
+              <span className="fe-name">{node.name}</span>
+            </button>
+          ));
       case "ai":
         return aiExplanations.map((item) => (
           <button
             key={item.id}
             className={`fe-row${selectedAiId === item.id ? " selected" : ""}`}
             style={{ paddingLeft: 8 }}
-            onClick={() => { onSelectAi(item.id); onOpenPanel("ai"); }}
+            onClick={() => onSelectAi(item.id)}
+            onContextMenu={(event) => onContextMenu(event, { kind: "ai", id: item.id })}
+            type="button"
           >
             <AiTypeIcon type={item.type} />
             <div className="fe-ai-info">
@@ -188,7 +279,9 @@ function DetachedSidePanel({
             key={item.id}
             className={`fe-row${selectedMistakeId === item.id ? " selected" : ""}`}
             style={{ paddingLeft: 8 }}
-            onClick={() => { onSelectMistake(item.id); onOpenPanel("mistakes"); }}
+            onClick={() => onSelectMistake(item.id)}
+            onContextMenu={(event) => onContextMenu(event, { kind: "mistake", id: item.id })}
+            type="button"
           >
             <AlertTriangle size={ICON_SIZE} className="fe-ai-icon mistake" />
             <div className="fe-ai-info">
@@ -198,7 +291,7 @@ function DetachedSidePanel({
           </button>
         ));
     }
-  };
+  }
 
   if (sections.length === 0) return null;
 
@@ -206,9 +299,8 @@ function DetachedSidePanel({
     <>
       <div className="resize-handle cw-resize" onMouseDown={onResizeStart} role="separator" aria-orientation="vertical" tabIndex={-1} />
       <aside className="detached-side-panel" ref={containerRef} style={{ width, flexShrink: 0 }}>
-        {/* Sections in fixed order, collapsed stays in place */}
         <div className="fe-expanded-area">
-          {sections.map((section, i) => {
+          {sections.map((section) => {
             const collapsed = collapsedSections.has(section);
             const expIdx = expandedSections.indexOf(section);
             const style = !collapsed && heights
@@ -222,7 +314,7 @@ function DetachedSidePanel({
                 {!collapsed && expIdx > 0 && (
                   <div
                     className="fe-resize-handle"
-                    onMouseDown={(e) => {
+                    onMouseDown={(event) => {
                       const area = containerRef.current?.querySelector<HTMLElement>(".fe-expanded-area");
                       if (!area) return;
                       const areaH = area.getBoundingClientRect().height;
@@ -231,9 +323,9 @@ function DetachedSidePanel({
                       const pixelHeights = Array.from(els).map((el) => el.getBoundingClientRect().height);
                       if (pixelHeights.length < 2) return;
                       const total = pixelHeights.reduce((a, b) => a + b, 0);
-                      const ratios = pixelHeights.map((h) => h / total);
+                      const ratios = pixelHeights.map((height) => height / total);
                       dragStartRatios.current = ratios;
-                      dragStartY.current = e.clientY;
+                      dragStartY.current = event.clientY;
                       dragAreaHeight.current = areaH;
                       setHeights(ratios);
                       dragIdx.current = expIdx - 1;
@@ -244,36 +336,24 @@ function DetachedSidePanel({
                     }}
                   />
                 )}
-                {collapsed ? (
-                  <div className="fe-section collapsed" style={style}>
-                    <div className="fe-section-title collapsed-title">
-                      <button className="fe-collapse-toggle" onClick={() => toggleCollapse(section)} title="展开">
-                        <ChevronRight size={12} />
-                      </button>
-                      {sectionIcon(section)}
-                      <span>{SECTION_LABELS[section]}</span>
-                      <button className="fe-ai-popout" onClick={() => onMoveBack(section)} title="移回左侧">
-                        <MoveLeft size={14} />
-                      </button>
-                    </div>
+                <div className={`fe-section${collapsed ? " collapsed" : ""}`} style={style}>
+                  <div className={`fe-section-title${collapsed ? " collapsed-title" : expIdx > 0 ? " sub" : ""}`}>
+                    <button
+                      className="fe-collapse-toggle"
+                      onClick={() => toggleCollapse(section)}
+                      title={collapsed ? "展开" : "收起"}
+                      type="button"
+                    >
+                      {collapsed ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
+                    </button>
+                    {SECTION_ICONS[section]}
+                    <span>{SECTION_LABELS[section]}</span>
+                    <button className="fe-ai-popout" onClick={() => onMoveBack(section)} title="移回左侧" type="button">
+                      <MoveLeft size={14} />
+                    </button>
                   </div>
-                ) : (
-                  <div className="fe-section" style={style}>
-                    <div className={`fe-section-title${expIdx > 0 ? " sub" : ""}`}>
-                      <button className="fe-collapse-toggle" onClick={() => toggleCollapse(section)} title="收起">
-                        <ChevronDown size={12} />
-                      </button>
-                      {sectionIcon(section)}
-                      <span>{SECTION_LABELS[section]}</span>
-                      <button className="fe-ai-popout" onClick={() => onMoveBack(section)} title="移回左侧">
-                        <MoveLeft size={14} />
-                      </button>
-                    </div>
-                    <div className="fe-section-content">
-                      {renderSectionContent(section)}
-                    </div>
-                  </div>
-                )}
+                  {!collapsed && <div className="fe-section-content">{renderSectionContent(section)}</div>}
+                </div>
               </React.Fragment>
             );
           })}
@@ -283,156 +363,144 @@ function DetachedSidePanel({
   );
 }
 
-/* ── Document page renderer ── */
-function DocumentRenderer({ bundle }: { bundle: BundleRaw }) {
+function TabBar({
+  tabs,
+  activeTabId,
+  onActivate,
+  onClose,
+}: {
+  tabs: WorkspaceTab[];
+  activeTabId: string | null;
+  onActivate: (id: string) => void;
+  onClose: (id: string) => void;
+}) {
   return (
-    <div className="document-reader">
-      {bundle.pages.map((page) => (
-        <div key={page.page_number} className="doc-page">
-          <div className="doc-page-number">第 {page.page_number} 页</div>
-          {page.elements.map((el, i) => {
-            if (el.type === "heading") {
-              const lvl = Math.min(el.heading_level ?? 1, 3);
-              const sizes = [22, 18, 16];
-              return (
-                <div key={i} className="doc-heading" style={{ fontSize: sizes[lvl - 1], fontWeight: 700 }}>
-                  {el.text}
-                </div>
-              );
-            }
-            if (el.type === "paragraph") {
-              return <p key={i} className="doc-paragraph">{el.text}</p>;
-            }
-            if (el.type === "list_item") {
-              return <div key={i} className="doc-list-item">• {el.text}</div>;
-            }
-            if (el.type === "image") {
-              return <div key={i} className="doc-image-placeholder">[图片]</div>;
-            }
-            return <p key={i} className="doc-paragraph">{el.text || `[${el.type}]`}</p>;
-          })}
-        </div>
+    <div className="cw-tab-bar" role="tablist" aria-label="已打开内容">
+      {tabs.map((tab) => (
+        <button
+          key={tab.id}
+          className={`cw-tab${activeTabId === tab.id ? " active" : ""}`}
+          onClick={() => onActivate(tab.id)}
+          role="tab"
+          aria-selected={activeTabId === tab.id}
+          type="button"
+        >
+          <span className="cw-tab-icon">{getTabIcon(tab.kind)}</span>
+          <span className="cw-tab-title">{tab.title}</span>
+          <span
+            className="cw-tab-close"
+            onClick={(event) => {
+              event.stopPropagation();
+              onClose(tab.id);
+            }}
+            role="button"
+            aria-label={`关闭 ${tab.title}`}
+            tabIndex={-1}
+          >
+            <X size={13} />
+          </span>
+        </button>
       ))}
     </div>
   );
 }
 
-function findFileNode(nodes: FileNode[], id: string): FileNode | null {
-  for (const node of nodes) {
-    if (node.id === id) return node;
-    if (node.children) {
-      const child = findFileNode(node.children, id);
-      if (child) return child;
-    }
-  }
-  return null;
-}
-
-/* ── Content preview panel ── */
-function ContentPanel({
-  section,
-  selectedFileId,
-  selectedAiId,
-  selectedMistakeId,
-  width,
-  onClose,
-  fileBundle,
-  fileBundleTitle,
-  fileLoading,
+function ContentBody({
+  tab,
+  fileState,
   files,
   onOpenSourceFile,
   onStartQuiz,
 }: {
-  section: SectionKey;
-  selectedFileId: string | null;
-  selectedAiId: string | null;
-  selectedMistakeId: string | null;
-  width?: number;
-  onClose: () => void;
-  fileBundle?: BundleRaw | null;
-  fileBundleTitle?: string;
-  fileLoading?: boolean;
+  tab: WorkspaceTab;
+  fileState?: FileBundleState;
   files: FileNode[];
-  onOpenSourceFile: (id: string) => void;
-  onStartQuiz: () => void;
+  onOpenSourceFile: (id: string, newTab?: boolean) => void;
+  onStartQuiz: (sourceId: string | null) => void;
 }) {
-  const icon = SECTION_ICONS[section];
-  const label = SECTION_LABELS[section];
-
-  const getTitle = () => {
-    switch (section) {
-      case "file":
-        if (fileBundleTitle) return fileBundleTitle;
-        return selectedFileId ? `文件 ${selectedFileId.slice(0, 8)}…` : label;
-      case "ai":
-        return selectedAiId ? aiExplanations.find((a) => a.id === selectedAiId)?.title ?? label : label;
-      case "mistakes":
-        return selectedMistakeId ? mistakeItems.find((m) => m.id === selectedMistakeId)?.title ?? label : label;
-    }
-  };
-
-  const selectedMistake = selectedMistakeId
-    ? mistakeItems.find((m) => m.id === selectedMistakeId) ?? null
-    : null;
+  const selectedAi = tab.kind === "ai" ? aiExplanations.find((item) => item.id === tab.itemId) : null;
+  const selectedMistake = tab.kind === "mistake" ? mistakeItems.find((item) => item.id === tab.itemId) ?? null : null;
 
   function canOpenSource(link: MistakeSourceLink) {
     return !!link.fileId && !!findFileNode(files, link.fileId);
   }
 
   function handleOpenSource(link: MistakeSourceLink) {
-    if (link.fileId && canOpenSource(link)) {
-      onOpenSourceFile(link.fileId);
-    }
+    if (link.fileId && canOpenSource(link)) onOpenSourceFile(link.fileId, true);
+  }
+
+  if (tab.kind === "file") {
+    return (
+      <>
+        <div className="cw-content-toolbar">
+          <button className="cw-panel-quiz" onClick={() => onStartQuiz(tab.itemId)} type="button">
+            <ListChecks size={14} />
+            <span>刷题</span>
+          </button>
+        </div>
+        {fileState?.loading && <p className="cw-preview-text">加载中...</p>}
+        {!fileState?.loading && fileState?.bundle && <DocumentRenderer bundle={fileState.bundle} />}
+        {!fileState?.loading && fileState?.error && <p className="cw-preview-text">{fileState.error}</p>}
+        {!fileState?.loading && !fileState?.bundle && !fileState?.error && (
+          <p className="cw-preview-text">无法加载文档内容。</p>
+        )}
+      </>
+    );
+  }
+
+  if (tab.kind === "mistake") {
+    if (!selectedMistake) return <p className="cw-preview-text">这道错题暂时不可用。</p>;
+    return (
+      <MistakeReviewPanel
+        canOpenSource={canOpenSource}
+        mistake={selectedMistake}
+        onOpenSource={handleOpenSource}
+      />
+    );
   }
 
   return (
-    <div className="cw-split-pane" style={width !== undefined ? { width, flex: "0 0 auto" } : { flex: 1 }}>
-      <div className="cw-split-title">
-        <span className="cw-panel-label">{icon} {getTitle()}</span>
-        <div className="cw-panel-actions">
-          {section === "file" && selectedFileId && (
-            <button className="cw-panel-quiz" onClick={onStartQuiz} title="刷题">
-              <ListChecks size={14} />
-              <span>刷题</span>
-            </button>
-          )}
-          <button className="cw-panel-close" onClick={onClose} title="关闭">
-            <X size={14} />
-          </button>
-        </div>
+    <div className="cw-ai-preview">
+      <div className="cw-ai-preview-icon">
+        <BrainCircuit size={22} />
       </div>
-      <div className="cw-split-content">
-        {section === "file" && fileLoading && (
-          <p className="cw-preview-text">加载中…</p>
-        )}
-        {section === "file" && !fileLoading && fileBundle && (
-          <DocumentRenderer bundle={fileBundle} />
-        )}
-        {section === "file" && !fileLoading && !fileBundle && selectedFileId && (
-          <p className="cw-preview-text">无法加载文档内容。</p>
-        )}
-        {section === "mistakes" && selectedMistake && (
-          <MistakeReviewPanel
-            canOpenSource={canOpenSource}
-            mistake={selectedMistake}
-            onOpenSource={handleOpenSource}
-          />
-        )}
-        {section !== "file" && section !== "mistakes" && (
-          <p className="cw-preview-text">
-            「{getTitle()}」的内容预览将在这里显示。
-          </p>
-        )}
-        {section === "mistakes" && !selectedMistake && (
-          <p className="cw-preview-text">请选择一道错题开始复盘。</p>
-        )}
+      <div>
+        <p className="cw-ai-preview-kicker">{selectedAi?.type ?? "AI 讲解"}</p>
+        <h2>{selectedAi?.title ?? tab.title}</h2>
+        <p>{selectedAi?.topic ? `关联知识点：${selectedAi.topic}` : "AI 讲解内容将在这里显示。"}</p>
       </div>
+    </div>
+  );
+}
+
+function ContextMenu({
+  state,
+  onOpen,
+  onOpenNewTab,
+  onStartQuiz,
+}: {
+  state: ContextMenuState;
+  onOpen: (target: ExplorerContextMenuTarget) => void;
+  onOpenNewTab: (target: ExplorerContextMenuTarget) => void;
+  onStartQuiz: (target: ExplorerContextMenuTarget) => void;
+}) {
+  return (
+    <div
+      className="cw-context-menu"
+      style={{ left: state.x, top: state.y }}
+      onPointerDown={(event) => event.stopPropagation()}
+      role="menu"
+    >
+      <button onClick={() => onOpen(state.target)} role="menuitem" type="button">打开</button>
+      <button onClick={() => onOpenNewTab(state.target)} role="menuitem" type="button">在新标签页中打开</button>
+      <button onClick={() => onStartQuiz(state.target)} role="menuitem" type="button">刷题</button>
     </div>
   );
 }
 
 export function CourseWorkspacePage() {
   const [quizPracticeOpen, setQuizPracticeOpen] = useState(false);
+  const [quizDefaultSourceId, setQuizDefaultSourceId] = useState<string | null>(null);
   const [phaseSummaryOpen, setPhaseSummaryOpen] = useState(false);
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
   const [selectedAi, setSelectedAi] = useState<string | null>(null);
@@ -440,24 +508,23 @@ export function CourseWorkspacePage() {
   const [explorerWidth, setExplorerWidth] = useState(220);
   const [detachedSections, setDetachedSections] = useState<Set<SectionKey>>(new Set());
   const [sidePanelWidth, setSidePanelWidth] = useState(240);
-  const [openPanels, setOpenPanels] = useState<SectionKey[]>([]);
-  const [panelWidths, setPanelWidths] = useState<number[]>([]);
-
-  const { courseId } = useParams<{ courseId: string }>();
-
-  /* ── Document data ── */
+  const [openTabs, setOpenTabs] = useState<WorkspaceTab[]>([]);
+  const [activeTabId, setActiveTabId] = useState<string | null>(null);
+  const [fileCache, setFileCache] = useState<Record<string, FileBundleState>>({});
+  const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   const [fileNodes, setFileNodes] = useState<FileNode[]>([]);
-  const [selectedFileBundle, setSelectedFileBundle] = useState<BundleRaw | null>(null);
-  const [selectedFileName, setSelectedFileName] = useState("");
-  const [fileLoading, setFileLoading] = useState(false);
-
-  /* ── Plan data ── */
   const [activePlan, setActivePlan] = useState<ActivePlan | null>(null);
   const [planLoading, setPlanLoading] = useState(false);
 
-  const containerRef = useRef<HTMLDivElement>(null);
+  const { courseId } = useParams<{ courseId: string }>();
+  const activeTab = useMemo(
+    () => openTabs.find((tab) => tab.id === activeTabId) ?? null,
+    [activeTabId, openTabs],
+  );
 
-  /* ── Fetch plan on mount ── */
+  const psRef = useRef<HTMLDivElement>(null);
+  const psSwipeStart = useRef<{ y: number; moved: boolean; active: boolean }>({ y: 0, moved: false, active: false });
+
   useEffect(() => {
     if (!courseId) return;
     setPlanLoading(true);
@@ -467,35 +534,139 @@ export function CourseWorkspacePage() {
       .finally(() => setPlanLoading(false));
   }, [courseId]);
 
-  /* ── Fetch sources on mount ── */
   useEffect(() => {
     fetchSources()
       .then((items) => setFileNodes(sourcesToFileNodes(items)))
       .catch(() => setFileNodes([]));
   }, []);
 
-  /* ── Open / close panel ── */
-  const openPanel = useCallback((section: SectionKey) => {
-    setOpenPanels((prev) => {
-      if (prev.includes(section)) return prev;
-      if (prev.length >= 3) return [...prev.slice(1), section];
-      return [...prev, section];
-    });
-  }, []);
-
-  const closePanel = useCallback((section: SectionKey) => {
-    setOpenPanels((prev) => prev.filter((s) => s !== section));
-    if (section === "file") {
+  useEffect(() => {
+    if (!activeTab) {
       setSelectedFile(null);
-      setSelectedFileBundle(null);
-      setSelectedFileName("");
-      setFileLoading(false);
+      setSelectedAi(null);
+      setSelectedMistake(null);
+      return;
     }
-    if (section === "ai") setSelectedAi(null);
-    if (section === "mistakes") setSelectedMistake(null);
-  }, []);
+    setSelectedFile(activeTab.kind === "file" ? activeTab.itemId : null);
+    setSelectedAi(activeTab.kind === "ai" ? activeTab.itemId : null);
+    setSelectedMistake(activeTab.kind === "mistake" ? activeTab.itemId : null);
+  }, [activeTab]);
 
-  /* ── Toggle detach ── */
+  useEffect(() => {
+    if (!activeTab || activeTab.kind !== "file") return;
+    const fileId = activeTab.itemId;
+    const cached = fileCache[fileId];
+    if (cached?.bundle || cached?.loading || cached?.error) return;
+
+    setFileCache((prev) => ({
+      ...prev,
+      [fileId]: { bundle: null, title: activeTab.title, loading: true, error: "" },
+    }));
+    fetchSourceDetail(fileId)
+      .then((data) => {
+        setFileCache((prev) => ({
+          ...prev,
+          [fileId]: {
+            bundle: data.bundle,
+            title: data.source.displayTitle || data.version.originalFilename || activeTab.title,
+            loading: false,
+            error: data.bundle ? "" : "无法加载文档内容。",
+          },
+        }));
+      })
+      .catch((error) => {
+        setFileCache((prev) => ({
+          ...prev,
+          [fileId]: {
+            bundle: null,
+            title: activeTab.title,
+            loading: false,
+            error: error instanceof Error ? error.message : "加载文档失败。",
+          },
+        }));
+      });
+  }, [activeTab, fileCache]);
+
+  useEffect(() => {
+    if (!contextMenu) return;
+    function handlePointerDown() {
+      setContextMenu(null);
+    }
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") setContextMenu(null);
+    }
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [contextMenu]);
+
+  const openItem = useCallback((kind: WorkspaceTabKind, itemId: string, mode: "replace" | "new") => {
+    const nextTab = {
+      id: getTabId(kind, itemId),
+      kind,
+      itemId,
+      title: getTabTitle(kind, itemId, fileNodes),
+    };
+    setOpenTabs((prev) => {
+      const existing = prev.find((tab) => tab.id === nextTab.id);
+      if (existing) {
+        setActiveTabId(existing.id);
+        return prev;
+      }
+      if (mode === "new" || prev.length === 0 || !activeTabId) {
+        setActiveTabId(nextTab.id);
+        return [...prev, nextTab];
+      }
+      setActiveTabId(nextTab.id);
+      return prev.map((tab) => (tab.id === activeTabId ? nextTab : tab));
+    });
+  }, [activeTabId, fileNodes]);
+
+  const handleSelectFile = useCallback((id: string) => openItem("file", id, "replace"), [openItem]);
+  const handleSelectAi = useCallback((id: string) => openItem("ai", id, "replace"), [openItem]);
+  const handleSelectMistake = useCallback((id: string) => openItem("mistake", id, "replace"), [openItem]);
+
+  function closeTab(tabId: string) {
+    setOpenTabs((prev) => {
+      const index = prev.findIndex((tab) => tab.id === tabId);
+      const next = prev.filter((tab) => tab.id !== tabId);
+      if (activeTabId === tabId) {
+        const fallback = next[Math.min(index, next.length - 1)] ?? null;
+        setActiveTabId(fallback?.id ?? null);
+      }
+      return next;
+    });
+  }
+
+  function handleExplorerContextMenu(event: React.MouseEvent, target: ExplorerContextMenuTarget) {
+    event.preventDefault();
+    event.stopPropagation();
+    setContextMenu({ x: event.clientX, y: event.clientY, target });
+  }
+
+  function handleContextOpen(target: ExplorerContextMenuTarget) {
+    setContextMenu(null);
+    openItem(target.kind, target.id, "replace");
+  }
+
+  function handleContextOpenNewTab(target: ExplorerContextMenuTarget) {
+    setContextMenu(null);
+    openItem(target.kind, target.id, "new");
+  }
+
+  function startQuiz(sourceId: string | null) {
+    setQuizDefaultSourceId(sourceId);
+    setQuizPracticeOpen(true);
+  }
+
+  function handleContextStartQuiz(target: ExplorerContextMenuTarget) {
+    setContextMenu(null);
+    startQuiz(target.kind === "file" ? target.id : null);
+  }
+
   const toggleDetach = useCallback((section: SectionKey) => {
     setDetachedSections((prev) => {
       const next = new Set(prev);
@@ -505,100 +676,40 @@ export function CourseWorkspacePage() {
     });
   }, []);
 
-  /* ── Init panel widths when openPanels or container size changes ── */
-  useEffect(() => {
-    const el = containerRef.current;
-    if (!el) return;
-    const calc = () => {
-      if (openPanels.length > 1) {
-        const w = el.getBoundingClientRect().width;
-        const eq = Math.floor(w / openPanels.length);
-        setPanelWidths(openPanels.map((_, i) => (i < openPanels.length - 1 ? eq : w - eq * (openPanels.length - 1))));
-      } else {
-        setPanelWidths([]);
-      }
-    };
-    calc();
-    const ro = new ResizeObserver(() => calc());
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, [openPanels.length]);
-
-  /* ── Wrapper: select + open panel ── */
-  const handleSelectFile = useCallback((id: string) => {
-    setSelectedFile(id);
-    setFileLoading(true);
-    setSelectedFileBundle(null);
-    setSelectedFileName("");
-    fetchSourceDetail(id)
-      .then((data) => {
-        if (data.bundle) {
-          setSelectedFileBundle(data.bundle);
-          setSelectedFileName(data.source.displayTitle || data.version.originalFilename || "未命名");
-        }
-        setFileLoading(false);
-      })
-      .catch(() => setFileLoading(false));
-    openPanel("file");
-  }, [openPanel]);
-
-  const handleSelectAi = useCallback((id: string) => {
-    setSelectedAi(id);
-    openPanel("ai");
-  }, [openPanel]);
-
-  const handleSelectMistake = useCallback((id: string) => {
-    setSelectedMistake(id);
-    openPanel("mistakes");
-  }, [openPanel]);
-
-  /* ── Bottom trigger → open phase summary ── */
   const handleBottomClick = useCallback(() => setPhaseSummaryOpen(true), []);
 
-  /* ── Swipe down → close phase summary ── */
-  const psRef = useRef<HTMLDivElement>(null);
-  const psSwipeStart = useRef<{ y: number; moved: boolean; active: boolean }>({ y: 0, moved: false, active: false });
-  const handlePSPointerDown = useCallback((e: React.PointerEvent) => {
-    psSwipeStart.current = { y: e.clientY, moved: false, active: true };
+  const handlePSPointerDown = useCallback((event: React.PointerEvent) => {
+    psSwipeStart.current = { y: event.clientY, moved: false, active: true };
     if (psRef.current) psRef.current.style.transition = "none";
-    e.currentTarget.setPointerCapture(e.pointerId);
+    event.currentTarget.setPointerCapture(event.pointerId);
   }, []);
-  const handlePSPointerMove = useCallback(
-    (e: React.PointerEvent) => {
-      if (!phaseSummaryOpen || !psSwipeStart.current.active) return;
-      const dy = e.clientY - psSwipeStart.current.y;
-      if (dy > 20) psSwipeStart.current.moved = true;
-      if (psSwipeStart.current.moved && psRef.current) {
-        psRef.current.style.transform = `translateY(${Math.max(0, dy)}px)`;
-        psRef.current.style.opacity = String(Math.max(0.3, 1 - dy / 300));
-      }
-    },
-    [phaseSummaryOpen],
-  );
-  const handlePSPointerUp = useCallback(
-    (e: React.PointerEvent) => {
-      if (!phaseSummaryOpen || !psSwipeStart.current.active) return;
-      psSwipeStart.current.active = false;
-      const dy = e.clientY - psSwipeStart.current.y;
-      if (psRef.current) {
-        psRef.current.style.transform = "";
-        psRef.current.style.opacity = "";
-        psRef.current.style.transition = "";
-      }
-      if (psSwipeStart.current.moved && dy > 60) setPhaseSummaryOpen(false);
-    },
-    [phaseSummaryOpen],
-  );
 
-  /* ── Resize file explorer ── */
+  const handlePSPointerMove = useCallback((event: React.PointerEvent) => {
+    if (!phaseSummaryOpen || !psSwipeStart.current.active) return;
+    const dy = event.clientY - psSwipeStart.current.y;
+    if (dy > 20) psSwipeStart.current.moved = true;
+    if (psSwipeStart.current.moved && psRef.current) {
+      psRef.current.style.transform = `translateY(${Math.max(0, dy)}px)`;
+      psRef.current.style.opacity = String(Math.max(0.3, 1 - dy / 300));
+    }
+  }, [phaseSummaryOpen]);
+
+  const handlePSPointerUp = useCallback((event: React.PointerEvent) => {
+    if (!phaseSummaryOpen || !psSwipeStart.current.active) return;
+    psSwipeStart.current.active = false;
+    const dy = event.clientY - psSwipeStart.current.y;
+    if (psRef.current) {
+      psRef.current.style.transform = "";
+      psRef.current.style.opacity = "";
+      psRef.current.style.transition = "";
+    }
+    if (psSwipeStart.current.moved && dy > 60) setPhaseSummaryOpen(false);
+  }, [phaseSummaryOpen]);
+
   const explorerResizeRef = useRef(false);
-  const explorerMoveRef = useRef<((e: MouseEvent) => void) | null>(null);
-  explorerMoveRef.current = (e: MouseEvent) => {
-    setExplorerWidth((w) => Math.min(MAX_EXPLORER, Math.max(MIN_EXPLORER, w + e.movementX)));
-  };
-  const onExplorerMove = useCallback((e: MouseEvent) => {
+  const onExplorerMove = useCallback((event: MouseEvent) => {
     if (!explorerResizeRef.current) return;
-    explorerMoveRef.current?.(e);
+    setExplorerWidth((width) => Math.min(MAX_EXPLORER, Math.max(MIN_EXPLORER, width + event.movementX)));
   }, []);
   const onExplorerUp = useCallback(() => {
     if (!explorerResizeRef.current) return;
@@ -615,23 +726,11 @@ export function CourseWorkspacePage() {
     document.addEventListener("mousemove", onExplorerMove);
     document.addEventListener("mouseup", onExplorerUp);
   }, [onExplorerMove, onExplorerUp]);
-  useEffect(
-    () => () => {
-      document.removeEventListener("mousemove", onExplorerMove);
-      document.removeEventListener("mouseup", onExplorerUp);
-    },
-    [onExplorerMove, onExplorerUp],
-  );
 
-  /* ── Resize right side panel column ── */
   const sideResizeRef = useRef(false);
-  const sideMoveRef = useRef<((e: MouseEvent) => void) | null>(null);
-  sideMoveRef.current = (e: MouseEvent) => {
-    setSidePanelWidth((w) => Math.min(MAX_SIDE_PANEL, Math.max(MIN_SIDE_PANEL, w - e.movementX)));
-  };
-  const onSideMove = useCallback((e: MouseEvent) => {
+  const onSideMove = useCallback((event: MouseEvent) => {
     if (!sideResizeRef.current) return;
-    sideMoveRef.current?.(e);
+    setSidePanelWidth((width) => Math.min(MAX_SIDE_PANEL, Math.max(MIN_SIDE_PANEL, width - event.movementX)));
   }, []);
   const onSideUp = useCallback(() => {
     sideResizeRef.current = false;
@@ -647,196 +746,145 @@ export function CourseWorkspacePage() {
     document.addEventListener("mousemove", onSideMove);
     document.addEventListener("mouseup", onSideUp);
   }, [onSideMove, onSideUp]);
-  useEffect(() => () => {
-    document.removeEventListener("mousemove", onSideMove);
-    document.removeEventListener("mouseup", onSideUp);
-  }, [onSideMove, onSideUp]);
 
-  /* ── Resize content panels ── */
-  const splitResizeIdx = useRef<number | null>(null);
-  const splitMoveRef = useRef<((e: MouseEvent) => void) | null>(null);
-  splitMoveRef.current = (e: MouseEvent) => {
-    if (splitResizeIdx.current === null || !containerRef.current) return;
-    const idx = splitResizeIdx.current;
-    const rect = containerRef.current.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const totalW = rect.width - (openPanels.length - 1);
-    const newLeft = Math.max(120, Math.min(totalW - (openPanels.length - idx - 1) * 120, x));
-    setPanelWidths((prev) => {
-      const next = [...prev];
-      let acc = 0;
-      for (let i = 0; i < openPanels.length; i++) {
-        if (i === idx) {
-          next[i] = Math.max(120, newLeft - acc);
-        }
-        acc += next[i] + 1;
-      }
-      const remaining = totalW - next.reduce((a, b) => a + b, 0);
-      if (remaining > 0) next[openPanels.length - 1] += remaining;
-      return next;
-    });
-  };
-  const onSplitMove = useCallback((e: MouseEvent) => splitMoveRef.current?.(e), []);
-  const onSplitUp = useCallback(() => {
-    splitResizeIdx.current = null;
-    document.body.style.cursor = "";
-    document.body.style.userSelect = "";
-    document.removeEventListener("mousemove", onSplitMove);
-    document.removeEventListener("mouseup", onSplitUp);
-  }, [onSplitMove]);
-  const startSplitResize = useCallback((idx: number) => {
-    splitResizeIdx.current = idx;
-    document.body.style.cursor = "col-resize";
-    document.body.style.userSelect = "none";
-    document.addEventListener("mousemove", onSplitMove);
-    document.addEventListener("mouseup", onSplitUp);
-  }, [onSplitMove, onSplitUp]);
-  useEffect(() => () => {
-    document.removeEventListener("mousemove", onSplitMove);
-    document.removeEventListener("mouseup", onSplitUp);
-  }, [onSplitMove, onSplitUp]);
+  useEffect(
+    () => () => {
+      document.removeEventListener("mousemove", onExplorerMove);
+      document.removeEventListener("mouseup", onExplorerUp);
+      document.removeEventListener("mousemove", onSideMove);
+      document.removeEventListener("mouseup", onSideUp);
+    },
+    [onExplorerMove, onExplorerUp, onSideMove, onSideUp],
+  );
 
-  /* ── Detached sections on right side ── */
-  const detachedList = (["file", "ai", "mistakes"] as SectionKey[]).filter((s) => detachedSections.has(s));
+  const detachedList = (["file", "ai", "mistakes"] as SectionKey[]).filter((section) => detachedSections.has(section));
   const hasLeftSections = detachedSections.size < 3;
 
-  /* ── Render ── */
   return (
     <AppShell>
       {quizPracticeOpen ? (
         <QuizPracticeView
           files={fileNodes}
-          defaultSourceId={selectedFile}
+          defaultSourceId={quizDefaultSourceId}
           onBack={() => setQuizPracticeOpen(false)}
           onOpenSource={(id) => {
             setQuizPracticeOpen(false);
-            handleSelectFile(id);
+            openItem("file", id, "new");
           }}
         />
       ) : (
-      <div className="course-workspace-new">
-        {/* File Explorer (left sidebar - shows non-detached sections) */}
-        {hasLeftSections && (
-          <>
-            <div style={{ width: explorerWidth, flexShrink: 0, overflow: "hidden", display: "flex", flexDirection: "column" }}>
-              <FileExplorer
-                files={fileNodes}
-                aiItems={aiExplanations}
-                mistakeItems={mistakeItems}
-                selectedFileId={selectedFile}
-                selectedAiId={selectedAi}
-                selectedMistakeId={selectedMistake}
-                onSelectFile={handleSelectFile}
-                onSelectAi={handleSelectAi}
-                onSelectMistake={handleSelectMistake}
-                detachedSections={detachedSections}
-                onToggleDetach={toggleDetach}
-              />
-            </div>
-            <div className="resize-handle cw-resize" onMouseDown={startExplorerResize} role="separator" aria-orientation="vertical" tabIndex={-1} />
-          </>
-        )}
-
-        {/* Content Area */}
-        <div className="cw-content" ref={containerRef}>
-          {openPanels.length === 0 ? (
-            /* Empty state */
-            <div className="cw-file-view">
-              <div className="cw-file-placeholder">
-                <div className="cw-file-icon">{SECTION_ICONS.file}</div>
-                <h2>文件浏览</h2>
-                <p>从左侧选择一个文件或 AI 讲解</p>
+        <div className="course-workspace-new">
+          {hasLeftSections && (
+            <>
+              <div style={{ width: explorerWidth, flexShrink: 0, overflow: "hidden", display: "flex", flexDirection: "column" }}>
+                <FileExplorer
+                  files={fileNodes}
+                  aiItems={aiExplanations}
+                  mistakeItems={mistakeItems}
+                  selectedFileId={selectedFile}
+                  selectedAiId={selectedAi}
+                  selectedMistakeId={selectedMistake}
+                  onSelectFile={handleSelectFile}
+                  onSelectAi={handleSelectAi}
+                  onSelectMistake={handleSelectMistake}
+                  onContextMenu={handleExplorerContextMenu}
+                  detachedSections={detachedSections}
+                  onToggleDetach={toggleDetach}
+                />
               </div>
-            </div>
-          ) : openPanels.length === 1 ? (
-            /* Single panel */
-            <ContentPanel
-              section={openPanels[0]}
-              selectedFileId={selectedFile}
-              selectedAiId={selectedAi}
-              selectedMistakeId={selectedMistake}
-              onClose={() => closePanel(openPanels[0])}
-              fileBundle={selectedFileBundle}
-              fileBundleTitle={selectedFileName}
-              fileLoading={fileLoading}
-              files={fileNodes}
-              onOpenSourceFile={handleSelectFile}
-              onStartQuiz={() => setQuizPracticeOpen(true)}
-            />
-          ) : (
-            /* Multi-panel split */
-            <div className="cw-split">
-              {openPanels.map((section, i) => (
-                <React.Fragment key={section}>
-                  <ContentPanel
-                    section={section}
-                    selectedFileId={selectedFile}
-                    selectedAiId={selectedAi}
-                    selectedMistakeId={selectedMistake}
-                    width={panelWidths[i]}
-                    onClose={() => closePanel(section)}
-                    fileBundle={selectedFileBundle}
-                    fileBundleTitle={selectedFileName}
-                    fileLoading={fileLoading}
-                    files={fileNodes}
-                    onOpenSourceFile={handleSelectFile}
-                    onStartQuiz={() => setQuizPracticeOpen(true)}
-                  />
-                  {i < openPanels.length - 1 && (
-                    <div
-                      className="cw-split-handle"
-                      onMouseDown={() => startSplitResize(i)}
+              <div className="resize-handle cw-resize" onMouseDown={startExplorerResize} role="separator" aria-orientation="vertical" tabIndex={-1} />
+            </>
+          )}
+
+          <div className="cw-content">
+            {openTabs.length === 0 ? (
+              <div className="cw-file-view">
+                <div className="cw-file-placeholder">
+                  <div className="cw-file-icon"><FileText size={48} /></div>
+                  <h2>文件浏览</h2>
+                  <p>从左侧选择课程文件、AI 讲解或错题。</p>
+                </div>
+              </div>
+            ) : (
+              <div className="cw-tab-workspace">
+                <TabBar
+                  tabs={openTabs}
+                  activeTabId={activeTabId}
+                  onActivate={setActiveTabId}
+                  onClose={closeTab}
+                />
+                <main className="cw-tab-content">
+                  {activeTab && (
+                    <ContentBody
+                      tab={activeTab}
+                      fileState={activeTab.kind === "file" ? fileCache[activeTab.itemId] : undefined}
+                      files={fileNodes}
+                      onOpenSourceFile={(id, newTab = false) => openItem("file", id, newTab ? "new" : "replace")}
+                      onStartQuiz={startQuiz}
                     />
                   )}
-                </React.Fragment>
-              ))}
-            </div>
-          )}
+                </main>
+              </div>
+            )}
 
-          {/* Bottom trigger → open phase summary — inside cw-content only */}
-          {!phaseSummaryOpen && (
-            <div className="cw-bottom-trigger" onClick={handleBottomClick}>
-              <div className="cw-bottom-trigger-bar" />
-              <span className="cw-bottom-hint">点击查看学习方案</span>
-            </div>
+            {!phaseSummaryOpen && (
+              <div className="cw-bottom-trigger" onClick={handleBottomClick}>
+                <div className="cw-bottom-trigger-bar" />
+                <span className="cw-bottom-hint">点击查看学习方案</span>
+              </div>
+            )}
+          </div>
+
+          <DetachedSidePanel
+            sections={detachedList}
+            selectedFileId={selectedFile}
+            selectedAiId={selectedAi}
+            selectedMistakeId={selectedMistake}
+            onSelectFile={handleSelectFile}
+            onSelectAi={handleSelectAi}
+            onSelectMistake={handleSelectMistake}
+            onContextMenu={handleExplorerContextMenu}
+            width={sidePanelWidth}
+            onResizeStart={startSideResize}
+            onMoveBack={toggleDetach}
+            files={fileNodes}
+          />
+
+          <div
+            ref={psRef}
+            className={`phase-summary-overlay${phaseSummaryOpen ? " open" : ""}`}
+            onPointerDown={handlePSPointerDown}
+            onPointerMove={handlePSPointerMove}
+            onPointerUp={handlePSPointerUp}
+          >
+            {phaseSummaryOpen && (
+              planLoading ? (
+                <div className="phase-summary">
+                  <div className="ps-body" style={{ padding: 40, textAlign: "center", color: "var(--quiet)" }}>
+                    加载方案中...
+                  </div>
+                </div>
+              ) : activePlan ? (
+                <PhaseSummary plan={activePlan} onClose={() => setPhaseSummaryOpen(false)} />
+              ) : (
+                <div className="phase-summary">
+                  <div className="ps-body" style={{ padding: 40, textAlign: "center" }}>
+                    <p style={{ color: "var(--quiet)" }}>暂无学习方案</p>
+                  </div>
+                </div>
+              )
+            )}
+          </div>
+
+          {contextMenu && (
+            <ContextMenu
+              state={contextMenu}
+              onOpen={handleContextOpen}
+              onOpenNewTab={handleContextOpenNewTab}
+              onStartQuiz={handleContextStartQuiz}
+            />
           )}
         </div>
-
-        {/* Detached sections on the right side — single column, sections split vertically */}
-        <DetachedSidePanel
-          sections={detachedList}
-          selectedFileId={selectedFile}
-          selectedAiId={selectedAi}
-          selectedMistakeId={selectedMistake}
-          onSelectFile={handleSelectFile}
-          onSelectAi={handleSelectAi}
-          onSelectMistake={handleSelectMistake}
-          width={sidePanelWidth}
-          onResizeStart={startSideResize}
-          onMoveBack={toggleDetach}
-          onOpenPanel={openPanel}
-          files={fileNodes}
-        />
-
-        {/* Phase summary overlay */}
-        <div
-          ref={psRef}
-          className={`phase-summary-overlay${phaseSummaryOpen ? " open" : ""}`}
-          onPointerDown={handlePSPointerDown}
-          onPointerMove={handlePSPointerMove}
-          onPointerUp={handlePSPointerUp}
-        >
-          {phaseSummaryOpen && (
-            planLoading ? (
-              <div className="phase-summary"><div className="ps-body" style={{ padding: 40, textAlign: "center", color: "var(--quiet)" }}>加载方案中…</div></div>
-            ) : activePlan ? (
-              <PhaseSummary plan={activePlan} onClose={() => setPhaseSummaryOpen(false)} />
-            ) : (
-              <div className="phase-summary"><div className="ps-body" style={{ padding: 40, textAlign: "center" }}><p style={{ color: "var(--quiet)" }}>暂无学习方案</p></div></div>
-            )
-          )}
-        </div>
-      </div>
       )}
     </AppShell>
   );

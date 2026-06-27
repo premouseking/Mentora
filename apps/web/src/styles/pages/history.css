@@ -1,0 +1,241 @@
+/* =============================================
+   History Page
+   ============================================= */
+
+.history-page {
+  width: min(960px, 100%);
+  margin: 0 auto;
+}
+
+/* ── filters ─────────────────────────────────── */
+
+.history-filters {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 22px;
+}
+
+/* ── empty state ─────────────────────────────── */
+
+.history-empty {
+  display: flex;
+  min-height: 380px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: var(--quiet);
+}
+
+.history-empty strong {
+  color: var(--ink);
+  font-size: 14px;
+}
+
+.history-empty span {
+  font-size: 12px;
+}
+
+/* ── timeline ────────────────────────────────── */
+
+.history-day-group {
+  margin-bottom: 6px;
+}
+
+.history-day-header {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 10px;
+  border: 0;
+  border-radius: 7px;
+  padding: 10px 14px;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+  transition: background 100ms ease;
+}
+
+.history-day-header:hover {
+  background: #f4f6f5;
+}
+
+.history-day-toggle {
+  display: inline-flex;
+  width: 24px;
+  height: 24px;
+  align-items: center;
+  justify-content: center;
+  color: var(--quiet);
+}
+
+.history-day-header strong {
+  font-size: 15px;
+  font-weight: 720;
+  color: var(--ink);
+}
+
+.history-day-date {
+  color: var(--quiet);
+  font-size: 11px;
+}
+
+.history-day-count {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 500;
+}
+
+/* ── day entries ─────────────────────────────── */
+
+.history-day-entries {
+  position: relative;
+  margin-left: 26px;
+  border-left: 1.5px solid #e2e7e5;
+  padding: 0 0 8px;
+}
+
+/* ── single row ──────────────────────────────── */
+
+.history-row {
+  position: relative;
+  display: flex;
+  gap: 14px;
+  padding: 8px 0 8px 18px;
+}
+
+.history-row:hover .history-row-body {
+  background: #fafcfb;
+}
+
+/* timeline dot */
+.history-timeline-node {
+  position: absolute;
+  left: -9px;
+  top: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.history-dot {
+  display: flex;
+  width: 18px;
+  height: 18px;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid var(--border-strong);
+  border-radius: 50%;
+  background: #fff;
+}
+
+/* body */
+.history-row-body {
+  flex: 1;
+  min-width: 0;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  padding: 10px 14px;
+  transition: background 100ms ease, border-color 100ms ease;
+}
+
+.history-row-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.history-time {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--quiet);
+  font-size: 10px;
+}
+
+.history-type-tag {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid;
+  border-radius: 4px;
+  padding: 2px 6px;
+  font-size: 9px;
+  font-weight: 650;
+}
+
+.history-course-pill {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  border-radius: 4px;
+  padding: 2px 7px;
+  font-size: 9px;
+  font-weight: 650;
+}
+
+.history-course-pill.course-teal {
+  background: #e4f1ed;
+  color: #17564c;
+}
+
+.history-course-pill.course-blue {
+  background: #e5f0f9;
+  color: #2069a8;
+}
+
+.history-course-pill.course-violet {
+  background: #edeaf7;
+  color: #6255ae;
+}
+
+.history-row-title {
+  display: block;
+  font-size: 13px;
+  font-weight: 650;
+  color: var(--ink);
+  margin-bottom: 4px;
+}
+
+.history-row-detail {
+  margin: 0 0 6px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+.history-row-result {
+  display: inline-flex;
+  border-radius: 4px;
+  padding: 2px 7px;
+  background: var(--green-50);
+  color: var(--green-700);
+  font-size: 10px;
+  font-weight: 650;
+}
+
+/* ── responsive ──────────────────────────────── */
+
+@media (max-width: 760px) {
+  .history-page {
+    width: 100%;
+  }
+
+  .history-filters {
+    flex-wrap: wrap;
+  }
+
+  .history-day-entries {
+    margin-left: 16px;
+  }
+
+  .history-row {
+    padding-left: 14px;
+  }
+
+  .history-row-head {
+    flex-wrap: wrap;
+  }
+}
