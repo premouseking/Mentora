@@ -52,6 +52,7 @@ class Source(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     owner_id = models.CharField(max_length=64, db_index=True, help_text="资料所有者 ID")
     display_title = models.CharField(max_length=512, blank=True, default="")
+    tags = models.JSONField(default=list, help_text="自由标签列表，如 ['408统考', '重点']")
     status = models.CharField(
         max_length=16,
         choices=SourceStatus.choices,

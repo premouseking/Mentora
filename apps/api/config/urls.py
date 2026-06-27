@@ -28,7 +28,7 @@ from mentora.courses.views import (
     session_start,
     session_update,
 )
-from mentora.knowledge.views import list_sources, source_delete, source_detail, source_reparse, upload_complete, upload_create
+from mentora.knowledge.views import list_sources, list_tags, source_delete, source_detail, source_reparse, source_update_tags, upload_complete, upload_create
 from mentora.parsing.views import get_benchmark, preview_parse
 from mentora.retrieval.views import locate_view, search_view
 
@@ -70,6 +70,8 @@ urlpatterns = [
     path("api/library/sources/<uuid:source_version_id>/", source_detail, name="library-source-detail"),
     path("api/library/sources/<uuid:source_id>/delete/", source_delete, name="library-source-delete"),
     path("api/library/sources/<uuid:source_id>/reparse/", source_reparse, name="library-source-reparse"),
+    path("api/library/sources/<uuid:source_id>/tags/", source_update_tags, name="library-source-tags"),
+    path("api/library/tags/", list_tags, name="library-tags"),
     # 解析
     path("api/parsing/preview", preview_parse, name="parsing-preview"),
     path("api/parsing/benchmark", get_benchmark, name="parsing-benchmark"),

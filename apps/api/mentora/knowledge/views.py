@@ -117,10 +117,11 @@ def upload_complete(request):
 
 @extend_schema(
     summary="列出资料库",
-    description="按所有者列出全部资料，可选按课程过滤已关联的资料。",
+    description="按所有者列出全部资料，可选按课程或标签过滤。tags 参数逗号分隔，取交集。",
     parameters=[
         OpenApiParameter(name="ownerId", type=str, description="所有者 ID", required=False),
         OpenApiParameter(name="courseId", type=str, description="课程会话 ID，传入时仅返回已关联资料", required=False),
+        OpenApiParameter(name="tags", type=str, description="逗号分隔的标签，取交集过滤", required=False),
     ],
     responses={200: {"description": "资料列表"}},
 )
@@ -128,6 +129,7 @@ def upload_complete(request):
 def list_sources(request):
     owner_id = request.GET.get("ownerId", DEV_OWNER_ID)
     course_id = request.GET.get("courseId", "").strip()
+    tags_filter = [t.strip() for t in request.GET.get("tags", "").split(",") if t.strip()]
 
     qs = Source.objects.filter(owner_id=owner_id).select_related("latest_version")
 
@@ -140,11 +142,15 @@ def list_sources(request):
     items = []
     for source in qs.order_by("-created_at"):
         latest = source.latest_version
+        # 标签过滤：交集匹配
+        if tags_filter and not set(tags_filter).issubset(set(source.tags or [])):
+            continue
         items.append(
             {
                 "id": str(source.id),
                 "displayTitle": source.display_title,
                 "status": source.status,
+                "tags": source.tags,
                 "latestVersion": None if latest is None else {
                     "id": str(latest.id),
                     "versionNumber": latest.version_number,
@@ -263,3 +269,60 @@ def source_reparse(request, source_id):
         "status": result.status,
         "processingStatus": version.processing_status,
     })
+
+
+@extend_schema(
+    summary="更新资料标签",
+    description="替换指定资料的标签列表。",
+    request={
+        "application/json": {
+            "type": "object",
+            "properties": {
+                "tags": {"type": "array", "items": {"type": "string"}, "description": "标签列表"},
+            },
+            "required": ["tags"],
+        },
+    },
+    responses={
+        200: {"description": "更新成功"},
+        404: {"description": "资料不存在"},
+    },
+)
+@api_view(["PATCH"])
+def source_update_tags(request, source_id):
+    try:
+        source = Source.objects.get(id=source_id)
+    except Source.DoesNotExist:
+        return Response({"error": "资料不存在"}, status=404)
+
+    try:
+        body = _parse_json_body(request)
+    except json.JSONDecodeError:
+        return Response({"error": "无效 JSON"}, status=400)
+
+    tags = body.get("tags", [])
+    if not isinstance(tags, list):
+        return Response({"error": "tags 必须为数组"}, status=400)
+
+    source.tags = tags
+    source.save(update_fields=["tags"])
+    return Response({"tags": source.tags})
+
+
+@extend_schema(
+    summary="列出所有标签",
+    description="返回当前用户所有资料中已使用的标签合集。",
+    parameters=[
+        OpenApiParameter(name="ownerId", type=str, description="所有者 ID", required=False),
+    ],
+    responses={200: {"description": "标签列表"}},
+)
+@api_view(["GET"])
+def list_tags(request):
+    owner_id = request.GET.get("ownerId", DEV_OWNER_ID)
+    sources = Source.objects.filter(owner_id=owner_id).values_list("tags", flat=True)
+    all_tags: set[str] = set()
+    for tags in sources:
+        if isinstance(tags, list):
+            all_tags.update(tags)
+    return Response({"tags": sorted(all_tags)})
