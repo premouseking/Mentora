@@ -2708,6 +2708,7 @@ p {
   position: relative;
   overflow-x: auto;
   overflow-y: hidden;
+  overscroll-behavior: contain;
   scroll-snap-type: x mandatory;
   scrollbar-width: none;
   -ms-overflow-style: none;
@@ -8505,6 +8506,9 @@ button.mistake-source-row:hover {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
 }
 
 .ps-detail-material-btn {
@@ -9442,6 +9446,97 @@ button.mistake-source-row:hover {
   font-weight: 600;
   color: var(--ink);
   margin: 0;
+}
+
+/* ── 学习计划概览：横向章节画布 ── */
+
+.ps-adjust-plan-canvas {
+  position: relative;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-gutter: stable;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #fcfdfc;
+  margin-top: 12px;
+}
+
+.ps-adjust-plan-canvas-scroll {
+  display: flex;
+  justify-content: flex-start;
+}
+
+.ps-adjust-plan-canvas-content {
+  position: relative;
+}
+
+.ps-adjust-plan-canvas-svg {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+/* 章节节点（横向排列，无绿色已完成态） */
+.ps-overview-unit {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 14px;
+  border: 1.5px solid var(--border-strong);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: border-color 120ms, background 120ms, box-shadow 120ms;
+}
+
+.ps-overview-unit:hover {
+  border-color: #86b5ab;
+  background: #fbfdfc;
+}
+
+.ps-overview-unit.selected {
+  border-color: var(--green-700);
+  background: var(--green-50, #eef7f4);
+  box-shadow: 0 0 0 2px rgb(45 110 95 / 12%);
+}
+
+.ps-overview-unit-pos {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+  background: var(--green-100);
+  color: var(--green-800);
+  font-size: 11px;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.ps-overview-unit-title {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 详情栏资料列表（无按钮态） */
+.ps-detail-material-item {
+  display: flex;
+  align-items: center;
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: #fff;
+}
+
+.ps-detail-material-name {
+  font-size: 12.5px;
+  color: var(--ink);
 }
 
 /* ── 撤回按钮 ── */
