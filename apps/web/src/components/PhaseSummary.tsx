@@ -1,5 +1,5 @@
 import { Check, Pencil, Undo2, X } from "lucide-react";
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { MentoraLoader } from "./MentoraLoader";
 
 /* ── Mock 数据（v6：全部 mock，不连后端）── */
@@ -823,7 +823,14 @@ function PhaseDetail({
   );
 }
 
+
 /* ── 主体：v6 三栏布局 ── */
+
+/** 计算 phase-track 中 block 在给定 index 的 offsetLeft（含 margin-left: -4px 累积偏移） */
+function phaseTrackOffsetOf(index: number, blockBasis: number) {
+  if (index <= 0) return 0;
+  return index * blockBasis - 4 * index;
+}
 
 export function PhaseSummary({
   onClose,
@@ -846,6 +853,12 @@ export function PhaseSummary({
   const [profileValues, setProfileValues] = useState<ProfileItem[]>(() =>
     MOCK_PROFILE.map((p) => ({ ...p })),
   );
+  const [planEditing, setPlanEditing] = useState(false);
+  // 三区变更追踪
+  const [chatChanged, setChatChanged] = useState(false);
+  const [profileChanged, setProfileChanged] = useState(false);
+  const [planChanged, setPlanChanged] = useState(false);
+  const [planGenerated, setPlanGenerated] = useState(false);
   const phase = plan.phases[activePhase];
 
   // 已完成的阶段索引
@@ -896,29 +909,37 @@ export function PhaseSummary({
     const text = chatInput.trim();
     if (!text) return;
     setChatInput("");
+    setChatChanged(true);
     setChatStage("options");
   }, [chatInput]);
 
   const handleOptionSelect = useCallback((option: string) => {
     setSelectedOption(option);
+    setChatChanged(true);
+  }, []);
+
+  /** 清空三区 dirty 状态（星号消失） */
+  const clearAllDirty = useCallback(() => {
+    setChatChanged(false);
+    setProfileChanged(false);
+    setPlanChanged(false);
   }, []);
 
   const handleGeneratePlan = useCallback(() => {
-    // 后续实现
-  }, []);
+    clearAllDirty();
+    setPlanGenerated(true);
+  }, [clearAllDirty]);
 
   const handleContinueAdjust = useCallback(() => {
-    // 后续实现
-  }, []);
+    clearAllDirty();
+    // planGenerated 不清，保持上一轮的状态
+  }, [clearAllDirty]);
 
   const handleProfileEditToggle = useCallback(() => {
     if (profileEditing) {
-      // 完成编辑 → 触发 AI 思考
+      // ✓ → 标记已更改，退出编辑（不触发 AI）
       setProfileEditing(false);
-      setChatStage("ai-thinking");
-      setTimeout(() => {
-        setChatStage("ai-result");
-      }, 2000);
+      setProfileChanged(true);
     } else {
       setProfileEditing(true);
     }
@@ -926,13 +947,101 @@ export function PhaseSummary({
 
   const handleProfileEditCancel = useCallback(() => {
     setProfileEditing(false);
-    // 恢复原始值
+    // 恢复到本次编辑前的状态（可能已是 dirty 状态的旧值）
+    setProfileValues(MOCK_PROFILE.map((p) => ({ ...p })));
+  }, []);
+
+  /** 撤回档案更改：恢复原始值 + 清除 dirty */
+  const handleProfileUndo = useCallback(() => {
+    setProfileChanged(false);
     setProfileValues(MOCK_PROFILE.map((p) => ({ ...p })));
   }, []);
 
   const handleProfileValueChange = useCallback((key: string, value: string) => {
     setProfileValues((prev) => prev.map((p) => (p.key === key ? { ...p, value } : p)));
   }, []);
+
+  const handlePlanEditToggle = useCallback(() => {
+    if (planEditing) {
+      // ✓ → 标记已更改，退出编辑（内容暂不变，待设计）
+      setPlanEditing(false);
+      setPlanChanged(true);
+    } else {
+      setPlanEditing(true);
+    }
+  }, [planEditing]);
+
+  const handlePlanEditCancel = useCallback(() => {
+    setPlanEditing(false);
+  }, []);
+
+  const handlePlanUndo = useCallback(() => {
+    setPlanChanged(false);
+  }, []);
+
+  // ── AI 对话栏变更提示小字 ──
+
+  const dirtyHint = useMemo(() => {
+    const parts: string[] = [];
+    if (chatChanged) parts.push("已说明需求");
+    if (profileChanged) parts.push("已更改学习档案");
+    if (planChanged) parts.push("已更改学习计划");
+    return parts.length > 0 ? `${parts.join("；")}。发送给AI以确认更改。` : "";
+  }, [chatChanged, profileChanged, planChanged]);
+
+  // ── 学习计划概览：阶段导航滑轨（复刻确认页 phase-track）──
+
+  const [trackPhaseIndex, setTrackPhaseIndex] = useState(0);
+  const trackTargetRef = useRef(0);
+  const trackNavRef = useRef<HTMLDivElement>(null);
+  const trackN = plan.phases.length;
+
+  const scrollTrackTo = useCallback(
+    (index: number) => {
+      const el = trackNavRef.current;
+      if (!el) return;
+      trackTargetRef.current = index;
+      setTrackPhaseIndex(index);
+      const basis = el.clientWidth / 4;
+      const snapIndex = Math.max(0, Math.min(index - 2, trackN - 4));
+      el.scrollTo({ left: phaseTrackOffsetOf(snapIndex, basis), behavior: "smooth" });
+    },
+    [trackN],
+  );
+
+  const handleTrackWheel = useCallback(
+    (e: WheelEvent) => {
+      // 只拦截纵向滚动（横向滚动留给 overflow-x: auto 原生行为）
+      if (Math.abs(e.deltaY) <= Math.abs(e.deltaX)) {
+        e.stopPropagation();
+        return;
+      }
+      e.preventDefault();
+      e.stopPropagation();
+      if (trackN <= 1) return;
+      const dir = e.deltaY > 0 ? 1 : -1;
+      const next = Math.max(0, Math.min(trackN - 1, trackTargetRef.current + dir));
+      if (next === trackTargetRef.current) return;
+      scrollTrackTo(next);
+    },
+    [trackN, scrollTrackTo],
+  );
+
+  // 原生事件监听（passive: false 确保 preventDefault 生效）
+  useEffect(() => {
+    const el = trackNavRef.current;
+    if (!el) return;
+    el.addEventListener("wheel", handleTrackWheel, { passive: false });
+    return () => el.removeEventListener("wheel", handleTrackWheel);
+  }, [handleTrackWheel]);
+
+  const handleTrackClick = useCallback(
+    (index: number) => {
+      if (index === trackTargetRef.current) return;
+      scrollTrackTo(index);
+    },
+    [scrollTrackTo],
+  );
 
   return (
     <div className="phase-summary">
@@ -953,7 +1062,8 @@ export function PhaseSummary({
       </div>
 
       {adjustMode ? (
-        <div className="ps-adjust-body">
+        <>
+          <div className="ps-adjust-body">
           {/* 1. AI 对话栏目 */}
           <div className="ps-adjust-section ps-adjust-chat">
             <h2 className="ps-adjust-chat-heading">调整学习方案</h2>
@@ -965,17 +1075,20 @@ export function PhaseSummary({
                   className="ps-adjust-chat-textarea"
                   placeholder="描述你想要的调整…"
                   value={chatInput}
-                  onChange={(e) => setChatInput(e.target.value)}
+                  onChange={(e) => { setChatInput(e.target.value); if (e.target.value.trim()) setChatChanged(true); }}
                   onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleChatSend(); } }}
                   rows={4}
                 />
-                <button
-                  className={`ps-adjust-chat-send${chatInput.trim() ? "" : " empty"}`}
-                  type="button"
-                  onClick={handleChatSend}
-                >
-                  发送
-                </button>
+                <div className="ps-adjust-chat-send-row">
+                  {dirtyHint && <span className="ps-adjust-chat-hint">{dirtyHint}</span>}
+                  <button
+                    className={`ps-adjust-chat-send${chatInput.trim() ? "" : " empty"}`}
+                    type="button"
+                    onClick={handleChatSend}
+                  >
+                    发送
+                  </button>
+                </div>
               </div>
             )}
 
@@ -994,11 +1107,12 @@ export function PhaseSummary({
                     </button>
                   ))}
                 </div>
+                {dirtyHint && <p className="ps-adjust-chat-hint ps-adjust-chat-hint-block">{dirtyHint}</p>}
                 <div className="ps-adjust-options-actions">
-                  <button className="ps-btn ps-btn-primary" type="button" onClick={handleGeneratePlan}>
+                  <button className="ps-btn ps-btn-primary" type="button" disabled={!selectedOption} onClick={handleGeneratePlan}>
                     确认并生成学习方案
                   </button>
-                  <button className="ps-btn ps-btn-secondary" type="button" onClick={handleContinueAdjust}>
+                  <button className="ps-btn ps-btn-secondary" type="button" disabled={!selectedOption} onClick={handleContinueAdjust}>
                     确认并继续调整
                   </button>
                 </div>
@@ -1016,11 +1130,12 @@ export function PhaseSummary({
                 <div className="ps-adjust-result-box">
                   我已经查看了你修改后的学习档案，你现在的基础和目标与之前相比有一些变化。是否需要继续为你调整方案，还是直接生成学习方案？
                 </div>
+                {dirtyHint && <p className="ps-adjust-chat-hint ps-adjust-chat-hint-block">{dirtyHint}</p>}
                 <div className="ps-adjust-options-actions">
-                  <button className="ps-btn ps-btn-primary" type="button" onClick={handleGeneratePlan}>
+                  <button className="ps-btn ps-btn-primary" type="button" disabled={!selectedOption} onClick={handleGeneratePlan}>
                     确认并生成学习方案
                   </button>
-                  <button className="ps-btn ps-btn-secondary" type="button" onClick={handleContinueAdjust}>
+                  <button className="ps-btn ps-btn-secondary" type="button" disabled={!selectedOption} onClick={handleContinueAdjust}>
                     确认并继续调整
                   </button>
                 </div>
@@ -1031,9 +1146,11 @@ export function PhaseSummary({
           {/* 2. 学习档案表格 */}
           <div className="ps-adjust-section ps-adjust-profile">
             <div className="ps-adjust-profile-header">
-              <div className="ps-adjust-section-title">学习档案</div>
+              <div className="ps-adjust-section-title">
+                学习档案{profileChanged && <span className="ps-adjust-dirty-star">*</span>}
+              </div>
               <div className="ps-adjust-edit-actions">
-                {profileEditing && (
+                {profileEditing ? (
                   <button
                     className="ps-adjust-edit-btn ps-adjust-edit-cancel"
                     type="button"
@@ -1042,7 +1159,16 @@ export function PhaseSummary({
                   >
                     <X size={16} />
                   </button>
-                )}
+                ) : profileChanged ? (
+                  <button
+                    className="ps-adjust-edit-btn ps-adjust-edit-undo"
+                    type="button"
+                    onClick={handleProfileUndo}
+                    title="撤回更改"
+                  >
+                    <Undo2 size={14} />
+                  </button>
+                ) : null}
                 <button
                   className="ps-adjust-edit-btn"
                   type="button"
@@ -1081,12 +1207,98 @@ export function PhaseSummary({
             </table>
           </div>
 
-          {/* 3. 学习计划概览（留空） */}
+          {/* 3. 学习计划概览（阶段导航滑轨 + 详情占位） */}
           <div className="ps-adjust-section ps-adjust-plan">
-            <div className="ps-adjust-section-title">学习计划概览</div>
-            <div className="ps-adjust-plan-placeholder" />
+            <div className="ps-adjust-profile-header">
+              <div className="ps-adjust-section-title">
+                学习计划概览{planChanged && <span className="ps-adjust-dirty-star">*</span>}
+              </div>
+              <div className="ps-adjust-edit-actions">
+                {planEditing ? (
+                  <button
+                    className="ps-adjust-edit-btn ps-adjust-edit-cancel"
+                    type="button"
+                    onClick={handlePlanEditCancel}
+                    title="取消编辑"
+                  >
+                    <X size={16} />
+                  </button>
+                ) : planChanged ? (
+                  <button
+                    className="ps-adjust-edit-btn ps-adjust-edit-undo"
+                    type="button"
+                    onClick={handlePlanUndo}
+                    title="撤回更改"
+                  >
+                    <Undo2 size={14} />
+                  </button>
+                ) : null}
+                <button
+                  className="ps-adjust-edit-btn"
+                  type="button"
+                  onClick={handlePlanEditToggle}
+                  title={planEditing ? "完成编辑" : "编辑计划"}
+                >
+                  {planEditing ? <Check size={16} /> : <Pencil size={14} />}
+                </button>
+              </div>
+            </div>
+            <div className="phase-track" ref={trackNavRef}>
+              <div className="phase-track-window">
+                {plan.phases.map((p, i) => (
+                  <div
+                    key={p.id}
+                    className={`phase-block${i === trackPhaseIndex ? " active" : ""}`}
+                    onClick={() => handleTrackClick(i)}
+                  >
+                    <span className="phase-block-num">{i + 1}</span>
+                    <span className="phase-block-name">{p.title}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="ps-adjust-plan-detail">
+              {(() => {
+                const tp = plan.phases[trackPhaseIndex];
+                const taskCount = tp.units.reduce((s, u) => s + u.tasks.length, 0);
+                return (
+                  <>
+                    <div className="ps-adjust-plan-detail-head">
+                      <span className="ps-adjust-plan-detail-badge">第 {tp.position + 1} 阶段</span>
+                      <span className="ps-adjust-plan-detail-title">{tp.title}</span>
+                    </div>
+                    <p className="ps-adjust-plan-detail-objective">{tp.objective}</p>
+                    <dl className="ps-adjust-plan-detail-stats">
+                      <div className="ps-adjust-plan-detail-stat">
+                        <dt>章节</dt>
+                        <dd>{tp.units.length} 章</dd>
+                      </div>
+                      <div className="ps-adjust-plan-detail-stat">
+                        <dt>任务</dt>
+                        <dd>{taskCount} 个</dd>
+                      </div>
+                      <div className="ps-adjust-plan-detail-stat">
+                        <dt>预估</dt>
+                        <dd>{Math.round(tp.estimated_minutes / 60)} 小时</dd>
+                      </div>
+                    </dl>
+                  </>
+                );
+              })()}
+            </div>
           </div>
         </div>
+        <div className="ps-adjust-footer">
+          <button
+            className={`ps-btn ps-adjust-confirm-btn${planGenerated && !profileChanged && !planChanged ? " active" : ""}`}
+            type="button"
+            disabled={!(planGenerated && !profileChanged && !planChanged)}
+            onClick={() => setAdjustMode(false)}
+          >
+            确认方案
+          </button>
+        </div>
+        </>
       ) : (
         <>
           {/* 三栏主体 */}

@@ -8999,6 +8999,12 @@ button.mistake-source-row:hover {
   background: var(--green-800);
 }
 
+.ps-btn-primary:disabled {
+  background: #d1d5db;
+  color: #9ca3af;
+  cursor: default;
+}
+
 .ps-btn-secondary {
   background: var(--app-bg);
   color: var(--ink);
@@ -9007,6 +9013,13 @@ button.mistake-source-row:hover {
 
 .ps-btn-secondary:hover {
   background: #e8edea;
+}
+
+.ps-btn-secondary:disabled {
+  background: #e5e7eb;
+  color: #9ca3af;
+  border-color: #d1d5db;
+  cursor: default;
 }
 
 .ps-footer-note {
@@ -9021,9 +9034,27 @@ button.mistake-source-row:hover {
 .ps-adjust-body {
   flex: 1;
   overflow-y: auto;
+  scrollbar-gutter: stable;
   display: flex;
   flex-direction: column;
   gap: 0;
+}
+
+.ps-adjust-body::-webkit-scrollbar {
+  width: 5px;
+}
+
+.ps-adjust-body::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.ps-adjust-body::-webkit-scrollbar-thumb {
+  border-radius: 3px;
+  background: #c7d0cc;
+}
+
+.ps-adjust-body::-webkit-scrollbar-thumb:hover {
+  background: #a3b0aa;
 }
 
 .ps-adjust-section {
@@ -9316,6 +9347,142 @@ button.mistake-source-row:hover {
   border-radius: 8px;
   border: 1.5px dashed var(--border-strong);
   background: var(--app-bg);
+}
+
+.ps-adjust-dirty-star {
+  color: #e53e3e;
+  margin-left: 2px;
+}
+
+/* ── AI 对话栏变更提示小字 ── */
+
+.ps-adjust-chat-send-row {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
+.ps-adjust-chat-hint {
+  font-size: 11px;
+  color: var(--quiet);
+  line-height: 1.5;
+  flex: 1;
+  min-width: 0;
+}
+
+.ps-adjust-chat-hint-block {
+  margin-bottom: 10px;
+}
+
+/* ── 学习计划详情框 ── */
+
+.ps-adjust-plan-detail {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  margin-top: 14px;
+  padding: 14px 16px;
+  background: #f8fbfa;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.ps-adjust-plan-detail-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.ps-adjust-plan-detail-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: var(--green-100);
+  color: var(--green-800);
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.ps-adjust-plan-detail-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.ps-adjust-plan-detail-objective {
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--quiet);
+  margin: 0 0 12px;
+}
+
+.ps-adjust-plan-detail-stats {
+  display: flex;
+  gap: 16px;
+  margin: 0;
+}
+
+.ps-adjust-plan-detail-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ps-adjust-plan-detail-stat dt {
+  font-size: 11px;
+  color: var(--quiet);
+  margin: 0;
+}
+
+.ps-adjust-plan-detail-stat dd {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+  margin: 0;
+}
+
+/* ── 撤回按钮 ── */
+
+.ps-adjust-edit-undo:hover {
+  background: #fef3c7;
+  color: #b45309;
+}
+
+/* ── 底部确认方案按钮 ── */
+
+.ps-adjust-footer {
+  flex: 0 0 auto;
+  display: flex;
+  justify-content: center;
+  padding: 12px 16px;
+  border-top: 1px solid var(--border);
+}
+
+.ps-adjust-confirm-btn {
+  border: none;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 160ms ease, transform 120ms ease;
+  background: #d1d5db;
+  color: #9ca3af;
+}
+
+.ps-adjust-confirm-btn.active {
+  background: var(--green-700);
+  color: #fff;
+}
+
+.ps-adjust-confirm-btn.active:hover {
+  background: var(--green-800);
+}
+
+.ps-adjust-confirm-btn:active {
+  transform: scale(0.97);
 }
 
 /* =============================================
