@@ -173,6 +173,20 @@ def session_update(request, session_id):
     return Response({"status": "ok"})
 
 
+@extend_schema(
+    summary="删除建课会话",
+    responses={200: {"description": "删除成功"}, 404: {"description": "会话不存在"}},
+)
+@api_view(["DELETE"])
+def session_delete(request, session_id):
+    try:
+        session = _get_session(session_id)
+    except ValueError as exc:
+        return Response({"error": str(exc)}, status=404)
+    session.delete()
+    return Response({"status": "deleted"})
+
+
 # ── Inquiry 追问 ──
 
 

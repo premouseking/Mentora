@@ -24,12 +24,13 @@ from mentora.courses.views import (
     course_scope_suggest,
     inquiry_next,
     plan_handler,
+    session_delete,
     session_detail,
     session_list_or_create,
     session_start,
     session_update,
 )
-from mentora.knowledge.views import folder_create, folder_delete, folder_list, folder_rename, list_sources, list_tags, source_archive, source_delete, source_detail, source_move, source_reparse, source_unarchive, source_update_tags, upload_complete, upload_create
+from mentora.knowledge.views import course_sources, folder_create, folder_delete, folder_list, folder_rename, list_sources, list_tags, source_archive, source_delete, source_detail, source_move, source_reparse, source_unarchive, source_update_tags, upload_complete, upload_create
 from mentora.parsing.views import get_benchmark, preview_parse
 from mentora.topics.views import (
     topic_add_edge,
@@ -67,6 +68,8 @@ urlpatterns = [
     path("api/courses/sessions/", session_list_or_create, name="session-list-create"),
     path("api/courses/sessions/<uuid:session_id>/", session_detail, name="session-detail"),
     path("api/courses/sessions/<uuid:session_id>/update/", session_update, name="session-update"),
+    path("api/courses/sessions/<uuid:session_id>/delete/", session_delete, name="session-delete"),
+    path("api/courses/sessions/<uuid:session_id>/start/", session_start, name="session-start"),
     path("api/courses/sessions/<uuid:session_id>/inquiry/", inquiry_next, name="inquiry-next"),
     path("api/courses/sessions/<uuid:session_id>/plan/", plan_handler, name="plan-handler"),
     # 课程管理
@@ -77,6 +80,8 @@ urlpatterns = [
     path("api/courses/<uuid:course_id>/scope/", course_scope_extend, name="course-scope-extend"),
     path("api/courses/<uuid:course_id>/scope-suggest/", course_scope_suggest, name="course-scope-suggest"),
     path("api/courses/<uuid:course_id>/activate/", course_activate, name="course-activate"),
+    # 课程资料关联
+    path("api/courses/sessions/<uuid:session_id>/sources/", course_sources, name="course-sources"),
     # 上传
     path("api/uploads/", upload_create, name="upload-create"),
     path("api/uploads/complete/", upload_complete, name="upload-complete"),
