@@ -391,8 +391,77 @@ def complete_task(task_id: str) -> dict:
     task.completed_at = timezone.now()
     task.save(update_fields=["status", "completed_at"])
 
+    # 写入学习记录
+    try:
+        course_id = str(task.unit.revision.learning_plan.course_session_id) if task.unit.revision.learning_plan.course_session_id else ""
+    except Exception:
+        course_id = ""
+    write_history_event(
+        course_id=course_id,
+        event_type="task_completed",
+        title=f"完成任务：{task.title}",
+        detail="学习任务已完成。",
+        result="已完成",
+        task_id=str(task.id),
+    )
+
     return {
         "task_id": str(task.id),
         "status": task.status,
         "completed_at": task.completed_at.isoformat() if task.completed_at else None,
     }
+
+
+def write_history_event(
+    course_id: str,
+    event_type: str,
+    title: str,
+    *,
+    detail: str = "",
+    result: str = "",
+    task_id: str = "",
+    phase_id: str = "",
+) -> dict:
+    """写入一条学习记录事件。"""
+    from mentora.learning.models import LearningHistoryEvent
+
+    event = LearningHistoryEvent.objects.create(
+        course_id=course_id,
+        event_type=event_type,
+        title=title,
+        detail=detail,
+        result=result,
+        task_id=task_id,
+        phase_id=phase_id,
+    )
+    return {
+        "id": str(event.id),
+        "event_type": event.event_type,
+        "title": event.title,
+        "created_at": event.created_at.isoformat(),
+    }
+
+
+def get_history(course_id: str, *, limit: int = 50) -> list[dict]:
+    """获取课程学习记录，按时间倒序。"""
+    from mentora.learning.models import LearningHistoryEvent
+
+    events = LearningHistoryEvent.objects.filter(
+        course_id=course_id,
+    ).order_by("-created_at")[:limit]
+
+    return [
+        {
+            "id": str(e.id),
+            "type": e.event_type,
+            "date": e.created_at.strftime("%Y-%m-%d"),
+            "time": e.created_at.strftime("%H:%M"),
+            "courseId": e.course_id,
+            "title": e.title,
+            "detail": e.detail,
+            "result": e.result,
+            "taskId": e.task_id,
+            "phaseId": e.phase_id,
+        }
+        for e in events
+    ]

@@ -173,6 +173,20 @@ def session_update(request, session_id):
     return Response({"status": "ok"})
 
 
+@extend_schema(
+    summary="删除建课会话",
+    responses={200: {"description": "删除成功"}, 404: {"description": "会话不存在"}},
+)
+@api_view(["DELETE"])
+def session_delete(request, session_id):
+    try:
+        session = _get_session(session_id)
+    except ValueError as exc:
+        return Response({"error": str(exc)}, status=404)
+    session.delete()
+    return Response({"status": "deleted"})
+
+
 # ── Inquiry 追问 ──
 
 
@@ -372,11 +386,13 @@ def _plan_detail(request, session_id):
         return Response({"error": str(exc)}, status=404)
 
     from mentora.learning.services import get_active_plan
+    from mentora.topics.services import get_topic_tree
 
     plan = get_active_plan(session_id)
     if plan is None:
         return Response({"error": "该课程尚未生成学习方案"}, status=404)
 
+    plan["topics"] = get_topic_tree(session_id)
     return Response(plan)
 
 
@@ -460,8 +476,27 @@ def _plan_generate(request, session_id):
             knowledge_scope_revision_id="",
         )
         revision_id = revision["revision_id"]
-        # 立即激活，使工作区页面可以查到方案
         activate_revision(revision_id)
+
+        # 自动构建主题树 + 证据关联（LLM 输出中的 topics）
+        topics_data = plan_output.get("topics", [])
+        if topics_data:
+            from mentora.topics.models import Topic
+            from mentora.topics.services import build_topic_tree, link_evidence
+
+            build_topic_tree(session_id, [
+                {"name": t["name"], "level": 0, "position": idx,
+                 "estimated_minutes": 0}
+                for idx, t in enumerate(topics_data)
+            ])
+            for t in topics_data:
+                eids = t.get("evidence_ids", [])
+                if eids:
+                    topic = Topic.objects.filter(
+                        course_id=session_id, name=t["name"]
+                    ).first()
+                    if topic:
+                        link_evidence(str(topic.id), eids)
     except Exception:
         # 持久化失败不影响方案返回，前端可继续展示
         pass

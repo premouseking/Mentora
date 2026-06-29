@@ -139,6 +139,16 @@ def upload_complete(request):
     except ValueError as exc:
         return Response({"error": str(exc)}, status=400)
 
+    # 写入学习记录
+    from mentora.learning.services import write_history_event
+    write_history_event(
+        course_id="",
+        event_type="source_added",
+        title=f"上传资料：{result.get('original_filename', '') or '新资料'}",
+        detail="资料解析完成。",
+        result=f"{result.get('byte_size', 0)} bytes",
+    )
+
     return Response(result)
 
 
@@ -573,3 +583,57 @@ def source_move(request, source_id):
     source.folder_id = folder_id if folder_id else None
     source.save(update_fields=["folder"])
     return Response({"id": str(source.id), "folderId": str(source.folder_id) if source.folder_id else None})
+
+
+@extend_schema(
+    summary="课程资料管理",
+    description="GET 列出课程已关联资料；POST 批量替换关联。",
+    methods=["GET", "POST"],
+    request={
+        "application/json": {
+            "type": "object",
+            "properties": {
+                "source_version_ids": {
+                    "type": "array", "items": {"type": "string"},
+                    "description": "资料版本 ID 列表（POST 时使用）",
+                },
+            },
+        },
+    },
+    responses={200: {"description": "资料列表或设置成功"}},
+)
+@api_view(["GET", "POST"])
+def course_sources(request, session_id):
+    if request.method == "GET":
+        items = CourseSource.objects.filter(
+            course_session_id=str(session_id),
+        ).select_related("source_version").order_by("id")
+        result = []
+        for cs in items:
+            sv = cs.source_version
+            result.append({
+                "id": str(sv.id),
+                "sourceId": str(sv.source.id),
+                "displayTitle": sv.source.display_title,
+                "originalFilename": sv.original_filename,
+                "byteSize": sv.byte_size,
+                "processingStatus": sv.processing_status,
+            })
+        return Response({"items": result, "count": len(result)})
+
+    # POST
+    try:
+        body = _parse_json_body(request)
+    except json.JSONDecodeError:
+        return Response({"error": "无效 JSON"}, status=400)
+
+    sv_ids = body.get("source_version_ids", [])
+    # 清空旧关联
+    CourseSource.objects.filter(course_session_id=str(session_id)).delete()
+    # 写入新关联
+    for sv_id in sv_ids:
+        CourseSource.objects.create(
+            course_session_id=str(session_id),
+            source_version_id=sv_id,
+        )
+    return Response({"count": len(sv_ids)})

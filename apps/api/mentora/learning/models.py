@@ -281,3 +281,40 @@ class LearningTask(models.Model):
         indexes = [
             models.Index(fields=["revision", "status"]),
         ]
+
+
+class LearningHistoryEvent(models.Model):
+    """学习记录事件——追踪课程中的每一个关键行为。"""
+
+    class EventType(models.TextChoices):
+        TASK_COMPLETED = "task_completed", "完成学习任务"
+        TASK_STARTED = "task_started", "开始学习任务"
+        CHECK_PASSED = "check_passed", "通过检查点"
+        CHECK_FAILED = "check_failed", "检查未通过"
+        STAGE_CHANGED = "stage_changed", "阶段切换"
+        PLAN_ADJUSTED = "plan_adjusted", "方案调整"
+        SOURCE_ADDED = "source_added", "新增课程资料"
+        SOURCE_UPDATED = "source_updated", "资料版本更新"
+        QUIZ_ATTEMPTED = "quiz_attempted", "尝试测验"
+        SKILL_MASTERED = "skill_mastered", "技能掌握"
+        COURSE_STARTED = "course_started", "开始课程"
+        COURSE_PAUSED = "course_paused", "暂停课程"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    course_id = models.CharField(max_length=128, db_index=True, help_text="关联课程 ID")
+    event_type = models.CharField(max_length=20, choices=EventType.choices)
+    title = models.CharField(max_length=512)
+    detail = models.TextField(blank=True, default="")
+    result = models.CharField(max_length=128, blank=True, default="")
+    task_id = models.CharField(max_length=128, blank=True, default="")
+    phase_id = models.CharField(max_length=128, blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        db_table = "learning_history_event"
+        verbose_name = "学习记录"
+        verbose_name_plural = verbose_name
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["course_id", "-created_at"]),
+        ]

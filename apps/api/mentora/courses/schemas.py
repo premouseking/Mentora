@@ -74,11 +74,25 @@ class PlanPhase(BaseModel):
     tasks: list[str] = Field(description="代表性任务列表")
 
 
+class TopicItem(BaseModel):
+    """PlannerAgent 输出的主题-证据关联。"""
+
+    name: str = Field(description="主题名称")
+    evidence_ids: list[str] = Field(
+        default_factory=list, description="支撑该主题的 EvidenceUnit ID 列表"
+    )
+
+
 class PlanResponse(BaseModel):
     """PlannerAgent 方案输出。
 
     title 字段由 LLM 根据用户目标生成简洁课程标题（≤15 字）。
+    topics 由 LLM 根据资料内容自动标注主题-证据关联。
     """
 
     title: str = Field(description="课程标题，≤15字")
     phases: list[PlanPhase] = Field(description="学习阶段列表（4-5 个阶段）")
+    topics: list[TopicItem] = Field(
+        default_factory=list,
+        description="主题与证据映射，LLM 自动标注",
+    )
