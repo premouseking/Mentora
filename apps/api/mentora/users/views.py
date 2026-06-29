@@ -223,12 +223,4 @@ def change_password(request):
 )
 @api_view(["POST"])
 def logout(request):
-    from rest_framework_simplejwt.tokens import RefreshToken
-    refresh = (request.data.get("refresh") or "").strip()
-    if refresh:
-        try:
-            token = RefreshToken(refresh)
-            token.blacklist()
-        except Exception:
-            pass
     return Response({"status": "已登出"})

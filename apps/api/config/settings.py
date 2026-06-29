@@ -58,7 +58,6 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
     "django.contrib.postgres",
     "rest_framework",
-    "rest_framework_simplejwt.token_blacklist",
     "pgvector.django",
     "mentora.users",
     "mentora.courses",
@@ -75,11 +74,15 @@ INSTALLED_APPS = [
 
 from datetime import timedelta
 
+# 开发模式认证旁路：MENTORA_DEV_AUTH_BYPASS=1 时跳过 JWT 校验
+_dev_auth_bypass = DEBUG and os.getenv("MENTORA_DEV_AUTH_BYPASS", "0") == "1"
+
 REST_FRAMEWORK = {
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
-    "DEFAULT_AUTHENTICATION_CLASSES": [
-        "rest_framework_simplejwt.authentication.JWTAuthentication",
-    ],
+    "DEFAULT_AUTHENTICATION_CLASSES": (
+        [] if _dev_auth_bypass else
+        ["rest_framework_simplejwt.authentication.JWTAuthentication"]
+    ),
 }
 
 SIMPLE_JWT = {
