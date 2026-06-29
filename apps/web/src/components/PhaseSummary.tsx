@@ -221,6 +221,14 @@ const MOCK_PLAN = {
   ],
 };
 
+/* ── 初始已完成任务（mock 数据） ── */
+const COMPLETED_TASKS_INIT = [
+  // 第一阶段第一章「集合与逻辑」：全部完成
+  "p1-u1-t1", "p1-u1-t2", "p1-u1-t3", "p1-u1-t4",
+  // 第一阶段第二章「函数基础」：前两个任务完成
+  "p1-u2-t1", "p1-u2-t2",
+];
+
 /* ── 任务类型标签 ── */
 
 const TASK_TYPE_LABEL: Record<string, string> = {
@@ -247,10 +255,12 @@ function offsetOf(index: number, blockBasis: number) {
 function PhaseNav({
   phases,
   activeIndex,
+  completedIndices,
   onSelect,
 }: {
   phases: NavPhase[];
   activeIndex: number;
+  completedIndices: Set<number>;
   /** 点击阶段块：无论是否已选中都触发，由父组件决定行为 */
   onSelect: (i: number) => void;
 }) {
@@ -312,7 +322,7 @@ function PhaseNav({
         {phases.map((phase, i) => (
           <div
             key={phase.id}
-            className={`ps-phase-nav-block${i === activeIndex ? " active" : ""}`}
+            className={`ps-phase-nav-block${i === activeIndex ? " active" : ""}${completedIndices.has(i) ? " completed" : ""}`}
             onClick={() => handleClick(i)}
           >
             <span className="ps-phase-nav-num">{i + 1}</span>
@@ -422,10 +432,12 @@ type Selection =
 function PhaseCanvas({
   units,
   selected,
+  completedTasks,
   onSelect,
 }: {
   units: typeof MOCK_PLAN.phases[0]["units"];
   selected: Selection;
+  completedTasks: Set<string>;
   onSelect: (s: Selection) => void;
 }) {
   const layout = useMemo(() => computeLayout(units), [units]);
@@ -521,29 +533,35 @@ function PhaseCanvas({
           </svg>
 
           {/* DOM 节点层 */}
-          {chapters.map((ch) => (
+          {chapters.map((ch) => {
+            const chAllDone = units.find((u) => u.id === ch.id)?.tasks.every((t) => completedTasks.has(t.id)) ?? false;
+            return (
             <div key={ch.id}>
               <button
                 type="button"
-                className={`ps-node ps-node-chapter${selected?.kind === "chapter" && selected.id === ch.id ? " selected" : ""}`}
+                className={`ps-node ps-node-chapter${selected?.kind === "chapter" && selected.id === ch.id ? " selected" : ""}${chAllDone ? " completed" : ""}`}
                 style={{ left: ch.x, top: ch.y, width: ch.w, height: ch.h }}
                 onClick={() => onSelect({ kind: "chapter", id: ch.id })}
               >
                 {ch.title}
               </button>
-              {ch.tasks.map((t) => (
+              {ch.tasks.map((t) => {
+                const tDone = completedTasks.has(t.id);
+                return (
                 <button
                   key={t.id}
                   type="button"
-                  className={`ps-node ps-node-task${selected?.kind === "task" && selected.id === t.id ? " selected" : ""}`}
+                  className={`ps-node ps-node-task${selected?.kind === "task" && selected.id === t.id ? " selected" : ""}${tDone ? " completed" : ""}`}
                   style={{ left: t.x, top: t.y, width: t.w, height: t.h }}
                   onClick={() => onSelect({ kind: "task", id: t.id })}
                 >
                   {t.label}
                 </button>
-              ))}
+                );
+              })}
             </div>
-          ))}
+            );
+          })}
         </div>
       </div>
     </div>
@@ -574,20 +592,32 @@ type DetailInfo = {
   materials: Material[];
   /** 练习任务显示「开始练习」按钮 */
   showStartButton: boolean;
+  /** 非练习类任务，显示「确认完成」按钮 */
+  isKnowledgeTask: boolean;
 };
 
 function PhaseDetail({
   phase,
   units,
   selected,
+  completedTasks,
+  confirmTaskId,
   onOpenMaterial,
   onClose,
+  onRequestComplete,
+  onCancelConfirm,
+  onConfirmComplete,
 }: {
   phase: typeof MOCK_PLAN.phases[0];
   units: typeof MOCK_PLAN.phases[0]["units"];
   selected: Selection;
+  completedTasks: Set<string>;
+  confirmTaskId: string | null;
   onOpenMaterial: (m: Material) => void;
   onClose: () => void;
+  onRequestComplete: (taskId: string) => void;
+  onCancelConfirm: () => void;
+  onConfirmComplete: () => void;
 }) {
   const info = useMemo<DetailInfo | null>(() => {
     if (!selected) return null;
@@ -605,6 +635,7 @@ function PhaseDetail({
         summary: phase.objective,
         materials: [],
         showStartButton: false,
+        isKnowledgeTask: false,
       };
     }
     if (selected.kind === "chapter") {
@@ -622,6 +653,7 @@ function PhaseDetail({
         summary: `本章节包含 ${u.tasks.length} 个学习任务，涵盖${u.tasks.map((t) => TASK_TYPE_LABEL[t.task_type] ?? t.task_type).join("、")}等类型，预计用时 ${formatMinutes(u.estimated_minutes)}。`,
         materials: [],
         showStartButton: false,
+        isKnowledgeTask: false,
       };
     }
     for (const u of units) {
@@ -656,6 +688,7 @@ function PhaseDetail({
             : `通过项目实践巩固「${t.knowledge_point ?? title}」，预计用时 ${formatMinutes(t.estimated_minutes)}。`,
           materials: t.materials ?? [],
           showStartButton: isExercise,
+          isKnowledgeTask: !isExercise,
         };
       }
     }
@@ -718,11 +751,43 @@ function PhaseDetail({
         </div>
       )}
 
-      {/* 练习任务：开始练习按钮 */}
-      {info.showStartButton && (
-        <button type="button" className="ps-detail-start-btn" onClick={onClose}>
-          开始练习
-        </button>
+      {/* 任务底部操作区：已完成 → ✓ 已完成；未完成 → 练习/知识点各自按钮 */}
+      {info.type === "task" && selected && selected.kind === "task" && (
+        <>
+          {completedTasks.has(selected.id) ? (
+            <div className="ps-detail-done-badge">✓ 已完成</div>
+          ) : info.showStartButton ? (
+            <button type="button" className="ps-detail-start-btn" onClick={onClose}>
+              开始练习
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="ps-detail-complete-btn"
+              onClick={(e) => { e.stopPropagation(); onRequestComplete(selected.id); }}
+            >
+              确认完成
+            </button>
+          )}
+        </>
+      )}
+
+      {/* 二次确认弹窗 */}
+      {confirmTaskId && selected && selected.kind === "task" && confirmTaskId === selected.id && (
+        <div className="ps-confirm-overlay" onPointerDown={(e) => e.stopPropagation()}>
+          <div className="ps-confirm-dialog">
+            <p className="ps-confirm-text">确认已完成此学习任务？</p>
+            <p className="ps-confirm-hint">完成后将更新学习进度</p>
+            <div className="ps-confirm-actions">
+              <button className="ps-confirm-cancel" type="button" onClick={(e) => { e.stopPropagation(); onCancelConfirm(); }}>
+                取消
+              </button>
+              <button className="ps-confirm-ok" type="button" onClick={(e) => { e.stopPropagation(); onConfirmComplete(); }}>
+                确认完成
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
@@ -738,7 +803,22 @@ export function PhaseSummary({
   const plan = MOCK_PLAN;
   const [activePhase, setActivePhase] = useState(0);
   const [selected, setSelected] = useState<Selection>({ kind: "phase", id: plan.phases[0].id });
+  const [completedTasks, setCompletedTasks] = useState<Set<string>>(
+    () => new Set(COMPLETED_TASKS_INIT),
+  );
+  const [confirmTaskId, setConfirmTaskId] = useState<string | null>(null);
   const phase = plan.phases[activePhase];
+
+  // 已完成的阶段索引
+  const completedPhaseIndices = useMemo(() => {
+    const result = new Set<number>();
+    plan.phases.forEach((p, pi) => {
+      if (p.units.length > 0 && p.units.every((u) => u.tasks.every((t) => completedTasks.has(t.id)))) {
+        result.add(pi);
+      }
+    });
+    return result;
+  }, [plan.phases, completedTasks]);
 
   // 点击左栏阶段块：未选中→切换阶段并显示阶段信息；已选中→仅把右栏切回阶段信息
   const handleSelectPhase = useCallback((i: number) => {
@@ -750,6 +830,26 @@ export function PhaseSummary({
   const handleOpenMaterial = useCallback(() => {
     onClose();
   }, [onClose]);
+
+  // 完成确认相关
+  const handleRequestComplete = useCallback((taskId: string) => {
+    setConfirmTaskId(taskId);
+  }, []);
+
+  const handleCancelConfirm = useCallback(() => {
+    setConfirmTaskId(null);
+  }, []);
+
+  const handleConfirmComplete = useCallback(() => {
+    if (confirmTaskId) {
+      setCompletedTasks((prev) => {
+        const next = new Set(prev);
+        next.add(confirmTaskId);
+        return next;
+      });
+      setConfirmTaskId(null);
+    }
+  }, [confirmTaskId]);
 
   return (
     <div className="phase-summary">
@@ -766,11 +866,22 @@ export function PhaseSummary({
       {/* 三栏主体 */}
       <div className="ps-layout">
         {/* 左栏：纵向阶段导航 */}
-        <PhaseNav phases={plan.phases} activeIndex={activePhase} onSelect={handleSelectPhase} />
+        <PhaseNav phases={plan.phases} activeIndex={activePhase} completedIndices={completedPhaseIndices} onSelect={handleSelectPhase} />
         {/* 中栏：主干 + 分支画板 */}
-        <PhaseCanvas units={phase.units} selected={selected} onSelect={setSelected} />
+        <PhaseCanvas units={phase.units} selected={selected} completedTasks={completedTasks} onSelect={setSelected} />
         {/* 右栏：详情 */}
-        <PhaseDetail phase={phase} units={phase.units} selected={selected} onOpenMaterial={handleOpenMaterial} onClose={onClose} />
+        <PhaseDetail
+          phase={phase}
+          units={phase.units}
+          selected={selected}
+          completedTasks={completedTasks}
+          confirmTaskId={confirmTaskId}
+          onOpenMaterial={handleOpenMaterial}
+          onClose={onClose}
+          onRequestComplete={handleRequestComplete}
+          onCancelConfirm={handleCancelConfirm}
+          onConfirmComplete={handleConfirmComplete}
+        />
       </div>
 
       {/* 底部按钮 */}

@@ -559,40 +559,7 @@ export function CourseWorkspacePage() {
   /* ── Bottom trigger → open phase summary ── */
   const handleBottomClick = useCallback(() => setPhaseSummaryOpen(true), []);
 
-  /* ── Swipe down → close phase summary ── */
-  const psRef = useRef<HTMLDivElement>(null);
-  const psSwipeStart = useRef<{ y: number; moved: boolean; active: boolean }>({ y: 0, moved: false, active: false });
-  const handlePSPointerDown = useCallback((e: React.PointerEvent) => {
-    psSwipeStart.current = { y: e.clientY, moved: false, active: true };
-    if (psRef.current) psRef.current.style.transition = "none";
-    e.currentTarget.setPointerCapture(e.pointerId);
-  }, []);
-  const handlePSPointerMove = useCallback(
-    (e: React.PointerEvent) => {
-      if (!phaseSummaryOpen || !psSwipeStart.current.active) return;
-      const dy = e.clientY - psSwipeStart.current.y;
-      if (dy > 20) psSwipeStart.current.moved = true;
-      if (psSwipeStart.current.moved && psRef.current) {
-        psRef.current.style.transform = `translateY(${Math.max(0, dy)}px)`;
-        psRef.current.style.opacity = String(Math.max(0.3, 1 - dy / 300));
-      }
-    },
-    [phaseSummaryOpen],
-  );
-  const handlePSPointerUp = useCallback(
-    (e: React.PointerEvent) => {
-      if (!phaseSummaryOpen || !psSwipeStart.current.active) return;
-      psSwipeStart.current.active = false;
-      const dy = e.clientY - psSwipeStart.current.y;
-      if (psRef.current) {
-        psRef.current.style.transform = "";
-        psRef.current.style.opacity = "";
-        psRef.current.style.transition = "";
-      }
-      if (psSwipeStart.current.moved && dy > 60) setPhaseSummaryOpen(false);
-    },
-    [phaseSummaryOpen],
-  );
+
 
   /* ── Resize file explorer ── */
   const explorerResizeRef = useRef(false);
@@ -824,11 +791,7 @@ export function CourseWorkspacePage() {
 
         {/* Phase summary overlay */}
         <div
-          ref={psRef}
           className={`phase-summary-overlay${phaseSummaryOpen ? " open" : ""}`}
-          onPointerDown={handlePSPointerDown}
-          onPointerMove={handlePSPointerMove}
-          onPointerUp={handlePSPointerUp}
         >
           {phaseSummaryOpen && (
             <PhaseSummary onClose={() => setPhaseSummaryOpen(false)} />

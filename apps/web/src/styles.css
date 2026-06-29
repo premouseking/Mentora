@@ -8245,6 +8245,30 @@ button.mistake-source-row:hover {
   z-index: 1;
 }
 
+.ps-phase-nav-block.completed {
+  border-color: var(--green-600, #3a8a77);
+  background: var(--green-100, #d4ede6);
+  color: var(--green-800, #235c4e);
+}
+
+.ps-phase-nav-block.completed .ps-phase-nav-num {
+  border-color: var(--green-600, #3a8a77);
+  background: var(--green-600, #3a8a77);
+  color: #fff;
+}
+
+.ps-phase-nav-block.completed.active {
+  border-color: var(--green-900);
+  background: var(--green-900);
+  color: #fff;
+}
+
+.ps-phase-nav-block.completed.active .ps-phase-nav-num {
+  border-color: rgb(255 255 255 / 55%);
+  background: transparent;
+  color: #fff;
+}
+
 .ps-phase-nav-num {
   display: inline-flex;
   width: 20px;
@@ -8348,8 +8372,44 @@ button.mistake-source-row:hover {
   box-shadow: 0 0 0 2px rgb(45 110 95 / 12%);
 }
 
+/* 任务节点：已完成 */
+.ps-node-task.completed {
+  border-color: var(--green-600, #3a8a77);
+  background: var(--green-100, #d4ede6);
+  color: var(--green-800, #235c4e);
+}
+
+.ps-node-task.completed:hover {
+  border-color: var(--green-700, #2d6e5f);
+  background: var(--green-200, #b8e0d5);
+}
+
+.ps-node-task.completed.selected {
+  border-color: var(--green-700);
+  background: var(--green-200, #b8e0d5);
+  box-shadow: 0 0 0 2px rgb(45 110 95 / 18%);
+}
+
+/* 章节节点：已完成 */
+.ps-node-chapter.completed {
+  border-color: var(--green-600, #3a8a77);
+  background: var(--green-100, #d4ede6);
+  color: var(--green-800, #235c4e);
+}
+
+.ps-node-chapter.completed:hover {
+  border-color: var(--green-700, #2d6e5f);
+  background: var(--green-200, #b8e0d5);
+}
+
+.ps-node-chapter.completed.selected {
+  border-color: var(--green-700);
+  background: var(--green-200, #b8e0d5);
+}
+
 /* 右栏：详情 */
 .ps-detail {
+  position: relative;
   flex: 0 0 280px;
   border-left: 1px solid var(--border);
   padding: 20px 18px;
@@ -8483,10 +8543,129 @@ button.mistake-source-row:hover {
   font-size: 14px;
   font-weight: 600;
   cursor: pointer;
+  position: relative;
+  z-index: 2;
+  user-select: none;
   transition: background .15s;
 }
 
 .ps-detail-start-btn:hover {
+  background: var(--green-900, #1f4e44);
+}
+
+/* 确认完成按钮 */
+.ps-detail-complete-btn {
+  display: block;
+  width: 100%;
+  margin-top: 8px;
+  padding: 10px 16px;
+  border: 1.5px solid var(--green-600, #3a8a77);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--green-700, #2d6e5f);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  position: relative;
+  z-index: 2;
+  user-select: none;
+  transition: background .15s, border-color .15s, color .15s;
+}
+
+.ps-detail-complete-btn:hover {
+  background: var(--green-50, #eef7f4);
+  border-color: var(--green-700, #2d6e5f);
+}
+
+/* 已完成标记 */
+.ps-detail-done-badge {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  width: 100%;
+  margin-top: 8px;
+  padding: 10px 16px;
+  border-radius: 8px;
+  background: var(--green-100, #d4ede6);
+  color: var(--green-800, #235c4e);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+/* 二次确认弹窗 */
+.ps-confirm-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgb(0 0 0 / 35%);
+  z-index: 20;
+  border-radius: 0;
+  user-select: none;
+}
+
+.ps-confirm-dialog {
+  background: #fff;
+  border-radius: 12px;
+  padding: 24px 20px 20px;
+  text-align: center;
+  max-width: 220px;
+  width: 90%;
+  box-shadow: 0 8px 32px rgb(0 0 0 / 16%);
+}
+
+.ps-confirm-text {
+  margin: 0 0 6px;
+  font-size: 14px;
+  font-weight: 650;
+  color: var(--ink);
+}
+
+.ps-confirm-hint {
+  margin: 0 0 18px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.ps-confirm-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+}
+
+.ps-confirm-cancel {
+  flex: 1;
+  padding: 8px 12px;
+  border: 1.5px solid var(--border-strong);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 550;
+  cursor: pointer;
+  transition: background .15s;
+}
+
+.ps-confirm-cancel:hover {
+  background: #f5f5f5;
+}
+
+.ps-confirm-ok {
+  flex: 1;
+  padding: 8px 12px;
+  border: none;
+  border-radius: 8px;
+  background: var(--green-700, #2d6e5f);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background .15s;
+}
+
+.ps-confirm-ok:hover {
   background: var(--green-900, #1f4e44);
 }
 
