@@ -5,7 +5,8 @@
 """
 
 from rest_framework.response import Response
-from rest_framework.decorators import api_view
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.permissions import AllowAny
 from drf_spectacular.utils import extend_schema
 from rest_framework_simplejwt.tokens import RefreshToken
 
@@ -43,6 +44,7 @@ def _tokens_for(user: User) -> dict:
     },
 )
 @api_view(["POST"])
+@permission_classes([AllowAny])
 def register(request):
     email = (request.data.get("email") or "").strip().lower()
     password = (request.data.get("password") or "")
@@ -82,6 +84,7 @@ def register(request):
     },
 )
 @api_view(["POST"])
+@permission_classes([AllowAny])
 def login(request):
     email = (request.data.get("email") or "").strip().lower()
     password = request.data.get("password") or ""
@@ -113,6 +116,7 @@ def login(request):
     },
 )
 @api_view(["POST"])
+@permission_classes([AllowAny])
 def refresh(request):
     refresh = (request.data.get("refresh") or "").strip()
     if not refresh:
