@@ -92,7 +92,7 @@ export function DescribeGoalPage() {
   );
 }
 
-/* ── 步骤 2：补充信息 ── */
+/* ── 步骤 2：基础信息 ── */
 
 const levelOptions = [
   { id: "beginner", title: "完全新手", description: "几乎没有接触过" },
@@ -274,7 +274,7 @@ export function AddInfoPage() {
     >
       <div className="addinfo-page">
         <div className="setup-heading compact-heading">
-          <h1>补充信息</h1>
+          <h1>基础信息</h1>
           <p>以下信息帮助 AI 更准确地生成学习方案。</p>
         </div>
 

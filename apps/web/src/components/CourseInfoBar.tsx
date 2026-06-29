@@ -8,7 +8,7 @@ interface CourseInfoBarProps {
 }
 
 /**
- * 创建课程常驻底栏 — 展示已了解信息
+ * 创建课程常驻底栏 — 展示学习档案
  *
  * 约束：
  * - collapsed：底部约 1/5 视口高度，横向不占满，显示信息列表
@@ -40,7 +40,7 @@ export function CourseInfoBar({ mode, onToggle }: CourseInfoBarProps) {
       ref={barRef}
       className={`course-info-bar${isExpanded ? " expanded" : ""}`}
       aria-expanded={isExpanded}
-      aria-label="已了解信息"
+      aria-label="学习档案"
       role="complementary"
     >
       <button
@@ -53,14 +53,19 @@ export function CourseInfoBar({ mode, onToggle }: CourseInfoBarProps) {
       </button>
 
       <div ref={contentRef} className="info-bar-scroll">
-        {isExpanded && <h3 className="info-bar-heading">已了解的信息</h3>}
+        {isExpanded && <h3 className="info-bar-heading">学习档案</h3>}
         <dl className="info-bar-list">
-          {items.map((item) => (
-            <div className="info-bar-row" key={item.key}>
-              <dt data-tooltip={item.title}><span className="info-bar-label">{item.title}</span></dt>
-              <dd data-tooltip={item.value}><span className="info-bar-value">{item.value}</span></dd>
-            </div>
-          ))}
+          {items.map((item) => {
+            const isInquiry = item.key === "inquiry";
+            return (
+              <div className="info-bar-row" key={item.key}>
+                <dt data-tooltip={item.title}><span className="info-bar-label">{item.title}</span></dt>
+                <dd data-tooltip={isInquiry ? item.value.replace(/\n/g, " ") : item.value}>
+                  <span className={`info-bar-value${isInquiry ? " inquiry-value" : ""}`}>{item.value}</span>
+                </dd>
+              </div>
+            );
+          })}
         </dl>
       </div>
     </div>
@@ -90,12 +95,17 @@ export function CourseInfoPanel({ onConfirm }: { onConfirm: () => void }) {
         <h2>确认课程信息</h2>
         <div className="info-panel-content">
           <dl className="info-bar-list">
-            {items.map((item) => (
-              <div className="info-bar-row" key={item.key}>
-                <dt data-tooltip={item.title}><span className="info-bar-label">{item.title}</span></dt>
-                <dd data-tooltip={item.value}><span className="info-bar-value">{item.value}</span></dd>
-              </div>
-            ))}
+            {items.map((item) => {
+              const isInquiry = item.key === "inquiry";
+              return (
+                <div className="info-bar-row" key={item.key}>
+                  <dt data-tooltip={item.title}><span className="info-bar-label">{item.title}</span></dt>
+                  <dd data-tooltip={isInquiry ? item.value.replace(/\n/g, " ") : item.value}>
+                    <span className={`info-bar-value${isInquiry ? " inquiry-value" : ""}`}>{item.value}</span>
+                  </dd>
+                </div>
+              );
+            })}
           </dl>
         </div>
         <div className="info-panel-footer">

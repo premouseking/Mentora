@@ -1,0 +1,4 @@
+interface:
+  display_name: "Mentora Local Dev Smoke"
+  short_description: "启动并验证 Mentora 本地开发服务。"
+  default_prompt: "Use $mentora-local-dev-smoke to start Mentora locally and verify core API, web, parsing, and assessment behavior."

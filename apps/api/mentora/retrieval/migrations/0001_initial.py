@@ -11,9 +11,11 @@ import uuid
 
 import django.db.models.deletion
 import pgvector.django.vector
+from django.contrib.postgres.operations import TrigramExtension
 from django.contrib.postgres.indexes import GinIndex
 from django.contrib.postgres.search import SearchVectorField
 from django.db import migrations, models
+from pgvector.django import VectorExtension
 
 
 class Migration(migrations.Migration):
@@ -26,6 +28,8 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
+        VectorExtension(),
+        TrigramExtension(),
         # ── EvidenceUnit ──────────────────────────────
         migrations.CreateModel(
             name="EvidenceUnit",

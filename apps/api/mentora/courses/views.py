@@ -15,6 +15,9 @@ import asyncio
 import json
 import uuid
 
+from django.http import JsonResponse
+from django.views.decorators.csrf import csrf_exempt
+from django.views.decorators.http import require_http_methods
 from rest_framework.response import Response
 from rest_framework.decorators import api_view
 from drf_spectacular.utils import extend_schema
@@ -60,6 +63,10 @@ def _get_gateway_and_prompts():
     return get_gateway(), get_prompt_manager()
 
 
+def _gateway_unavailable_response(exc: Exception) -> Response:
+    return Response({"error": str(exc)}, status=503)
+
+
 def _format_history(inquiry_history: list[dict]) -> str:
     """将追问历史格式化为可读文本，供 prompt 变量使用。"""
     if not inquiry_history:
@@ -97,7 +104,7 @@ def session_list_or_create(request):
                 "created_at": s.created_at.isoformat(),
                 "updated_at": s.updated_at.isoformat(),
             })
-        return Response(data, safe=False)
+        return Response(data)
 
     # POST
     try:
@@ -220,7 +227,10 @@ def inquiry_next(request, session_id):
         )
 
     # 构建消息并调用 LLM
-    gateway, prompt_mgr = _get_gateway_and_prompts()
+    try:
+        gateway, prompt_mgr = _get_gateway_and_prompts()
+    except RuntimeError as exc:
+        return _gateway_unavailable_response(exc)
 
     variables = {
         "school": session.school or "未填写",
@@ -387,7 +397,10 @@ def _plan_generate(request, session_id):
     except ValueError as exc:
         return Response({"error": str(exc)}, status=404)
 
-    gateway, prompt_mgr = _get_gateway_and_prompts()
+    try:
+        gateway, prompt_mgr = _get_gateway_and_prompts()
+    except RuntimeError as exc:
+        return _gateway_unavailable_response(exc)
 
     variables = {
         "school": session.school or "未填写",
@@ -515,7 +528,103 @@ def session_start(request, session_id):
     session.status = SessionStatus.STARTED
     session.save(update_fields=["status", "updated_at"])
 
-    return Response(resp.parsed_output)
+    return JsonResponse({
+        "status": "started",
+        "revision_id": result["revision_id"],
+    })
+
+
+# ── 课程资料关联 ──
+
+
+@csrf_exempt
+def course_sources_manage(request, session_id):
+    """
+    GET  /api/courses/sessions/<uuid:id>/sources/  → 查课程已关联资料
+    POST /api/courses/sessions/<uuid:id>/sources/  → 批量设置关联
+
+    POST body: { "source_version_ids": ["uuid1", "uuid2", ...] }
+    注意：为幂等安全，先删后建，而非增量合并。
+    """
+    try:
+        _get_session(session_id)
+    except ValueError as exc:
+        return JsonResponse({"error": str(exc)}, status=404)
+
+    if request.method == "GET":
+        links = CourseSource.objects.filter(
+            course_session_id=session_id,
+        ).select_related("source_version__source")
+        items = []
+        for link in links:
+            sv = link.source_version
+            items.append({
+                "sourceVersionId": str(sv.id),
+                "sourceId": str(sv.source.id),
+                "displayTitle": sv.source.display_title,
+                "originalFilename": sv.original_filename,
+                "processingStatus": sv.processing_status,
+                "addedAt": link.added_at.isoformat(),
+            })
+        return JsonResponse({"items": items, "count": len(items)})
+
+    # POST
+    try:
+        body = _parse_json(request)
+    except ValueError as exc:
+        return JsonResponse({"error": str(exc)}, status=400)
+
+    version_ids = body.get("source_version_ids", [])
+    if not isinstance(version_ids, list):
+        return JsonResponse({"error": "source_version_ids 必须是数组"}, status=400)
+
+    # 幂等：先删后建
+    CourseSource.objects.filter(course_session_id=session_id).delete()
+
+    created = 0
+    for vid in version_ids:
+        try:
+            sv = SourceVersion.objects.get(id=vid)
+        except SourceVersion.DoesNotExist:
+            continue
+        CourseSource.objects.get_or_create(
+            course_session_id=session_id,
+            source_version=sv,
+        )
+        created += 1
+
+    # 同步写入 session.extra，供 course_confirm 创建作用域时使用
+    session = _get_session(session_id)
+    session.extra["source_version_ids"] = version_ids
+    session.save(update_fields=["extra", "updated_at"])
+
+    return JsonResponse({"status": "ok", "source_count": created})
+
+
+# ── 删除课程 ──
+
+
+@csrf_exempt
+@require_http_methods(["DELETE"])
+def session_delete(request, session_id):
+    """
+    DELETE /api/courses/sessions/<uuid:id>/
+
+    删除建课会话及其课程资料关联。
+    """
+    try:
+        session = _get_session(session_id)
+    except ValueError as exc:
+        return JsonResponse({"error": str(exc)}, status=404)
+
+    # 清理课程资料关联（非 FK，需手动删）
+    CourseSource.objects.filter(course_session_id=session_id).delete()
+    session.delete()
+
+    return JsonResponse({"status": "deleted"})
+
+
+# ── Course list ──
 
 
 @api_view(["GET"])
@@ -547,7 +656,7 @@ def course_list(request):
             "status": status,
             "created_at": c["created_at"].isoformat(),
         })
-    return Response(result, safe=False)
+    return Response(result)
 
 
 @api_view(["POST"])
@@ -720,13 +829,18 @@ def course_activate(request, course_id):
 
     # 1. 调 PlannerAgent 生成计划
     session = course.session
-    gateway, prompt_mgr = _get_gateway_and_prompts()
+    try:
+        gateway, prompt_mgr = _get_gateway_and_prompts()
+    except RuntimeError as exc:
+        return _gateway_unavailable_response(exc)
 
     variables = {
         "school": profile.school or "未填写",
         "goal": profile.goal,
         "level": profile.level or "未选择",
         "pace": profile.pace or "未选择",
+        "time_budget": session.time_budget or "未选择",
+        "deadline": session.deadline.isoformat() if session.deadline else "未设定",
         "inquiry_history": _format_history(session.inquiry_history),
     }
     system_text = prompt_mgr.render("planner", variables)

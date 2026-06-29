@@ -4,6 +4,7 @@ import os
 import tempfile
 import time
 
+from django.conf import settings
 from rest_framework.response import Response
 from rest_framework.decorators import api_view
 from drf_spectacular.utils import extend_schema
@@ -68,6 +69,9 @@ def get_benchmark(request):
 
     运行基准测试并返回 JSON 报告。
     """
+    if not settings.DEBUG:
+        return Response({"error": "Benchmark 仅允许在开发环境运行"}, status=404)
+
     fixtures_dir = os.path.join(
         os.path.dirname(__file__), "..", "..", "tests", "fixtures"
     )

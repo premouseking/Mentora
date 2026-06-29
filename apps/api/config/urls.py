@@ -18,7 +18,6 @@ from mentora.courses.views import (
     course_confirm,
     course_detail,
     course_list,
-    course_list,
     course_profile_revise,
     course_scope_extend,
     course_scope_suggest,

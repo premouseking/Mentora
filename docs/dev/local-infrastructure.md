@@ -54,7 +54,7 @@ curl http://127.0.0.1:8000/api/health/
 | 服务 | 默认端口 | 环境变量 |
 | --- | --- | --- |
 | PostgreSQL | 55432 | `POSTGRES_PORT` |
-| Redis | 6379 | `REDIS_URL` |
+| Redis | 56379 | `REDIS_PORT` / `REDIS_URL` |
 | MinIO API | 9000 | `OBJECT_STORAGE_ENDPOINT` |
 | MinIO Console | 9001 | — |
 | Django API | 8000 | — |
@@ -72,7 +72,7 @@ curl http://127.0.0.1:8000/api/health/
 
 ## 端口冲突
 
-本地 Docker PostgreSQL 默认映射到 `55432`，避免和常见的本机 PostgreSQL `5432` 冲突。若 `55432` 也被占用，修改 `.env` 中的 `POSTGRES_PORT`，`docker-compose.dev.yml` 会同步使用该端口。
+本地 Docker PostgreSQL 默认映射到 `55432`，避免和常见的本机 PostgreSQL `5432` 冲突。Redis 默认映射到 `56379`，避免 Windows Hyper-V 保留端口段（常包含 `6379`）导致 Docker 无法绑定。若端口仍被占用，修改 `.env` 中的 `POSTGRES_PORT` / `REDIS_PORT`，并同步更新 `REDIS_URL`，`docker-compose.dev.yml` 会读取这些变量。
 
 ## 重建本地数据库
 

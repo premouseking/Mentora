@@ -31,6 +31,6 @@
     "api:migrate": "cd apps/api && python manage.py migrate",
     "api:seed": "cd apps/api && python manage.py seed_dev",
     "api:smoke:upload": "cd apps/api && python manage.py smoke_upload_resource --fixture normal.pdf",
-    "dev:api": "cd apps/api && python manage.py runserver 127.0.0.1:8000"
+    "dev:api": "cd apps/api && python manage.py runserver"
   }
 }
