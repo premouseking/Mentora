@@ -117,6 +117,7 @@ class Orchestrator:
             task_id=task.id,
             user_message=task.user_message,
             context=ctx,
+            model_id=task.model_id,
             max_tool_rounds=task.max_tool_rounds,
         )
 
@@ -211,6 +212,7 @@ class Orchestrator:
             task_id=task.id,
             user_message=task.user_message,
             context=ctx,
+            model_id=task.model_id,
             max_tool_rounds=task.max_tool_rounds,
         )
 
@@ -254,6 +256,7 @@ class Orchestrator:
                     task_id=task.id,
                     user_message=user_msg,
                     context=ctx,
+                    model_id=task.model_id,
                     max_tool_rounds=step.max_tool_rounds,
                 )
 

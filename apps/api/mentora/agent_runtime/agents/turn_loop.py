@@ -148,6 +148,7 @@ async def run_tool_loop(
             task_type=agent_role,
             messages=chat_messages,
             tools=tools or None,
+            model=agent_input.model_id,
         )
         total_usage = _merge_usage(total_usage, resp.usage)
 
@@ -215,6 +216,7 @@ async def run_tool_loop_stream(
             task_type=agent_role,
             messages=chat_messages,
             tools=tools or None,
+            model=agent_input.model_id,
         ):
             total_usage = _merge_usage(total_usage, chunk.usage)
             if chunk.tool_calls:

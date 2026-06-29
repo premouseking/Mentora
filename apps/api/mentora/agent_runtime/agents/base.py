@@ -27,6 +27,7 @@ class AgentInput(BaseModel):
     task_id: str = Field(description="关联的 OrchestratorRun ID")
     user_message: str = Field(min_length=1, description="用户消息正文")
     context: AgentContext = Field(description="上下文（组装好的消息列表）")
+    model_id: str | None = Field(default=None, description="Model override for this call.")
     tools: list[ToolDefinition] = Field(
         default_factory=list,
         description="本次可用的工具定义",

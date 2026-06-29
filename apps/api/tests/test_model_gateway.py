@@ -46,6 +46,17 @@ def _gateway(provider=None, *, max_retries: int = 1) -> ModelGateway:
 
 
 @pytest.mark.asyncio
+async def test_chat_uses_model_override():
+    gateway = _gateway(FakeProvider(text_responses=["ok"]))
+    resp = await gateway.chat(
+        task_type="test",
+        messages=[Message(role="user", content="hi")],
+        model="mentora-fast-model",
+    )
+    assert resp.model == "mentora-fast-model"
+
+
+@pytest.mark.asyncio
 async def test_chat_text_response():
     gateway = _gateway(FakeProvider(text_responses=["你好世界"]))
     resp = await gateway.chat(
@@ -142,6 +153,19 @@ async def test_chat_stream_emits_chunks():
     text = "".join(c.content or "" for c in chunks)
     assert "你好世界" in text
     assert chunks[-1].finish_reason == "stop"
+
+
+@pytest.mark.asyncio
+async def test_chat_stream_uses_model_override():
+    gateway = _gateway(FakeProvider(text_responses=["ok"]))
+    chunks = []
+    async for chunk in gateway.chat_stream(
+        task_type="test",
+        messages=[Message(role="user", content="hi")],
+        model="mentora-fast-model",
+    ):
+        chunks.append(chunk)
+    assert chunks[-1].model == "mentora-fast-model"
 
 
 @pytest.mark.asyncio
