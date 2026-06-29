@@ -1,5 +1,6 @@
-import { X } from "lucide-react";
+import { Check, Pencil, Undo2, X } from "lucide-react";
 import { useCallback, useMemo, useRef, useState } from "react";
+import { MentoraLoader } from "./MentoraLoader";
 
 /* ── Mock 数据（v6：全部 mock，不连后端）── */
 
@@ -221,12 +222,41 @@ const MOCK_PLAN = {
   ],
 };
 
+/* ── mock 学习档案（建课阶段收集的学生画像） ── */
+interface ProfileItem {
+  key: string;
+  title: string;
+  value: string;
+}
+
+const MOCK_PROFILE: ProfileItem[] = [
+  { key: "goal", title: "学习目标", value: "高中数学系统复习，备战高考" },
+  { key: "level", title: "当前基础", value: "中等偏上，函数部分薄弱" },
+  { key: "pace", title: "推进方式", value: "按知识板块逐步推进" },
+  { key: "timeBudget", title: "每日时长", value: "2~3 小时" },
+  { key: "deadline", title: "目标日期", value: "2026-08-15" },
+  { key: "school", title: "学校/地区", value: "华南师大附中" },
+];
+
 /* ── 初始已完成任务（mock 数据） ── */
 const COMPLETED_TASKS_INIT = [
   // 第一阶段第一章「集合与逻辑」：全部完成
   "p1-u1-t1", "p1-u1-t2", "p1-u1-t3", "p1-u1-t4",
   // 第一阶段第二章「函数基础」：前两个任务完成
   "p1-u2-t1", "p1-u2-t2",
+];
+
+/* ── AI 对话阶段 ── */
+type ChatStage = "input" | "options" | "ai-thinking" | "ai-result";
+
+/* ── 时间选项 ── */
+const TIME_OPTIONS = [
+  "每天 1 小时以内",
+  "每天 1～2 小时",
+  "每天 2～3 小时",
+  "每天 3～4 小时",
+  "每天 4 小时以上",
+  "不固定，根据进度灵活安排",
 ];
 
 /* ── 任务类型标签 ── */
@@ -807,6 +837,15 @@ export function PhaseSummary({
     () => new Set(COMPLETED_TASKS_INIT),
   );
   const [confirmTaskId, setConfirmTaskId] = useState<string | null>(null);
+  const [adjustMode, setAdjustMode] = useState(false);
+  // 调整面板状态
+  const [chatStage, setChatStage] = useState<ChatStage>("input");
+  const [chatInput, setChatInput] = useState("");
+  const [selectedOption, setSelectedOption] = useState("");
+  const [profileEditing, setProfileEditing] = useState(false);
+  const [profileValues, setProfileValues] = useState<ProfileItem[]>(() =>
+    MOCK_PROFILE.map((p) => ({ ...p })),
+  );
   const phase = plan.phases[activePhase];
 
   // 已完成的阶段索引
@@ -851,45 +890,234 @@ export function PhaseSummary({
     }
   }, [confirmTaskId]);
 
+  // ── 调整面板事件处理 ──
+
+  const handleChatSend = useCallback(() => {
+    const text = chatInput.trim();
+    if (!text) return;
+    setChatInput("");
+    setChatStage("options");
+  }, [chatInput]);
+
+  const handleOptionSelect = useCallback((option: string) => {
+    setSelectedOption(option);
+  }, []);
+
+  const handleGeneratePlan = useCallback(() => {
+    // 后续实现
+  }, []);
+
+  const handleContinueAdjust = useCallback(() => {
+    // 后续实现
+  }, []);
+
+  const handleProfileEditToggle = useCallback(() => {
+    if (profileEditing) {
+      // 完成编辑 → 触发 AI 思考
+      setProfileEditing(false);
+      setChatStage("ai-thinking");
+      setTimeout(() => {
+        setChatStage("ai-result");
+      }, 2000);
+    } else {
+      setProfileEditing(true);
+    }
+  }, [profileEditing]);
+
+  const handleProfileEditCancel = useCallback(() => {
+    setProfileEditing(false);
+    // 恢复原始值
+    setProfileValues(MOCK_PROFILE.map((p) => ({ ...p })));
+  }, []);
+
+  const handleProfileValueChange = useCallback((key: string, value: string) => {
+    setProfileValues((prev) => prev.map((p) => (p.key === key ? { ...p, value } : p)));
+  }, []);
+
   return (
     <div className="phase-summary">
-      {/* 顶部栏（静态文案 + X 关闭；下拉手势已移除） */}
+      {/* 顶部栏：关闭按钮 → 返回按钮 */}
       <div className="quiz-swipe-hint" onPointerDown={(e) => e.stopPropagation()}>
         <div className="quiz-swipe-hint-left">
-          <span>学习方案概览</span>
+          <span>{adjustMode ? "调整学习方案" : "学习计划"}</span>
         </div>
-        <button className="quiz-hint-close" onClick={onClose} title="关闭">
-          <X size={14} />
-        </button>
+        {adjustMode ? (
+          <button className="quiz-hint-close" onClick={() => setAdjustMode(false)} title="返回">
+            <Undo2 size={14} />
+          </button>
+        ) : (
+          <button className="quiz-hint-close" onClick={onClose} title="关闭">
+            <X size={14} />
+          </button>
+        )}
       </div>
 
-      {/* 三栏主体 */}
-      <div className="ps-layout">
-        {/* 左栏：纵向阶段导航 */}
-        <PhaseNav phases={plan.phases} activeIndex={activePhase} completedIndices={completedPhaseIndices} onSelect={handleSelectPhase} />
-        {/* 中栏：主干 + 分支画板 */}
-        <PhaseCanvas units={phase.units} selected={selected} completedTasks={completedTasks} onSelect={setSelected} />
-        {/* 右栏：详情 */}
-        <PhaseDetail
-          phase={phase}
-          units={phase.units}
-          selected={selected}
-          completedTasks={completedTasks}
-          confirmTaskId={confirmTaskId}
-          onOpenMaterial={handleOpenMaterial}
-          onClose={onClose}
-          onRequestComplete={handleRequestComplete}
-          onCancelConfirm={handleCancelConfirm}
-          onConfirmComplete={handleConfirmComplete}
-        />
-      </div>
+      {adjustMode ? (
+        <div className="ps-adjust-body">
+          {/* 1. AI 对话栏目 */}
+          <div className="ps-adjust-section ps-adjust-chat">
+            <h2 className="ps-adjust-chat-heading">调整学习方案</h2>
+            <p className="ps-adjust-chat-subtitle">与 AI 讨论你想如何调整学习方案</p>
 
-      {/* 底部按钮 */}
-      <div className="ps-layout-actions">
-        <button className="ps-btn ps-btn-secondary" type="button">
-          调整计划
-        </button>
-      </div>
+            {chatStage === "input" && (
+              <div className="ps-adjust-chat-input-area">
+                <textarea
+                  className="ps-adjust-chat-textarea"
+                  placeholder="描述你想要的调整…"
+                  value={chatInput}
+                  onChange={(e) => setChatInput(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleChatSend(); } }}
+                  rows={4}
+                />
+                <button
+                  className={`ps-adjust-chat-send${chatInput.trim() ? "" : " empty"}`}
+                  type="button"
+                  onClick={handleChatSend}
+                >
+                  发送
+                </button>
+              </div>
+            )}
+
+            {chatStage === "options" && (
+              <div className="ps-adjust-options-area">
+                <h3 className="ps-adjust-options-subtitle">新的学习时长安排</h3>
+                <div className="ps-adjust-options-list">
+                  {TIME_OPTIONS.map((opt) => (
+                    <button
+                      key={opt}
+                      className={`ps-adjust-option-btn${selectedOption === opt ? " selected" : ""}`}
+                      type="button"
+                      onClick={() => handleOptionSelect(opt)}
+                    >
+                      {opt}
+                    </button>
+                  ))}
+                </div>
+                <div className="ps-adjust-options-actions">
+                  <button className="ps-btn ps-btn-primary" type="button" onClick={handleGeneratePlan}>
+                    确认并生成学习方案
+                  </button>
+                  <button className="ps-btn ps-btn-secondary" type="button" onClick={handleContinueAdjust}>
+                    确认并继续调整
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {chatStage === "ai-thinking" && (
+              <div className="ps-adjust-thinking">
+                <MentoraLoader message="AI 正在分析你的档案调整…" size={120} />
+              </div>
+            )}
+
+            {chatStage === "ai-result" && (
+              <div className="ps-adjust-result-area">
+                <div className="ps-adjust-result-box">
+                  我已经查看了你修改后的学习档案，你现在的基础和目标与之前相比有一些变化。是否需要继续为你调整方案，还是直接生成学习方案？
+                </div>
+                <div className="ps-adjust-options-actions">
+                  <button className="ps-btn ps-btn-primary" type="button" onClick={handleGeneratePlan}>
+                    确认并生成学习方案
+                  </button>
+                  <button className="ps-btn ps-btn-secondary" type="button" onClick={handleContinueAdjust}>
+                    确认并继续调整
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* 2. 学习档案表格 */}
+          <div className="ps-adjust-section ps-adjust-profile">
+            <div className="ps-adjust-profile-header">
+              <div className="ps-adjust-section-title">学习档案</div>
+              <div className="ps-adjust-edit-actions">
+                {profileEditing && (
+                  <button
+                    className="ps-adjust-edit-btn ps-adjust-edit-cancel"
+                    type="button"
+                    onClick={handleProfileEditCancel}
+                    title="取消编辑"
+                  >
+                    <X size={16} />
+                  </button>
+                )}
+                <button
+                  className="ps-adjust-edit-btn"
+                  type="button"
+                  onClick={handleProfileEditToggle}
+                  title={profileEditing ? "完成编辑" : "编辑档案"}
+                >
+                  {profileEditing ? <Check size={16} /> : <Pencil size={14} />}
+                </button>
+              </div>
+            </div>
+            <table className="ps-adjust-profile-table">
+              <thead>
+                <tr>
+                  <th>项目</th>
+                  <th>内容</th>
+                </tr>
+              </thead>
+              <tbody>
+                {profileValues.map((item) => (
+                  <tr key={item.key}>
+                    <td>{item.title}</td>
+                    <td>
+                      {profileEditing ? (
+                        <input
+                          className="ps-adjust-profile-input"
+                          value={item.value}
+                          onChange={(e) => handleProfileValueChange(item.key, e.target.value)}
+                        />
+                      ) : (
+                        item.value
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {/* 3. 学习计划概览（留空） */}
+          <div className="ps-adjust-section ps-adjust-plan">
+            <div className="ps-adjust-section-title">学习计划概览</div>
+            <div className="ps-adjust-plan-placeholder" />
+          </div>
+        </div>
+      ) : (
+        <>
+          {/* 三栏主体 */}
+          <div className="ps-layout">
+            {/* 左栏：纵向阶段导航 */}
+            <PhaseNav phases={plan.phases} activeIndex={activePhase} completedIndices={completedPhaseIndices} onSelect={handleSelectPhase} />
+            {/* 中栏：主干 + 分支画板 */}
+            <PhaseCanvas units={phase.units} selected={selected} completedTasks={completedTasks} onSelect={setSelected} />
+            {/* 右栏：详情 */}
+            <PhaseDetail
+              phase={phase}
+              units={phase.units}
+              selected={selected}
+              completedTasks={completedTasks}
+              confirmTaskId={confirmTaskId}
+              onOpenMaterial={handleOpenMaterial}
+              onClose={onClose}
+              onRequestComplete={handleRequestComplete}
+              onCancelConfirm={handleCancelConfirm}
+              onConfirmComplete={handleConfirmComplete}
+            />
+          </div>
+
+          {/* 底部按钮 */}
+          <div className="ps-layout-actions">
+            <button className="ps-btn ps-btn-secondary" type="button" onClick={() => setAdjustMode(true)}>
+              调整方案
+            </button>
+          </div>
+        </>
+      )}
     </div>
   );
 }

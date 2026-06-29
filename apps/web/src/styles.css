@@ -9016,6 +9016,308 @@ button.mistake-source-row:hover {
   color: var(--quiet);
 }
 
+/* ── 调整方案面板 ── */
+
+.ps-adjust-body {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.ps-adjust-section {
+  border-bottom: 1px solid var(--border);
+  padding: 16px 20px;
+}
+
+.ps-adjust-section:last-child {
+  border-bottom: none;
+}
+
+.ps-adjust-section-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink);
+  margin-bottom: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+/* ── AI 对话栏 ── */
+
+.ps-adjust-chat {
+  display: flex;
+  flex-direction: column;
+}
+
+.ps-adjust-chat-heading {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--ink);
+  text-align: center;
+  margin-bottom: 4px;
+}
+
+.ps-adjust-chat-subtitle {
+  font-size: 14px;
+  color: var(--quiet);
+  text-align: center;
+  margin-bottom: 14px;
+}
+
+/* 输入区域 */
+.ps-adjust-chat-input-area {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ps-adjust-chat-input-area .ps-adjust-chat-send {
+  align-self: flex-end;
+}
+
+.ps-adjust-chat-textarea {
+  width: 100%;
+  min-height: 80px;
+  max-height: 160px;
+  padding: 10px 14px;
+  border: 1.5px solid var(--border-strong);
+  border-radius: 10px;
+  font-size: 13px;
+  line-height: 1.6;
+  background: var(--surface);
+  color: var(--ink);
+  outline: none;
+  resize: none;
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+
+.ps-adjust-chat-textarea::-webkit-scrollbar {
+  display: none;
+}
+
+.ps-adjust-chat-textarea:focus {
+  border-color: var(--green-400);
+}
+
+.ps-adjust-chat-send {
+  height: 28px;
+  padding: 0 14px;
+  border: none;
+  border-radius: 6px;
+  background: #059669;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 120ms;
+}
+
+.ps-adjust-chat-send.empty {
+  background: #d1d5db;
+  color: #9ca3af;
+  cursor: default;
+}
+
+.ps-adjust-chat-send:not(.empty):hover {
+  background: #047857;
+}
+
+/* 选项区域 */
+.ps-adjust-options-area {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.ps-adjust-options-subtitle {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink);
+  margin-bottom: 12px;
+}
+
+.ps-adjust-options-list {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 8px;
+  width: 100%;
+  margin-bottom: 18px;
+}
+
+.ps-adjust-option-btn {
+  flex: 1 1 calc(50% - 4px);
+  min-width: 140px;
+  padding: 10px 14px;
+  border: 1.5px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  text-align: center;
+  transition: border-color 120ms, background 120ms;
+}
+
+.ps-adjust-option-btn:hover {
+  border-color: var(--green-400);
+}
+
+.ps-adjust-option-btn.selected {
+  border-color: var(--green-500);
+  background: var(--green-50);
+  color: var(--green-700);
+}
+
+.ps-adjust-options-actions {
+  display: flex;
+  gap: 10px;
+  width: 100%;
+}
+
+.ps-adjust-options-actions .ps-btn {
+  flex: 1;
+}
+
+/* AI 思考动画 */
+.ps-adjust-thinking {
+  display: flex;
+  justify-content: center;
+  padding: 16px 0;
+}
+
+/* AI 结果区域 */
+.ps-adjust-result-area {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.ps-adjust-result-box {
+  width: 100%;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--app-bg);
+  font-size: 13px;
+  line-height: 1.65;
+  color: var(--ink);
+  margin-bottom: 16px;
+}
+
+/* ── 学习档案表格 ── */
+
+.ps-adjust-profile-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.ps-adjust-profile-header .ps-adjust-section-title {
+  margin-bottom: 0;
+}
+
+.ps-adjust-edit-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--quiet);
+  cursor: pointer;
+  transition: background 120ms, color 120ms;
+}
+
+.ps-adjust-edit-btn:hover {
+  background: #e8edeb;
+  color: var(--ink);
+}
+
+.ps-adjust-edit-cancel:hover {
+  background: #fde8e8;
+  color: #e53e3e;
+}
+
+.ps-adjust-edit-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.ps-adjust-profile-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.ps-adjust-profile-table th,
+.ps-adjust-profile-table td {
+  padding: 8px 10px;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+}
+
+.ps-adjust-profile-table th {
+  font-weight: 600;
+  color: var(--quiet);
+  font-size: 11px;
+  background: var(--app-bg);
+}
+
+.ps-adjust-profile-table td:first-child {
+  color: var(--quiet);
+  font-weight: 500;
+  white-space: nowrap;
+  width: 30%;
+}
+
+.ps-adjust-profile-table td:nth-child(2) {
+  color: var(--ink);
+}
+
+.ps-adjust-profile-table tr:last-child td {
+  border-bottom: none;
+}
+
+.ps-adjust-profile-input {
+  width: 100%;
+  padding: 4px 8px;
+  border: 1px solid var(--green-400);
+  border-radius: 6px;
+  font-size: 13px;
+  background: var(--surface);
+  color: var(--ink);
+  outline: none;
+  transition: border-color 120ms;
+}
+
+.ps-adjust-profile-input:focus {
+  border-color: var(--green-500);
+}
+
+/* ── 学习计划概览（留空） ── */
+
+.ps-adjust-plan {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.ps-adjust-plan-placeholder {
+  flex: 1;
+  min-height: 120px;
+  border-radius: 8px;
+  border: 1.5px dashed var(--border-strong);
+  background: var(--app-bg);
+}
+
 /* =============================================
    History Page
    ============================================= */
