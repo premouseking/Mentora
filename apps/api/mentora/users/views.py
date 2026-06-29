@@ -130,3 +130,105 @@ def refresh(request):
         })
     except Exception:
         return Response({"error": "refresh token 无效或已过期"}, status=401)
+
+
+@extend_schema(
+    summary="获取用户资料",
+    description="返回当前登录用户的资料。",
+    responses={200: {"description": "用户资料"}},
+)
+@api_view(["GET"])
+def profile(request):
+    user = request.user
+    return Response({
+        "user_id": str(user.id),
+        "email": user.email,
+        "display_name": user.display_name,
+        "date_joined": user.date_joined.isoformat(),
+    })
+
+
+@extend_schema(
+    summary="更新用户资料",
+    description="修改当前用户的显示名称。",
+    request={
+        "application/json": {
+            "type": "object",
+            "properties": {
+                "display_name": {"type": "string", "description": "新显示名称"},
+            },
+            "required": ["display_name"],
+        },
+    },
+    responses={200: {"description": "更新成功"}},
+)
+@api_view(["PATCH"])
+def update_profile(request):
+    display_name = (request.data.get("display_name") or "").strip()
+    if not display_name:
+        return Response({"error": "display_name 不能为空"}, status=400)
+
+    user = request.user
+    user.display_name = display_name
+    user.save(update_fields=["display_name"])
+    return Response({
+        "user_id": str(user.id),
+        "display_name": user.display_name,
+    })
+
+
+@extend_schema(
+    summary="修改密码",
+    request={
+        "application/json": {
+            "type": "object",
+            "properties": {
+                "old_password": {"type": "string"},
+                "new_password": {"type": "string", "description": "新密码，≥8 位"},
+            },
+            "required": ["old_password", "new_password"],
+        },
+    },
+    responses={200: {"description": "修改成功"}, 400: {"description": "原密码错误或新密码太短"}},
+)
+@api_view(["POST"])
+def change_password(request):
+    user = request.user
+    old_password = request.data.get("old_password") or ""
+    new_password = request.data.get("new_password") or ""
+
+    if not user.check_password(old_password):
+        return Response({"error": "原密码错误"}, status=400)
+    if len(new_password) < 8:
+        return Response({"error": "新密码至少 8 位"}, status=400)
+
+    user.set_password(new_password)
+    user.save(update_fields=["password"])
+    return Response({"status": "密码已修改"})
+
+
+@extend_schema(
+    summary="登出",
+    description="将当前 refresh token 加入黑名单。",
+    request={
+        "application/json": {
+            "type": "object",
+            "properties": {
+                "refresh": {"type": "string", "description": "refresh token"},
+            },
+            "required": ["refresh"],
+        },
+    },
+    responses={200: {"description": "登出成功"}},
+)
+@api_view(["POST"])
+def logout(request):
+    from rest_framework_simplejwt.tokens import RefreshToken
+    refresh = (request.data.get("refresh") or "").strip()
+    if refresh:
+        try:
+            token = RefreshToken(refresh)
+            token.blacklist()
+        except Exception:
+            pass
+    return Response({"status": "已登出"})

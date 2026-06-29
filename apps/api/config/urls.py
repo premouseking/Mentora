@@ -12,7 +12,7 @@ from mentora.assessment.views import (
     submit_quiz_attempt,
 )
 from mentora.agent_runtime.views import chat_api, chat_stream
-from mentora.users.views import login, register, refresh
+from mentora.users.views import change_password, login, logout, profile, refresh, register, update_profile
 from mentora.learning.views import history_list
 from mentora.courses.views import (
     course_activate,
@@ -55,6 +55,10 @@ urlpatterns = [
     path("api/auth/register/", register, name="auth-register"),
     path("api/auth/login/", login, name="auth-login"),
     path("api/auth/refresh/", refresh, name="auth-refresh"),
+    path("api/auth/profile/", profile, name="auth-profile"),
+    path("api/auth/profile/update/", update_profile, name="auth-profile-update"),
+    path("api/auth/change-password/", change_password, name="auth-change-password"),
+    path("api/auth/logout/", logout, name="auth-logout"),
     path("api/health/", health, name="health"),
     path("api/history/", history_list, name="history-list"),
     # 聊天
