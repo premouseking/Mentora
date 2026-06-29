@@ -839,7 +839,8 @@ p {
 .setup-progress {
   display: grid;
   max-width: 740px;
-  grid-template-columns: repeat(5, 1fr);
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
   gap: 20px;
   margin: 0 auto;
   padding: 0;
@@ -983,10 +984,10 @@ p {
   display: flex;
   flex-direction: column;
   border-radius: 14px 14px 0 0;
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-strong);
   border-bottom: 0;
   background: #fcfdfc;
-  box-shadow: 0 -2px 16px rgb(0 0 0 / 0.06);
+  box-shadow: 0 -2px 18px rgb(0 0 0 / 0.08);
   z-index: 200;
   transition: height 0.35s cubic-bezier(0.4, 0, 0.2, 1),
               max-height 0.35s cubic-bezier(0.4, 0, 0.2, 1);
@@ -1383,6 +1384,14 @@ p {
   border: 1px solid var(--border);
   border-radius: 6px;
   overflow: hidden;
+}
+
+.material-list-top {
+  display: flex;
+  justify-content: flex-end;
+  padding: 6px 10px;
+  border-bottom: 1px solid #eef1ef;
+  background: #fcfdfc;
 }
 
 .material-row {
@@ -2011,6 +2020,139 @@ p {
 .compact-heading h1 {
   margin-bottom: 4px;
   font-size: 27px;
+}
+
+/* ── 建立学习档案页 ── */
+
+.build-profile-page {
+  width: 100%;
+}
+
+.build-profile-heading {
+  text-align: center;
+  margin-bottom: 12px;
+}
+
+.build-profile-heading h1 {
+  margin-bottom: 8px;
+  font-size: 30px;
+  font-weight: 720;
+  letter-spacing: -0.025em;
+  color: #1d2b24;
+}
+
+.build-profile-heading p {
+  margin-bottom: 0;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.build-profile-subtitle {
+  text-align: center;
+  color: var(--quiet);
+  font-size: 13px;
+  margin-bottom: 24px;
+}
+
+.build-profile-content {
+  width: 100%;
+}
+
+/* ── 问题描述 ── */
+
+.bp-question {
+  margin-bottom: 16px;
+  color: var(--ink);
+  font-size: 15px;
+  font-weight: 550;
+}
+
+/* ── 类型 1：输入框 ── */
+
+.bp-input-box {
+  width: 100%;
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  background: #fff;
+  transition: border-color 160ms ease, box-shadow 160ms ease;
+}
+
+.bp-input-box:focus-within {
+  border-color: #77aa9f;
+  box-shadow: 0 0 0 4px rgb(25 115 103 / 8%);
+}
+
+.bp-textarea {
+  display: block;
+  width: 100%;
+  height: 280px;
+  resize: none;
+  border: 0;
+  outline: 0;
+  padding: 20px 22px;
+  color: var(--ink);
+  font-size: 15px;
+  line-height: 1.9;
+  border-radius: 10px;
+  background: transparent;
+  font-family: inherit;
+  overflow-y: auto;
+}
+
+.bp-textarea::placeholder {
+  color: var(--quiet);
+}
+
+/* ── 类型 2：选项 ── */
+
+.bp-choice-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  justify-content: center;
+}
+
+.bp-choice-chip {
+  padding: 10px 22px;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--ink);
+  font-size: 14.5px;
+  cursor: pointer;
+  transition: border-color 140ms ease, background 140ms ease, color 140ms ease;
+  font-family: inherit;
+}
+
+.bp-choice-chip:hover {
+  border-color: #77aa9f;
+  background: #f2faf7;
+}
+
+.bp-choice-chip.selected {
+  border-color: var(--green-800);
+  background: #e6f4ea;
+  color: var(--green-800);
+  font-weight: 550;
+}
+
+/* ── 类型 3：资料选择（复用 material-list / material-row） ── */
+
+.bp-material-size {
+  font-size: 12px;
+  color: var(--quiet);
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.build-profile-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.build-profile-actions--single {
+  grid-template-columns: 1fr;
 }
 
 .course-title-main {

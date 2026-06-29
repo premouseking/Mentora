@@ -10,11 +10,8 @@ import { LearningTaskPage } from "./pages/LearningTaskPage";
 import { LibraryPage } from "./pages/LibraryPage";
 import { ParsingLabPage } from "./pages/ParsingLabPage";
 import { StageSummaryPage } from "./pages/StageSummaryPage";
-import {
-  AiInquiryPage,
-  ConfirmPlanPage,
-} from "./pages/SetupContinuationPages";
-import { AddInfoPage, DescribeGoalPage, MaterialUploadPage } from "./pages/SetupPages";
+import { ConfirmPlanPage } from "./pages/SetupContinuationPages";
+import { BuildProfilePage } from "./pages/SetupPages";
 import { CourseCreationProvider } from "./components/CourseCreationContext";
 
 function PlaceholderPage({ title }: { title: string }) {
@@ -43,10 +40,7 @@ export function App() {
         />
         {/* 课程创建流程共享 Context，确保跨步骤状态持久 */}
         <Route element={<CourseCreationProvider><Outlet /></CourseCreationProvider>}>
-          <Route path="/courses/new" element={<DescribeGoalPage />} />
-          <Route path="/courses/new/info" element={<AddInfoPage />} />
-          <Route path="/courses/new/materials" element={<MaterialUploadPage />} />
-          <Route path="/courses/new/inquiry" element={<AiInquiryPage />} />
+          <Route path="/courses/new" element={<BuildProfilePage />} />
           <Route path="/courses/new/plan" element={<ConfirmPlanPage />} />
         </Route>
         <Route path="/library" element={<LibraryPage />} />
