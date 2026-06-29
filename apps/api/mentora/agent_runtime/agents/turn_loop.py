@@ -16,7 +16,7 @@
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING, Callable
+from typing import TYPE_CHECKING
 
 from mentora.agent_runtime.agents.base import AgentInput
 from mentora.agent_runtime.schemas.context import ToolContext
@@ -85,8 +85,8 @@ async def _execute_tool(
     task_id: str,
     agent_role: str,
     emitter: EventEmitter | None,
-) -> tuple[ToolInvocationRecord, str]:
-    """执行单个工具调用，返回记录与 tool message 内容。"""
+) -> tuple[ToolInvocationRecord, str, list[dict]]:
+    """执行单个工具调用，返回 (记录, tool message 内容, 引文列表)。"""
     try:
         args = json.loads(tc.function.arguments)
     except json.JSONDecodeError:
@@ -98,6 +98,7 @@ async def _execute_tool(
     ctx = ToolContext(task_id=task_id, agent_role=agent_role, run_id="")
     result = await registry.execute(tc.function.name, args, ctx)
     content = _format_tool_message_content(result)
+    citations = _extract_tool_citations(result)
 
     record = ToolInvocationRecord(
         tool_name=tc.function.name,
@@ -113,10 +114,10 @@ async def _execute_tool(
             tc.function.name,
             result.success,
             preview,
-            details={"citations": _extract_tool_citations(result)},
+            details={"citations": citations},
         )
 
-    return record, content
+    return record, content, citations
 
 
 def _build_assistant_message(resp: ChatResponse) -> Message:
@@ -134,14 +135,13 @@ async def run_tool_loop(
     registry: ToolRegistry,
     gateway: ModelGateway,
     emitter: EventEmitter | None = None,
-    extract_citations: Callable[[ChatResponse], list[Citation]] | None = None,
 ) -> AgentOutput:
     """非流式多轮 tool loop。"""
     total_usage = TokenUsage()
     tool_records: list[ToolInvocationRecord] = []
+    all_citations: list[Citation] = []
     chat_messages = list(agent_input.context.messages)
     tools = registry.get_openai_tools(agent_role)
-    citations_fn = extract_citations or (lambda _resp: [])
 
     for _round_num in range(agent_input.max_tool_rounds):
         resp = await gateway.chat(
@@ -156,7 +156,7 @@ async def run_tool_loop(
                 agent_role=agent_role,
                 task_id=agent_input.task_id,
                 final_message=resp.content or "",
-                citations=citations_fn(resp),
+                citations=all_citations,
                 tool_calls_made=tool_records,
                 finish_reason="completed",
                 usage=total_usage,
@@ -164,7 +164,7 @@ async def run_tool_loop(
 
         chat_messages.append(_build_assistant_message(resp))
         for tc in resp.tool_calls:
-            record, content = await _execute_tool(
+            record, content, citations = await _execute_tool(
                 registry,
                 tc,
                 task_id=agent_input.task_id,
@@ -172,6 +172,12 @@ async def run_tool_loop(
                 emitter=emitter,
             )
             tool_records.append(record)
+            for c in citations:
+                all_citations.append(Citation(
+                    evidence_id=c.get("evidence_id", ""),
+                    content_preview=c.get("content_preview", ""),
+                    page_number=c.get("page_number"),
+                ))
             chat_messages.append(
                 Message(
                     role="tool",
@@ -184,7 +190,7 @@ async def run_tool_loop(
         agent_role=agent_role,
         task_id=agent_input.task_id,
         final_message="",
-        citations=[],
+        citations=all_citations,
         tool_calls_made=tool_records,
         finish_reason="max_rounds",
         usage=total_usage,
@@ -198,14 +204,13 @@ async def run_tool_loop_stream(
     registry: ToolRegistry,
     gateway: ModelGateway,
     emitter: EventEmitter | None = None,
-    extract_citations: Callable[[ChatResponse], list[Citation]] | None = None,
 ) -> AgentOutput:
     """流式多轮 tool loop；内容 chunk 通过 emitter 推送。"""
     total_usage = TokenUsage()
     tool_records: list[ToolInvocationRecord] = []
+    all_citations: list[Citation] = []
     chat_messages = list(agent_input.context.messages)
     tools = registry.get_openai_tools(agent_role)
-    citations_fn = extract_citations or (lambda _resp: [])
 
     for _round_num in range(agent_input.max_tool_rounds):
         accumulated_content: list[str] = []
@@ -231,12 +236,11 @@ async def run_tool_loop_stream(
             emitter.agent_response_stream(agent_input.task_id, "", is_final=True)
 
         if not pending_tool_calls:
-            final_resp = ChatResponse(content=full_content, usage=total_usage)
             return AgentOutput(
                 agent_role=agent_role,
                 task_id=agent_input.task_id,
                 final_message=full_content,
-                citations=citations_fn(final_resp),
+                citations=all_citations,
                 tool_calls_made=tool_records,
                 finish_reason="completed",
                 usage=total_usage,
@@ -248,7 +252,7 @@ async def run_tool_loop_stream(
             )
         )
         for tc in pending_tool_calls:
-            record, content = await _execute_tool(
+            record, content, citations = await _execute_tool(
                 registry,
                 tc,
                 task_id=agent_input.task_id,
@@ -256,6 +260,12 @@ async def run_tool_loop_stream(
                 emitter=emitter,
             )
             tool_records.append(record)
+            for c in citations:
+                all_citations.append(Citation(
+                    evidence_id=c.get("evidence_id", ""),
+                    content_preview=c.get("content_preview", ""),
+                    page_number=c.get("page_number"),
+                ))
             chat_messages.append(
                 Message(
                     role="tool",
@@ -268,7 +278,7 @@ async def run_tool_loop_stream(
         agent_role=agent_role,
         task_id=agent_input.task_id,
         final_message="",
-        citations=[],
+        citations=all_citations,
         tool_calls_made=tool_records,
         finish_reason="max_rounds",
         usage=total_usage,

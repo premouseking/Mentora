@@ -12,10 +12,9 @@ AssessorAgent：评估与题目生成 Agent。
 from mentora.agent_runtime.agents.base import Agent, AgentInput
 from mentora.agent_runtime.agents.turn_loop import run_tool_loop, run_tool_loop_stream
 from mentora.agent_runtime.prompts.manager import PromptManager
-from mentora.agent_runtime.schemas.output import AgentOutput, Citation
+from mentora.agent_runtime.schemas.output import AgentOutput
 from mentora.agent_runtime.tools.registry import ToolRegistry
 from mentora.model_gateway.gateway import ModelGateway
-from mentora.model_gateway.schemas import ChatResponse
 
 
 class AssessorAgent(Agent):
@@ -41,7 +40,6 @@ class AssessorAgent(Agent):
             agent_input=input,
             registry=self._registry,
             gateway=self._gateway,
-            extract_citations=self._extract_citations,
         )
 
     async def run_stream(
@@ -55,8 +53,4 @@ class AssessorAgent(Agent):
             registry=self._registry,
             gateway=self._gateway,
             emitter=emitter,
-            extract_citations=self._extract_citations,
         )
-
-    def _extract_citations(self, resp: ChatResponse) -> list[Citation]:
-        return []

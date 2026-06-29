@@ -57,8 +57,8 @@ class OrchestratorTask(BaseModel):
 
     id: str = Field(description="任务唯一 ID")
     mode: str = Field(default="single", description="调度模式：single | pipeline")
-    agent_role: str = Field(description="目标 Agent 角色")
-    user_message: str = Field(min_length=1, description="用户消息正文")
+    agent_role: str = Field(default="", description="目标 Agent 角色（pipeline 模式可为空）")
+    user_message: str = Field(default="", description="用户消息正文（pipeline 模式可为空）")
     context_sources: list[str] = Field(
         default_factory=list,
         description="上下文资料版本 ID 列表",

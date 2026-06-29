@@ -11,10 +11,9 @@ PlannerAgent：基于用户目标和资料生成学习计划。
 from mentora.agent_runtime.agents.base import Agent, AgentInput
 from mentora.agent_runtime.agents.turn_loop import run_tool_loop
 from mentora.agent_runtime.prompts.manager import PromptManager
-from mentora.agent_runtime.schemas.output import AgentOutput, Citation
+from mentora.agent_runtime.schemas.output import AgentOutput
 from mentora.agent_runtime.tools.registry import ToolRegistry
 from mentora.model_gateway.gateway import ModelGateway
-from mentora.model_gateway.schemas import ChatResponse
 
 
 class PlannerAgent(Agent):
@@ -40,8 +39,4 @@ class PlannerAgent(Agent):
             agent_input=input,
             registry=self._registry,
             gateway=self._gateway,
-            extract_citations=self._extract_citations,
         )
-
-    def _extract_citations(self, resp: ChatResponse) -> list[Citation]:
-        return []
