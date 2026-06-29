@@ -684,7 +684,6 @@ export function CourseWorkspacePage() {
   const handleBottomClick = useCallback(() => setPhaseSummaryOpen(true), []);
 
 
-
   const explorerResizeRef = useRef(false);
   const onExplorerMove = useCallback((event: MouseEvent) => {
     if (!explorerResizeRef.current) return;
@@ -847,6 +846,7 @@ export function CourseWorkspacePage() {
             />
           )}
         </div>
+
       )}
     </AppShell>
   );
