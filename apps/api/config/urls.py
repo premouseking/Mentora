@@ -12,6 +12,7 @@ from mentora.assessment.views import (
     submit_quiz_attempt,
 )
 from mentora.agent_runtime.views import chat_api, chat_stream
+from mentora.users.views import login, register, refresh
 from mentora.learning.views import history_list
 from mentora.courses.views import (
     course_activate,
@@ -49,6 +50,10 @@ urlpatterns = [
     # Swagger / OpenAPI
     path("api/schema/", SpectacularAPIView.as_view(), name="schema"),
     path("api/docs/", SpectacularSwaggerView.as_view(url_name="schema"), name="swagger-ui"),
+    # Auth
+    path("api/auth/register/", register, name="auth-register"),
+    path("api/auth/login/", login, name="auth-login"),
+    path("api/auth/refresh/", refresh, name="auth-refresh"),
     path("api/health/", health, name="health"),
     path("api/history/", history_list, name="history-list"),
     # 聊天

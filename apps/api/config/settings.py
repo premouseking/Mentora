@@ -48,6 +48,8 @@ ALLOWED_HOSTS = _env_list("DJANGO_ALLOWED_HOSTS")
 if "PYTEST_CURRENT_TEST" in os.environ and "testserver" not in ALLOWED_HOSTS:
     ALLOWED_HOSTS.append("testserver")
 
+AUTH_USER_MODEL = "users.User"
+
 INSTALLED_APPS = [
     "django.contrib.auth",
     "django.contrib.contenttypes",
@@ -57,6 +59,7 @@ INSTALLED_APPS = [
     "django.contrib.postgres",
     "rest_framework",
     "pgvector.django",
+    "mentora.users",
     "mentora.courses",
     "mentora.knowledge",
     "mentora.learning",
@@ -69,8 +72,19 @@ INSTALLED_APPS = [
     "drf_spectacular",
 ]
 
+from datetime import timedelta
+
 REST_FRAMEWORK = {
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
+    "DEFAULT_AUTHENTICATION_CLASSES": [
+        "rest_framework_simplejwt.authentication.JWTAuthentication",
+    ],
+}
+
+SIMPLE_JWT = {
+    "ACCESS_TOKEN_LIFETIME": timedelta(hours=1),
+    "REFRESH_TOKEN_LIFETIME": timedelta(days=7),
+    "AUTH_HEADER_TYPES": ("Bearer",),
 }
 
 SPECTACULAR_SETTINGS = {
