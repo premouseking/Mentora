@@ -20,7 +20,6 @@ from mentora.assessment.services import (
 )
 from mentora.model_gateway.schemas import Message
 
-DEV_COURSE_SESSION_ID = "00000000-0000-0000-0000-000000000000"
 MAX_CONTEXT_EVIDENCE = 18
 
 
@@ -35,6 +34,15 @@ def _parse_json(request) -> dict:
 
 def _json_error(message: str, status: int = 400) -> Response:
     return Response({"error": message}, status=status)
+
+
+def _resolve_course_session_id(body: dict) -> tuple[str | None, Response | None]:
+    course_session_id = str(body.get("course_session_id") or "").strip()
+    if course_session_id:
+        return course_session_id, None
+    if settings.DEBUG and settings.DEV_COURSE_SESSION_ID:
+        return settings.DEV_COURSE_SESSION_ID, None
+    return None, _json_error("缺少 course_session_id", 400)
 
 
 def _get_source_titles(source_version_ids: list[str]) -> dict[str, str]:
@@ -110,11 +118,24 @@ def _serialize_session(session_id: str) -> dict | None:
         return None
 
     from mentora.retrieval.models import EvidenceUnit
+    from mentora.assessment.models import AssessmentItemRevision
 
     attempts = session.attempts.select_related("item").order_by("position")
+    attempts = list(attempts)
+    revision_ids = [
+        attempt.item.current_revision_id
+        for attempt in attempts
+        if attempt.item.current_revision_id
+    ]
+    revision_map = {
+        revision.id: revision
+        for revision in AssessmentItemRevision.objects.filter(id__in=revision_ids)
+    }
     evidence_ids = []
     for attempt in attempts:
-        evidence_ids.extend(attempt.item.source_evidence_ids or [])
+        revision = revision_map.get(attempt.item.current_revision_id)
+        if revision:
+            evidence_ids.extend(revision.source_evidence_ids or [])
     evidence_map = {
         str(unit.id): unit
         for unit in EvidenceUnit.objects.filter(id__in=evidence_ids)
@@ -126,8 +147,10 @@ def _serialize_session(session_id: str) -> dict | None:
     items = []
     for attempt in attempts:
         item = attempt.item
+        revision = revision_map.get(item.current_revision_id)
         source_links = []
-        for evidence_id in item.source_evidence_ids or []:
+        source_evidence_ids = revision.source_evidence_ids if revision else []
+        for evidence_id in source_evidence_ids or []:
             unit = evidence_map.get(str(evidence_id))
             if not unit:
                 continue
@@ -144,10 +167,10 @@ def _serialize_session(session_id: str) -> dict | None:
             "item_id": str(item.id),
             "position": attempt.position,
             "question_type": item.question_type,
-            "question_text": item.question_text,
-            "options": item.options_json or [],
-            "correct_answer": item.correct_answer,
-            "explanation": item.explanation,
+            "question_text": revision.question_text if revision else "",
+            "options": revision.options_json if revision and revision.options_json else [],
+            "correct_answer": revision.correct_answer if revision else "",
+            "explanation": revision.explanation if revision else "",
             "difficulty": item.difficulty,
             "source_links": source_links,
             "user_answer": attempt.user_answer,
@@ -197,7 +220,9 @@ def generate_quiz_session(request):
     except (TypeError, ValueError):
         count = 10
     difficulty = str(body.get("difficulty") or "综合").strip()
-    course_session_id = str(body.get("course_session_id") or DEV_COURSE_SESSION_ID)
+    course_session_id, error_response = _resolve_course_session_id(body)
+    if error_response is not None:
+        return error_response
 
     evidence_units = _get_scoped_evidence(source_version_ids)
     if not evidence_units:

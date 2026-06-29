@@ -74,30 +74,25 @@ class PlanPhase(BaseModel):
     tasks: list[str] = Field(description="代表性任务列表")
 
 
+class TopicItem(BaseModel):
+    """PlannerAgent 输出的主题-证据关联。"""
+
+    name: str = Field(description="主题名称")
+    evidence_ids: list[str] = Field(
+        default_factory=list, description="支撑该主题的 EvidenceUnit ID 列表"
+    )
+
+
 class PlanResponse(BaseModel):
     """PlannerAgent 方案输出。
 
     title 字段由 LLM 根据用户目标生成简洁课程标题（≤15 字）。
+    topics 由 LLM 根据资料内容自动标注主题-证据关联。
     """
 
     title: str = Field(description="课程标题，≤15字")
     phases: list[PlanPhase] = Field(description="学习阶段列表（4-5 个阶段）")
-
-
-class ProfileCandidate(BaseModel):
-    """画像候选项——ClarifierAgent 分析追问后推荐的方案。"""
-
-    goal: str = Field(description="学习目标描述")
-    level: str = Field(description="当前水平")
-    pace: str = Field(description="推进节奏")
-    estimated_hours: int = Field(default=0, ge=0, description="预估总时长（小时）")
-    reason: str = Field(description="推荐理由")
-
-
-class ProfileCandidatesResponse(BaseModel):
-    """画布候选项列表。"""
-
-    candidates: list[ProfileCandidate] = Field(
-        min_length=1, max_length=4,
-        description="2-4 个差异化画像方案",
+    topics: list[TopicItem] = Field(
+        default_factory=list,
+        description="主题与证据映射，LLM 自动标注",
     )

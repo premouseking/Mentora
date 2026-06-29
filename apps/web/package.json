@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run --passWithNoTests"
+    "test": "vitest run --passWithNoTests --config vitest.config.ts"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.90.16",

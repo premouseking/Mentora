@@ -10,6 +10,7 @@
 
 import uuid
 
+from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 
@@ -25,17 +26,26 @@ from mentora.knowledge.models import (
 from mentora.knowledge.services.processing import run_processing_for_version
 
 
-DEV_OWNER_ID = "dev-user"
+DEV_OWNER_ID = settings.DEV_OWNER_ID
+
+
+def _resolve_owner_id(owner_id: str | None) -> str:
+    if owner_id:
+        return owner_id
+    if settings.DEBUG:
+        return DEV_OWNER_ID
+    raise ValueError("缺少 owner_id")
 
 
 def create_upload_session(
-    owner_id: str = DEV_OWNER_ID,
+    owner_id: str | None = None,
     upload_id: str | None = None,
     byte_size: int | None = None,
     filename: str = "original.pdf",
     media_type: str = "application/pdf",
 ) -> dict:
     """创建上传会话并返回预签名 PUT URL。"""
+    owner_id = _resolve_owner_id(owner_id)
     storage = ObjectStorageService()
     storage.ensure_bucket()
 
@@ -68,10 +78,11 @@ def complete_upload(
     upload_id: str,
     content_sha256: str,
     byte_size: int,
-    owner_id: str = DEV_OWNER_ID,
+    owner_id: str | None = None,
     sync_processing: bool = True,
 ) -> dict:
     """校验上传对象并创建 SourceVersion，可选同步解析。"""
+    owner_id = _resolve_owner_id(owner_id)
     storage = ObjectStorageService()
 
     try:
@@ -136,12 +147,13 @@ def upload_file_direct(
     file_bytes: bytes,
     filename: str,
     content_sha256: str,
-    owner_id: str = DEV_OWNER_ID,
+    owner_id: str | None = None,
     sync_processing: bool = True,
 ) -> dict:
     """
     直接上传文件到对象存储并走完 complete 流程（seed/smoke 用，不经 HTTP PUT）。
     """
+    owner_id = _resolve_owner_id(owner_id)
     created = create_upload_session(
         owner_id=owner_id,
         byte_size=len(file_bytes),

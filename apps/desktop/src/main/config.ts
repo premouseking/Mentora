@@ -2,6 +2,7 @@ import { app } from "electron";
 import path from "node:path";
 
 export const DEV_SERVER_URL = process.env.MENTORA_DEV_SERVER_URL ?? null;
+export const OBJECT_STORAGE_ORIGIN = process.env.MENTORA_OBJECT_STORAGE_ORIGIN ?? null;
 
 export const isDev = !app.isPackaged;
 
@@ -12,8 +13,15 @@ export function isDevAuthBypassEnabled(): boolean {
 
 export const DEV_AUTH_BYPASS_ACCOUNT_ID = "dev-bypass";
 
-export const API_BASE_URL =
-  process.env.MENTORA_API_BASE_URL ?? "http://127.0.0.1:8000/api";
+function requiredEnv(name: string): string {
+  const value = process.env[name];
+  if (!value) {
+    throw new Error(`${name} is required`);
+  }
+  return value;
+}
+
+export const API_BASE_URL = requiredEnv("MENTORA_API_BASE_URL");
 
 /** 约束：桥接拒绝不在 allowlist 内的 path（§5.1） */
 export const API_PATH_ALLOWLIST: readonly string[] = [
@@ -63,4 +71,15 @@ export function allowedNavigationOrigins(): string[] {
     return [new URL(DEV_SERVER_URL).origin];
   }
   return [];
+}
+
+export function allowedConnectSources(): string[] {
+  const sources = [API_BASE_URL];
+  if (isDev && DEV_SERVER_URL) {
+    sources.push(new URL(DEV_SERVER_URL).origin, DEV_SERVER_URL.replace(/^http/, "ws"));
+  }
+  if (OBJECT_STORAGE_ORIGIN) {
+    sources.push(OBJECT_STORAGE_ORIGIN);
+  }
+  return Array.from(new Set(sources.map((source) => new URL(source).origin)));
 }

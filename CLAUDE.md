@@ -11,6 +11,10 @@ Monorepo: `apps/web` (React/Vite renderer), `apps/api` (Django REST API + Celery
 ```bash
 pnpm install                  # Install all workspace deps
 pnpm infra:up                 # Start PostgreSQL, Redis, MinIO (Docker)
+pnpm api:migrate              # Apply Django migrations
+pnpm api:seed                 # Seed local development data
+pnpm api:smoke:upload         # Verify upload/parse/evidence path
+pnpm dev:api                  # Start Django API (http://localhost:8000)
 pnpm dev:web                  # Start Vite dev server (http://localhost:5173)
 pnpm build:web                # Production build
 pnpm typecheck:web            # TypeScript check
@@ -21,6 +25,15 @@ cd apps/api && python manage.py runserver   # Django dev server (http://localhos
 cd apps/api && python manage.py test        # Run backend tests
 cd apps/api && celery -A config worker -l info  # Celery worker
 ```
+
+## Project Skills
+
+Repo-local agent workflows live under `docs/agents/skills/`.
+
+- Use `docs/agents/skills/mentora-local-dev-smoke/SKILL.md` before local startup, API/Web/Desktop smoke verification, or dev infra debugging.
+- Use `docs/agents/skills/mentora-runtime-boundary-review/SKILL.md` before reviewing mock data, hardcoded runtime values, fake fallback branches, or dev/prod boundary changes.
+
+Local dev must keep `.env` untracked. Web `/api/*` should proxy through Vite to Django using root `.env` values. LLM-backed endpoints should return explicit 503 when `LLM_API_KEY` is not configured; do not restore mock success paths.
 
 ## Architecture
 

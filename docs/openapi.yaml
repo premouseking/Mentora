@@ -327,59 +327,6 @@ paths:
       responses:
         '200':
           description: No response body
-  /api/courses/sessions/{session_id}/apply-candidate/:
-    post:
-      operationId: courses_sessions_apply_candidate_create
-      description: |-
-        POST /api/courses/sessions/<uuid:id>/apply-candidate/
-
-        请求体: {goal, level, pace}
-        流程:
-          1. 写入 session goal/level/pace
-          2. 创建 Course + CourseProfileRevision(draft)
-        返回: {course_id, profile_revision_id, goal, level, pace, status: "draft"}
-
-        用户可继续 PATCH /api/courses/<id>/profile/ 编辑草稿，
-        确认后 POST /api/courses/<id>/activate/ 触发 plan_generate 并激活。
-      parameters:
-      - in: path
-        name: session_id
-        schema:
-          type: string
-          format: uuid
-        required: true
-      tags:
-      - courses
-      security:
-      - cookieAuth: []
-      - basicAuth: []
-      - {}
-      responses:
-        '200':
-          description: No response body
-  /api/courses/sessions/{session_id}/candidates/:
-    post:
-      operationId: courses_sessions_candidates_create
-      description: |-
-        POST /api/courses/sessions/<uuid:id>/candidates/
-
-        基于追问历史生成 2-4 个差异化画像方案供学生选择。
-      parameters:
-      - in: path
-        name: session_id
-        schema:
-          type: string
-          format: uuid
-        required: true
-      tags:
-      - courses
-      security:
-      - cookieAuth: []
-      - basicAuth: []
-      - {}
-      responses:
-        '200':
-          description: No response body
   /api/courses/sessions/{session_id}/inquiry/:
     post:
       operationId: courses_sessions_inquiry_create
@@ -478,13 +425,178 @@ paths:
       responses:
         '200':
           description: No response body
+  /api/library/folders/:
+    get:
+      operationId: library_folders_retrieve
+      description: 返回当前用户的文件夹列表，含子文件夹数和资料数。
+      summary: 列出文件夹
+      parameters:
+      - in: query
+        name: ownerId
+        schema:
+          type: string
+        description: 所有者 ID
+      tags:
+      - library
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                description: 文件夹列表
+          description: ''
+  /api/library/folders/{folder_id}/:
+    patch:
+      operationId: library_folders_partial_update
+      summary: 重命名文件夹
+      parameters:
+      - in: path
+        name: folder_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - library
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  description: 新名称
+              required:
+              - name
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                description: 重命名成功
+          description: ''
+        '404':
+          content:
+            application/json:
+              schema:
+                description: 文件夹不存在
+          description: ''
+  /api/library/folders/{folder_id}/delete/:
+    delete:
+      operationId: library_folders_delete_destroy
+      description: 只能删除空文件夹（无子文件夹且无资料）。
+      summary: 删除文件夹
+      parameters:
+      - in: path
+        name: folder_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - library
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                description: 删除成功
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                description: 文件夹非空
+          description: ''
+        '404':
+          content:
+            application/json:
+              schema:
+                description: 文件夹不存在
+          description: ''
+  /api/library/folders/create/:
+    post:
+      operationId: library_folders_create_create
+      summary: 创建文件夹
+      tags:
+      - library
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  description: 文件夹名称
+                parentId:
+                  type: string
+                  description: 父文件夹 ID（可选）
+                ownerId:
+                  type: string
+                  description: 所有者 ID
+              required:
+              - name
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - {}
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                description: 创建成功
+          description: ''
   /api/library/sources/:
     get:
       operationId: library_sources_retrieve
-      description: |-
-        GET /api/library/sources/?ownerId=&courseId= — 列出资料。
-
-        courseId 可选：传入时仅返回已关联到该课程的资料。
+      description: 按所有者列出全部资料，可选按课程或标签过滤。tags 参数逗号分隔，取交集。
+      summary: 列出资料库
+      parameters:
+      - in: query
+        name: courseId
+        schema:
+          type: string
+        description: 课程会话 ID，传入时仅返回已关联资料
+      - in: query
+        name: folderId
+        schema:
+          type: string
+        description: 文件夹 ID，传入时仅返回该文件夹下的资料
+      - in: query
+        name: ownerId
+        schema:
+          type: string
+        description: 所有者 ID
+      - in: query
+        name: q
+        schema:
+          type: string
+        description: 搜索关键词，模糊匹配资料标题
+      - in: query
+        name: status
+        schema:
+          type: string
+        description: '过滤状态: active/archived'
+      - in: query
+        name: tags
+        schema:
+          type: string
+        description: 逗号分隔的标签，取交集过滤
       tags:
       - library
       security:
@@ -493,31 +605,47 @@ paths:
       - {}
       responses:
         '200':
-          description: No response body
+          content:
+            application/json:
+              schema:
+                description: 资料列表
+          description: ''
+  /api/library/sources/{source_id}/archive/:
+    patch:
+      operationId: library_sources_archive_partial_update
+      description: 将资料状态设为 archived，保留历史回答可追溯。
+      summary: 归档资料
+      parameters:
+      - in: path
+        name: source_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - library
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                description: 归档成功
+          description: ''
+        '404':
+          content:
+            application/json:
+              schema:
+                description: 资料不存在
+          description: ''
   /api/library/sources/{source_id}/delete/:
     delete:
       operationId: library_sources_delete_destroy
-      description: DELETE /api/library/sources/<source_id>/ — 删除资料及关联的版本和解析数据。
-      parameters:
-      - in: path
-        name: source_id
-        schema:
-          type: string
-          format: uuid
-        required: true
-      tags:
-      - library
-      security:
-      - cookieAuth: []
-      - basicAuth: []
-      - {}
-      responses:
-        '204':
-          description: No response body
-  /api/library/sources/{source_id}/reparse/:
-    post:
-      operationId: library_sources_reparse_create
-      description: POST /api/library/sources/<source_id>/reparse/ — 重新解析资料。
+      description: 删除资料及 CASCADE 关联的版本、解析数据和检索证据。
+      summary: 删除资料
       parameters:
       - in: path
         name: source_id
@@ -533,11 +661,178 @@ paths:
       - {}
       responses:
         '200':
-          description: No response body
+          content:
+            application/json:
+              schema:
+                description: 删除成功
+          description: ''
+        '404':
+          content:
+            application/json:
+              schema:
+                description: 资料不存在
+          description: ''
+  /api/library/sources/{source_id}/move/:
+    patch:
+      operationId: library_sources_move_partial_update
+      description: 将资料移入/移出文件夹。folderId 传 null 可移出文件夹。
+      summary: 移动资料
+      parameters:
+      - in: path
+        name: source_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - library
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                folderId:
+                  type:
+                  - string
+                  - 'null'
+                  description: 目标文件夹 ID，null 移出
+              required:
+              - folderId
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                description: 移动成功
+          description: ''
+        '404':
+          content:
+            application/json:
+              schema:
+                description: 资料不存在
+          description: ''
+  /api/library/sources/{source_id}/reparse/:
+    post:
+      operationId: library_sources_reparse_create
+      description: 清理旧解析数据后重新触发同步解析管线。
+      summary: 重新解析资料
+      parameters:
+      - in: path
+        name: source_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - library
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                description: 重新解析完成
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                description: 资料无版本记录
+          description: ''
+        '404':
+          content:
+            application/json:
+              schema:
+                description: 资料不存在
+          description: ''
+  /api/library/sources/{source_id}/tags/:
+    patch:
+      operationId: library_sources_tags_partial_update
+      description: 替换指定资料的标签列表。
+      summary: 更新资料标签
+      parameters:
+      - in: path
+        name: source_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - library
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                tags:
+                  type: array
+                  items:
+                    type: string
+                  description: 标签列表
+              required:
+              - tags
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                description: 更新成功
+          description: ''
+        '404':
+          content:
+            application/json:
+              schema:
+                description: 资料不存在
+          description: ''
+  /api/library/sources/{source_id}/unarchive/:
+    patch:
+      operationId: library_sources_unarchive_partial_update
+      description: 将资料恢复为 active 状态。
+      summary: 取消归档
+      parameters:
+      - in: path
+        name: source_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - library
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                description: 恢复成功
+          description: ''
+        '404':
+          content:
+            application/json:
+              schema:
+                description: 资料不存在
+          description: ''
   /api/library/sources/{source_version_id}/:
     get:
       operationId: library_sources_retrieve_2
-      description: GET /api/library/sources/<source_version_id>/ — 获取资料版本详情与解析正文。
+      description: 返回资料元数据、版本信息与 ParsedBundle JSON（如已解析）。
+      summary: 获取资料版本详情
       parameters:
       - in: path
         name: source_version_id
@@ -553,7 +848,41 @@ paths:
       - {}
       responses:
         '200':
-          description: No response body
+          content:
+            application/json:
+              schema:
+                description: 资料详情
+          description: ''
+        '404':
+          content:
+            application/json:
+              schema:
+                description: 资料版本不存在
+          description: ''
+  /api/library/tags/:
+    get:
+      operationId: library_tags_retrieve
+      description: 返回当前用户所有资料中已使用的标签合集。
+      summary: 列出所有标签
+      parameters:
+      - in: query
+        name: ownerId
+        schema:
+          type: string
+        description: 所有者 ID
+      tags:
+      - library
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                description: 标签列表
+          description: ''
   /api/parsing/benchmark:
     get:
       operationId: parsing_benchmark_retrieve
@@ -625,35 +954,100 @@ paths:
   /api/uploads/:
     post:
       operationId: uploads_create
-      description: |-
-        POST /api/uploads/
-
-        创建上传会话，返回预签名 PUT URL。客户端应携带 uploadId 以便 complete 关联。
+      description: 创建上传会话，返回对象存储键和上传 ID。客户端应携带 uploadId 以便 complete 关联。
+      summary: 创建上传会话
       tags:
       - uploads
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                filename:
+                  type: string
+                  description: 原始文件名
+                size:
+                  type: integer
+                  description: 文件字节大小
+                mediaType:
+                  type: string
+                  description: MIME 类型，默认 application/pdf
+                ownerId:
+                  type: string
+                  description: 所有者 ID
+                uploadId:
+                  type: string
+                  description: 客户端生成的 UUID，用于幂等关联
+              required:
+              - filename
+              - size
       security:
       - cookieAuth: []
       - basicAuth: []
       - {}
       responses:
         '200':
-          description: No response body
+          content:
+            application/json:
+              schema:
+                description: 上传会话创建成功
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                description: 参数无效
+          description: ''
   /api/uploads/complete/:
     post:
       operationId: uploads_complete_create
-      description: |-
-        POST /api/uploads/complete/
-
-        校验上传完成，创建 SourceVersion 并触发解析。
+      description: 校验文件 SHA256 与大小，创建 Source/SourceVersion，触发异步解析管线。
+      summary: 完成上传并触发解析
       tags:
       - uploads
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                uploadId:
+                  type: string
+                  description: 上传会话 UUID
+                sha256:
+                  type: string
+                  description: 文件 SHA-256 哈希（十六进制）
+                size:
+                  type: integer
+                  description: 实际文件字节大小
+                ownerId:
+                  type: string
+                  description: 所有者 ID
+                sync:
+                  type: boolean
+                  description: 是否同步等待解析完成，默认 true
+              required:
+              - uploadId
+              - sha256
+              - size
       security:
       - cookieAuth: []
       - basicAuth: []
       - {}
       responses:
         '200':
-          description: No response body
+          content:
+            application/json:
+              schema:
+                description: 上传完成，解析已触发
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                description: 校验失败（SHA256/大小不匹配）
+          description: ''
 components:
   securitySchemes:
     basicAuth:

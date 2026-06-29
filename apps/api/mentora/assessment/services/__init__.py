@@ -170,11 +170,24 @@ def submit_attempt(
         session.started_at = timezone.now()
         session.save(update_fields=["status", "started_at"])
 
-    return {
+    result = {
         "attempt_id": str(attempt.id),
         "is_correct": is_correct,
         "score": score,
     }
+
+    # 写入学习记录
+    from mentora.learning.services import write_history_event
+    revision = AssessmentItemRevision.objects.get(id=attempt.item.current_revision_id)
+    write_history_event(
+        course_id=str(session.course_session_id),
+        event_type="quiz_attempted",
+        title=f"作答题目：{revision.question_text[:40]}...",
+        detail=f"选自测验 {session_id}",
+        result="通过" if is_correct else f"得分 {score}",
+    )
+
+    return result
 
 
 @transaction.atomic

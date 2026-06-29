@@ -30,9 +30,25 @@ def _load_dotenv() -> None:
 
 _load_dotenv()
 
-SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "dev-only-secret")
-DEBUG = os.getenv("DJANGO_DEBUG", "true").lower() == "true"
-ALLOWED_HOSTS = ["127.0.0.1", "localhost", "testserver"]
+
+def _env(name: str) -> str:
+    value = os.getenv(name)
+    if value:
+        return value
+    raise RuntimeError(f"{name} is required")
+
+
+def _env_list(name: str) -> list[str]:
+    return [item.strip() for item in _env(name).split(",") if item.strip()]
+
+
+SECRET_KEY = _env("DJANGO_SECRET_KEY")
+DEBUG = _env("DJANGO_DEBUG").lower() == "true"
+ALLOWED_HOSTS = _env_list("DJANGO_ALLOWED_HOSTS")
+if "PYTEST_CURRENT_TEST" in os.environ and "testserver" not in ALLOWED_HOSTS:
+    ALLOWED_HOSTS.append("testserver")
+
+AUTH_USER_MODEL = "users.User"
 
 INSTALLED_APPS = [
     "django.contrib.auth",
@@ -43,6 +59,7 @@ INSTALLED_APPS = [
     "django.contrib.postgres",
     "rest_framework",
     "pgvector.django",
+    "mentora.users",
     "mentora.courses",
     "mentora.knowledge",
     "mentora.learning",
@@ -50,12 +67,28 @@ INSTALLED_APPS = [
     "mentora.agent_runtime",
     "mentora.parsing",
     "mentora.retrieval",
+    "mentora.topics",
     "mentora.model_gateway",
     "drf_spectacular",
 ]
 
+from datetime import timedelta
+
+# 开发模式认证旁路：MENTORA_DEV_AUTH_BYPASS=1 时跳过 JWT 校验
+_dev_auth_bypass = DEBUG and os.getenv("MENTORA_DEV_AUTH_BYPASS", "0") == "1"
+
 REST_FRAMEWORK = {
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
+    "DEFAULT_AUTHENTICATION_CLASSES": (
+        [] if _dev_auth_bypass else
+        ["rest_framework_simplejwt.authentication.JWTAuthentication"]
+    ),
+}
+
+SIMPLE_JWT = {
+    "ACCESS_TOKEN_LIFETIME": timedelta(hours=1),
+    "REFRESH_TOKEN_LIFETIME": timedelta(days=7),
+    "AUTH_HEADER_TYPES": ("Bearer",),
 }
 
 SPECTACULAR_SETTINGS = {
@@ -96,17 +129,18 @@ TEMPLATES = [
 DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.postgresql",
-        "NAME": os.getenv("POSTGRES_DB", "mentora"),
-        "USER": os.getenv("POSTGRES_USER", "mentora"),
-        "PASSWORD": os.getenv("POSTGRES_PASSWORD", "mentora"),
-        "HOST": os.getenv("POSTGRES_HOST", "127.0.0.1"),
-        "PORT": os.getenv("POSTGRES_PORT", "55432"),
+        "NAME": _env("POSTGRES_DB"),
+        "USER": _env("POSTGRES_USER"),
+        "PASSWORD": _env("POSTGRES_PASSWORD"),
+        "HOST": _env("POSTGRES_HOST"),
+        "PORT": _env("POSTGRES_PORT"),
+        "OPTIONS": {"connect_timeout": int(_env("POSTGRES_CONNECT_TIMEOUT"))},
         "CONN_MAX_AGE": 0,
         "DISABLE_SERVER_SIDE_CURSORS": True,
     }
 }
 
-CELERY_BROKER_URL = os.getenv("REDIS_URL", "redis://127.0.0.1:6379/0")
+CELERY_BROKER_URL = _env("REDIS_URL")
 CELERY_RESULT_BACKEND = CELERY_BROKER_URL
 CELERY_TASK_ALWAYS_EAGER = os.getenv("CELERY_TASK_ALWAYS_EAGER", "false").lower() == "true"
 CELERY_TASK_ROUTES = {
@@ -126,17 +160,18 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 # ── 对象存储（MinIO / S3 / COS 同构）────────────────────
 
-OBJECT_STORAGE_BACKEND = os.getenv("OBJECT_STORAGE_BACKEND", "s3")
-OBJECT_STORAGE_ENDPOINT = os.getenv("OBJECT_STORAGE_ENDPOINT", "http://127.0.0.1:9000")
-OBJECT_STORAGE_BUCKET = os.getenv("OBJECT_STORAGE_BUCKET", "mentora")
-OBJECT_STORAGE_ACCESS_KEY = os.getenv("OBJECT_STORAGE_ACCESS_KEY", "mentora")
-OBJECT_STORAGE_SECRET_KEY = os.getenv("OBJECT_STORAGE_SECRET_KEY", "mentora-secret")
-OBJECT_STORAGE_REGION = os.getenv("OBJECT_STORAGE_REGION", "us-east-1")
-OBJECT_STORAGE_FS_ROOT = os.getenv("OBJECT_STORAGE_FS_ROOT", "/tmp/mentora/storage")
+OBJECT_STORAGE_BACKEND = _env("OBJECT_STORAGE_BACKEND")
+OBJECT_STORAGE_ENDPOINT = _env("OBJECT_STORAGE_ENDPOINT")
+OBJECT_STORAGE_BUCKET = _env("OBJECT_STORAGE_BUCKET")
+OBJECT_STORAGE_ACCESS_KEY = _env("OBJECT_STORAGE_ACCESS_KEY")
+OBJECT_STORAGE_SECRET_KEY = _env("OBJECT_STORAGE_SECRET_KEY")
+OBJECT_STORAGE_REGION = _env("OBJECT_STORAGE_REGION")
+OBJECT_STORAGE_FS_ROOT = _env("OBJECT_STORAGE_FS_ROOT")
 
 # ── 开发种子数据 ─────────────────────────────────────────
 
-DEV_OWNER_ID = os.getenv("DEV_OWNER_ID", "dev-user")
+DEV_OWNER_ID = _env("DEV_OWNER_ID")
+DEV_COURSE_SESSION_ID = os.getenv("DEV_COURSE_SESSION_ID")
 
 # ── pgvector ─────────────────────────────────────────────
 

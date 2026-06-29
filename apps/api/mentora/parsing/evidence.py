@@ -39,18 +39,20 @@ def split_evidence(bundle: ParsedBundle) -> list[EvidenceUnit]:
     while i < len(flat):
         pg, idx, elem = flat[i]
 
-        # 图片 → 生成 EvidenceUnit，artifact_ref 指向对象存储中的图片
+        # 图片 → 生成 EvidenceUnit。
+        # PDF 图片: artifact_ref 指向 MinIO
+        # MD 图片:  content 存 URL，前端直接渲染 <img>
         if elem.type == ElementType.IMAGE:
             artifact_ref = ""
+            content = "[图片]"
             if elem.extra:
-                artifact_ref = elem.extra.get("artifact_ref", "")
-                # 多模态描述替代占位文本
-                if elem.text and elem.text != "[图片]" and elem.text.strip():
-                    content = elem.text
+                md_url = elem.extra.get("url", "")
+                if md_url:
+                    content = md_url
                 else:
-                    content = "[图片]"
-            else:
-                content = "[图片]"
+                    artifact_ref = elem.extra.get("artifact_ref", "")
+                    if elem.text and elem.text != "[图片]" and elem.text.strip():
+                        content = elem.text
 
             units.append(
                 EvidenceUnit(

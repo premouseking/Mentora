@@ -26,7 +26,6 @@ from mentora.courses.models import CourseCreationSession, SessionStatus
 from mentora.courses.schemas import (
     ClarifierResponse,
     PlanResponse,
-    ProfileCandidatesResponse,
 )
 from mentora.courses.serializers import (
     SessionCreateSerializer,
@@ -62,6 +61,10 @@ def _get_gateway_and_prompts():
     from mentora.agent_runtime.views import get_gateway, get_prompt_manager
 
     return get_gateway(), get_prompt_manager()
+
+
+def _gateway_unavailable_response(exc: Exception) -> Response:
+    return Response({"error": str(exc)}, status=503)
 
 
 def _format_history(inquiry_history: list[dict]) -> str:
@@ -170,6 +173,20 @@ def session_update(request, session_id):
     return Response({"status": "ok"})
 
 
+@extend_schema(
+    summary="删除建课会话",
+    responses={200: {"description": "删除成功"}, 404: {"description": "会话不存在"}},
+)
+@api_view(["DELETE"])
+def session_delete(request, session_id):
+    try:
+        session = _get_session(session_id)
+    except ValueError as exc:
+        return Response({"error": str(exc)}, status=404)
+    session.delete()
+    return Response({"status": "deleted"})
+
+
 # ── Inquiry 追问 ──
 
 
@@ -224,7 +241,10 @@ def inquiry_next(request, session_id):
         )
 
     # 构建消息并调用 LLM
-    gateway, prompt_mgr = _get_gateway_and_prompts()
+    try:
+        gateway, prompt_mgr = _get_gateway_and_prompts()
+    except RuntimeError as exc:
+        return _gateway_unavailable_response(exc)
 
     variables = {
         "school": session.school or "未填写",
@@ -283,7 +303,16 @@ def inquiry_next(request, session_id):
 
     if result.get("ready"):
         session.status = SessionStatus.GENERATING_PLAN
-        session.save(update_fields=["status", "updated_at"])
+        # 提取追问历史为结构化补充画像
+        supplement = {}
+        for entry in session.inquiry_history:
+            q = (entry.get("question") or "").strip()
+            a = (entry.get("answer") or "").strip()
+            if q and a:
+                supplement[q] = a
+        if supplement:
+            session.profile_supplement = supplement
+        session.save(update_fields=["status", "inquiry_history", "profile_supplement", "updated_at"])
 
     return Response(result)
 
@@ -357,11 +386,13 @@ def _plan_detail(request, session_id):
         return Response({"error": str(exc)}, status=404)
 
     from mentora.learning.services import get_active_plan
+    from mentora.topics.services import get_topic_tree
 
     plan = get_active_plan(session_id)
     if plan is None:
         return Response({"error": "该课程尚未生成学习方案"}, status=404)
 
+    plan["topics"] = get_topic_tree(session_id)
     return Response(plan)
 
 
@@ -380,7 +411,10 @@ def _plan_generate(request, session_id):
     except ValueError as exc:
         return Response({"error": str(exc)}, status=404)
 
-    gateway, prompt_mgr = _get_gateway_and_prompts()
+    try:
+        gateway, prompt_mgr = _get_gateway_and_prompts()
+    except RuntimeError as exc:
+        return _gateway_unavailable_response(exc)
 
     variables = {
         "school": session.school or "未填写",
@@ -442,8 +476,27 @@ def _plan_generate(request, session_id):
             knowledge_scope_revision_id="",
         )
         revision_id = revision["revision_id"]
-        # 立即激活，使工作区页面可以查到方案
         activate_revision(revision_id)
+
+        # 自动构建主题树 + 证据关联（LLM 输出中的 topics）
+        topics_data = plan_output.get("topics", [])
+        if topics_data:
+            from mentora.topics.models import Topic
+            from mentora.topics.services import build_topic_tree, link_evidence
+
+            build_topic_tree(session_id, [
+                {"name": t["name"], "level": 0, "position": idx,
+                 "estimated_minutes": 0}
+                for idx, t in enumerate(topics_data)
+            ])
+            for t in topics_data:
+                eids = t.get("evidence_ids", [])
+                if eids:
+                    topic = Topic.objects.filter(
+                        course_id=session_id, name=t["name"]
+                    ).first()
+                    if topic:
+                        link_evidence(str(topic.id), eids)
     except Exception:
         # 持久化失败不影响方案返回，前端可继续展示
         pass
@@ -585,64 +638,6 @@ def session_delete(request, session_id):
     return JsonResponse({"status": "deleted"})
 
 
-# ── Profile Candidates 画像候选项 ──
-
-
-@api_view(["POST"])
-@extend_schema(summary="Profile Candidates")
-def profile_candidates(request, session_id):
-    """
-    POST /api/courses/sessions/<uuid:id>/candidates/
-
-    基于追问历史生成 2-4 个差异化画像方案供学生选择。
-    """
-    try:
-        session = _get_session(session_id)
-    except ValueError as exc:
-        return Response({"error": str(exc)}, status=404)
-
-    gateway, prompt_mgr = _get_gateway_and_prompts()
-
-    variables = {
-        "school": session.school or "未填写",
-        "goal": session.goal or "未填写",
-        "level": session.level or "未选择",
-        "pace": session.pace or "未选择",
-        "time_budget": session.time_budget or "未选择",
-        "deadline": session.deadline.isoformat() if session.deadline else "未设定",
-        "inquiry_history": _format_history(session.inquiry_history),
-    }
-    system_text = prompt_mgr.render("clarifier", variables)
-
-    messages = [
-        Message(role="system", content=system_text),
-        Message(
-            role="user",
-            content="请基于以上全部信息，生成 2-4 个差异化的学习画像方案候选。"
-                    "每个方案应包含不同的目标/重点/节奏，并给出推荐理由。",
-        ),
-    ]
-
-    try:
-        resp = asyncio.run(
-            gateway.chat(
-                task_type="clarifier",
-                messages=messages,
-                structured_output_schema=ProfileCandidatesResponse,
-            )
-        )
-    except Exception as exc:
-        return Response({"error": f"LLM 调用失败: {str(exc)}"}, status=502)
-
-    if resp.parsed_output is None:
-        return Response(
-            {"error": "LLM 返回格式异常", "raw_content": resp.content},
-            status=502,
-        )
-
-    return Response(resp.parsed_output)
-
-
 # ── Course list ──
 
 
@@ -655,7 +650,6 @@ def course_list(request):
     返回课程列表（按创建时间倒序）。
     """
     from mentora.courses.models import Course, CourseProfileRevision
-
     courses = Course.objects.order_by("-created_at").values(
         "id", "active_profile_revision_id", "active_scope_revision_id", "created_at",
     )
@@ -677,85 +671,6 @@ def course_list(request):
             "created_at": c["created_at"].isoformat(),
         })
     return Response(result)
-
-
-# ── Apply Candidate → Auto Plan ──
-
-
-@api_view(["POST"])
-@extend_schema(summary="Apply Candidate")
-def apply_candidate(request, session_id):
-    """
-    POST /api/courses/sessions/<uuid:id>/apply-candidate/
-
-    请求体: {goal, level, pace}
-    流程:
-      1. 写入 session goal/level/pace
-      2. 创建 Course + CourseProfileRevision(draft)
-    返回: {course_id, profile_revision_id, goal, level, pace, status: "draft"}
-
-    用户可继续 PATCH /api/courses/<id>/profile/ 编辑草稿，
-    确认后 POST /api/courses/<id>/activate/ 触发 plan_generate 并激活。
-    """
-    try:
-        session = _get_session(session_id)
-    except ValueError as exc:
-        return Response({"error": str(exc)}, status=404)
-
-    try:
-        body = _parse_json(request)
-    except ValueError as exc:
-        return Response({"error": str(exc)}, status=400)
-
-    goal = body.get("goal", "").strip()
-    level = body.get("level", "").strip()
-    pace = body.get("pace", "").strip()
-
-    if not goal:
-        return Response({"error": "缺少 goal"}, status=400)
-
-    # 更新 session
-    session.goal = goal
-    session.level = level
-    session.pace = pace
-    session.save(update_fields=["goal", "level", "pace", "updated_at"])
-
-    # 创建 Course + draft ProfileRevision
-    from mentora.courses.models import Course, CourseProfileRevision
-
-    course, _ = Course.objects.get_or_create(session=session)
-
-    # 旧 draft 标记 superseded
-    CourseProfileRevision.objects.filter(
-        course=course, status=CourseProfileRevision.Status.DRAFT,
-    ).update(status=CourseProfileRevision.Status.SUPERSEDED)
-
-    profile = CourseProfileRevision.objects.create(
-        course=course,
-        goal=goal,
-        level=level,
-        pace=pace,
-        school=session.school or "",
-        status=CourseProfileRevision.Status.DRAFT,
-    )
-    course.active_profile_revision_id = profile.id
-    course.save(update_fields=["active_profile_revision_id"])
-
-    session.status = SessionStatus.COMPLETED
-    session.save(update_fields=["status", "updated_at"])
-
-    return Response({
-        "course_id": str(course.id),
-        "profile_revision_id": str(profile.id),
-        "goal": profile.goal,
-        "level": profile.level,
-        "pace": profile.pace,
-        "school": profile.school,
-        "status": profile.status,
-    })
-
-
-# ── Course 管理 ──
 
 
 @api_view(["POST"])
@@ -928,7 +843,10 @@ def course_activate(request, course_id):
 
     # 1. 调 PlannerAgent 生成计划
     session = course.session
-    gateway, prompt_mgr = _get_gateway_and_prompts()
+    try:
+        gateway, prompt_mgr = _get_gateway_and_prompts()
+    except RuntimeError as exc:
+        return _gateway_unavailable_response(exc)
 
     variables = {
         "school": profile.school or "未填写",
