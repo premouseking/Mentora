@@ -1,4 +1,4 @@
-import { Check, Pencil, Undo2, X } from "lucide-react";
+import { Check, GripVertical, Pencil, Plus, Undo2, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { MentoraLoader } from "./MentoraLoader";
 
@@ -221,6 +221,23 @@ const MOCK_PLAN = {
     },
   ],
 };
+
+/* ── 阶段池：可添加的额外阶段（mock） ── */
+
+interface PoolPhase {
+  id: string;
+  title: string;
+  objective: string;
+}
+
+const MOCK_PHASE_POOL: PoolPhase[] = [
+  { id: "pool-k1", title: "知识衔接", objective: "补齐前置知识缺口" },
+  { id: "pool-k2", title: "习题强化", objective: "大量针对性练习，巩固薄弱环节" },
+  { id: "pool-k3", title: "阶段测评", objective: "定期检测学习效果，调整方向" },
+  { id: "pool-k4", title: "拓展阅读", objective: "拓展学科视野，了解实际应用" },
+  { id: "pool-k5", title: "思维训练", objective: "培养逻辑思维与解题策略" },
+  { id: "pool-k6", title: "实战模拟", objective: "全真模拟考试，训练应试能力" },
+];
 
 /* ── mock 学习档案（建课阶段收集的学生画像） ── */
 interface ProfileItem {
@@ -981,6 +998,11 @@ export function PhaseSummary({
   const [profileChanged, setProfileChanged] = useState(false);
   const [planChanged, setPlanChanged] = useState(false);
   const [planGenerated, setPlanGenerated] = useState(false);
+  // 阶段编辑表格状态
+  const [editPhases, setEditPhases] = useState<typeof MOCK_PLAN.phases>([]);
+  const [showAddPhase, setShowAddPhase] = useState(false);
+  const [dragIndex, setDragIndex] = useState<number | null>(null);
+
   const phase = plan.phases[activePhase];
 
   // 已完成的阶段索引
@@ -1040,11 +1062,13 @@ export function PhaseSummary({
     setChatChanged(true);
   }, []);
 
-  /** 清空三区 dirty 状态（星号消失） */
+  /** 清空三区 dirty 状态（星号消失），退出所有编辑模式 */
   const clearAllDirty = useCallback(() => {
     setChatChanged(false);
     setProfileChanged(false);
     setPlanChanged(false);
+    setPlanEditing(false);
+    setShowAddPhase(false);
   }, []);
 
   const handleGeneratePlan = useCallback(() => {
@@ -1085,20 +1109,72 @@ export function PhaseSummary({
 
   const handlePlanEditToggle = useCallback(() => {
     if (planEditing) {
-      // ✓ → 标记已更改，退出编辑（内容暂不变，待设计）
-      setPlanEditing(false);
-      setPlanChanged(true);
+      if (planChanged) {
+        // 锁定模式 → 重新进入编辑
+        setPlanChanged(false);
+      } else {
+        // 编辑中 → ✓ 确认保存，锁定表格
+        setPlanChanged(true);
+      }
     } else {
       setPlanEditing(true);
+      // 进入编辑时拷贝原始阶段列表
+      setEditPhases(MOCK_PLAN.phases.map((p) => ({ ...p, units: p.units.map((u) => ({ ...u, tasks: u.tasks.map((t) => ({ ...t, materials: t.materials.map((m) => ({ ...m })) })) })) })));
     }
-  }, [planEditing]);
+  }, [planEditing, planChanged]);
 
   const handlePlanEditCancel = useCallback(() => {
+    // ✕ → 退出编辑，恢复原始阶段列表
     setPlanEditing(false);
+    setPlanChanged(false);
+    setShowAddPhase(false);
   }, []);
 
+  /** 撤回计划更改：恢复原始阶段列表 + 退出编辑 + 清除 dirty */
   const handlePlanUndo = useCallback(() => {
+    setPlanEditing(false);
     setPlanChanged(false);
+    setShowAddPhase(false);
+  }, []);
+
+  // ── 阶段编辑表格：拖拽排序 ──
+
+  const handlePhaseDragStart = useCallback((e: React.DragEvent, index: number) => {
+    setDragIndex(index);
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("text/plain", String(index));
+  }, []);
+
+  const handlePhaseDragOver = useCallback((e: React.DragEvent, index: number) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    if (dragIndex === null || dragIndex === index) return;
+    setEditPhases((prev) => {
+      const next = [...prev];
+      const [moved] = next.splice(dragIndex, 1);
+      next.splice(index, 0, moved);
+      return next;
+    });
+    setDragIndex(index);
+  }, [dragIndex]);
+
+  const handlePhaseDragEnd = useCallback(() => {
+    setDragIndex(null);
+  }, []);
+
+  const handleAddPhase = useCallback((poolPhase: PoolPhase) => {
+    setEditPhases((prev) => [
+      ...prev,
+      {
+        id: poolPhase.id,
+        position: prev.length,
+        title: poolPhase.title,
+        objective: poolPhase.objective,
+        estimated_minutes: 0,
+        units: [],
+      },
+    ]);
+    setShowAddPhase(false);
   }, []);
 
   // ── AI 对话栏变更提示小字 ──
@@ -1342,23 +1418,15 @@ export function PhaseSummary({
             </table>
           </div>
 
-          {/* 3. 学习计划概览（阶段导航滑轨 + 详情占位） */}
+          {/* 3. 学习计划概览 */}
           <div className="ps-adjust-section ps-adjust-plan">
             <div className="ps-adjust-profile-header">
               <div className="ps-adjust-section-title">
                 学习计划概览{planChanged && <span className="ps-adjust-dirty-star">*</span>}
               </div>
               <div className="ps-adjust-edit-actions">
-                {planEditing ? (
-                  <button
-                    className="ps-adjust-edit-btn ps-adjust-edit-cancel"
-                    type="button"
-                    onClick={handlePlanEditCancel}
-                    title="取消编辑"
-                  >
-                    <X size={16} />
-                  </button>
-                ) : planChanged ? (
+                {/* planChanged → ↩ 撤回（任何时候只要有改动就显示） */}
+                {planChanged && (
                   <button
                     className="ps-adjust-edit-btn ps-adjust-edit-undo"
                     type="button"
@@ -1367,151 +1435,197 @@ export function PhaseSummary({
                   >
                     <Undo2 size={14} />
                   </button>
-                ) : null}
+                )}
+                {/* planEditing && !planChanged → ✕ 取消 */}
+                {planEditing && !planChanged && (
+                  <button
+                    className="ps-adjust-edit-btn ps-adjust-edit-cancel"
+                    type="button"
+                    onClick={handlePlanEditCancel}
+                    title="取消编辑"
+                  >
+                    <X size={16} />
+                  </button>
+                )}
                 <button
                   className="ps-adjust-edit-btn"
                   type="button"
                   onClick={handlePlanEditToggle}
-                  title={planEditing ? "完成编辑" : "编辑计划"}
+                  title={planEditing && !planChanged ? "保存更改" : "编辑计划"}
                 >
-                  {planEditing ? <Check size={16} /> : <Pencil size={14} />}
+                  {planEditing && !planChanged ? <Check size={16} /> : <Pencil size={14} />}
                 </button>
               </div>
             </div>
-            <div className="phase-track" ref={trackNavRef}>
-              <div className="phase-track-window">
-                {plan.phases.map((p, i) => (
+
+            {planEditing ? (
+              /* ── 阶段编辑表格 ── */
+              <div className="ps-plan-edit-table">
+                <div className="ps-plan-edit-head">
+                  <span className="ps-plan-edit-col-name">阶段</span>
+                  <span className="ps-plan-edit-col-desc">简介</span>
+                  {!planChanged && <span className="ps-plan-edit-col-grip"></span>}
+                </div>
+                {editPhases.map((ep, i) => (
                   <div
-                    key={p.id}
-                    className={`phase-block${i === trackPhaseIndex ? " active" : ""}`}
-                    onClick={() => handleTrackClick(i)}
+                    key={ep.id}
+                    className={`ps-plan-edit-row${dragIndex === i && !planChanged ? " dragging" : ""}${planChanged ? " locked" : ""}`}
                   >
-                    <span className="phase-block-num">{i + 1}</span>
-                    <span className="phase-block-name">{p.title}</span>
+                    <span className="ps-plan-edit-cell ps-plan-edit-name">{ep.title}</span>
+                    <span className="ps-plan-edit-cell ps-plan-edit-desc">{ep.objective}</span>
+                    {!planChanged && (
+                      <button
+                        className="ps-plan-edit-grip"
+                        type="button"
+                        aria-label="拖拽排序"
+                        draggable
+                        onDragStart={(e) => handlePhaseDragStart(e, i)}
+                        onDragOver={(e) => handlePhaseDragOver(e, i)}
+                        onDragEnd={handlePhaseDragEnd}
+                      >
+                        <GripVertical size={14} />
+                      </button>
+                    )}
                   </div>
                 ))}
+
+                {/* + 添加阶段（确认后隐藏） */}
+                {!planChanged && (
+                  <div className="ps-plan-edit-add-area">
+                    <button
+                      className="ps-plan-edit-add-btn"
+                      type="button"
+                      onClick={() => setShowAddPhase((v) => !v)}
+                      title="添加阶段"
+                    >
+                      <Plus size={16} />
+                    </button>
+
+                    {showAddPhase && (
+                      <div className="ps-plan-edit-add-popup">
+                        {(() => {
+                          const selectedIds = new Set(editPhases.map((ep) => ep.id));
+                          const available = MOCK_PHASE_POOL.filter((pp) => !selectedIds.has(pp.id));
+                          if (available.length === 0) {
+                            return <div className="ps-plan-edit-add-empty">没有更多可选阶段</div>;
+                          }
+                          return available.map((pp) => (
+                            <button
+                              key={pp.id}
+                              className="ps-plan-edit-add-item"
+                              type="button"
+                              onClick={() => handleAddPhase(pp)}
+                            >
+                              <div className="ps-plan-edit-add-item-title">{pp.title}</div>
+                              <div className="ps-plan-edit-add-item-desc">{pp.objective}</div>
+                            </button>
+                          ));
+                        })()}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
-            </div>
-
-            {/* 横向画布：章节 + SVG 箭头 */}
-            <PlanOverviewCanvas
-              units={plan.phases[trackPhaseIndex].units}
-              selectedUnitId={overviewSelectedUnitId}
-              onSelectUnit={(id) => setOverviewSelectedUnitId(id)}
-            />
-
-            {/* 详情栏 */}
-            <div className="ps-adjust-plan-detail">
-              {(() => {
-                const tp = plan.phases[trackPhaseIndex];
-                const selUnit = overviewSelectedUnitId
-                  ? tp.units.find((u) => u.id === overviewSelectedUnitId) ?? null
-                  : null;
-
-                if (selUnit) {
-                  // ── 章节详情 ──
-                  const taskCount = selUnit.tasks.length;
-                  const allMaterials: { id: string; title: string }[] = [];
-                  for (const t of selUnit.tasks) {
-                    if (t.materials) allMaterials.push(...t.materials);
-                  }
-                  const typeSet = new Set(selUnit.tasks.map((t) => TASK_TYPE_LABEL[t.task_type] ?? t.task_type));
-                  const summary = `本章节包含 ${taskCount} 个学习任务，涵盖${[...typeSet].join("、")}等类型，预计用时 ${formatMinutes(selUnit.estimated_minutes)}。`;
-
-                  return (
-                    <>
-                      <div className="ps-adjust-plan-detail-head">
-                        <span className="ps-adjust-plan-detail-badge">第 {selUnit.position + 1} 章</span>
-                        <span className="ps-adjust-plan-detail-title">{selUnit.title || `第 ${selUnit.position + 1} 章`}</span>
+            ) : (
+              <>
+                <div className="phase-track" ref={trackNavRef}>
+                  <div className="phase-track-window">
+                    {plan.phases.map((p, i) => (
+                      <div
+                        key={p.id}
+                        className={`phase-block${i === trackPhaseIndex ? " active" : ""}`}
+                        onClick={() => handleTrackClick(i)}
+                      >
+                        <span className="phase-block-num">{i + 1}</span>
+                        <span className="phase-block-name">{p.title}</span>
                       </div>
+                    ))}
+                  </div>
+                </div>
 
-                      {/* 基础信息 */}
-                      <div className="ps-detail-section">
-                        <div className="ps-detail-section-head">基础信息</div>
-                        <dl className="ps-detail-basics">
-                          <div className="ps-detail-basic-row">
-                            <dt>章节序号</dt>
-                            <dd>第 {selUnit.position + 1} 章</dd>
-                          </div>
-                          <div className="ps-detail-basic-row">
-                            <dt>任务数</dt>
-                            <dd>{taskCount} 个</dd>
-                          </div>
-                          <div className="ps-detail-basic-row">
-                            <dt>目标深度</dt>
-                            <dd>{DEPTH_LABEL[selUnit.target_depth] ?? selUnit.target_depth}</dd>
-                          </div>
-                          <div className="ps-detail-basic-row">
-                            <dt>预估时长</dt>
-                            <dd>{formatMinutes(selUnit.estimated_minutes)}</dd>
-                          </div>
-                        </dl>
-                      </div>
+                <PlanOverviewCanvas
+                  units={plan.phases[trackPhaseIndex].units}
+                  selectedUnitId={overviewSelectedUnitId}
+                  onSelectUnit={(id) => setOverviewSelectedUnitId(id)}
+                />
 
-                      {/* 概述 */}
-                      <div className="ps-detail-section">
-                        <div className="ps-detail-section-head">概述</div>
-                        <p className="ps-detail-summary">{summary}</p>
-                      </div>
+                <div className="ps-adjust-plan-detail">
+                  {(() => {
+                    const tp = plan.phases[trackPhaseIndex];
+                    const selUnit = overviewSelectedUnitId
+                      ? tp.units.find((u) => u.id === overviewSelectedUnitId) ?? null
+                      : null;
 
-                      {/* 相关资料 */}
-                      {allMaterials.length > 0 && (
+                    if (selUnit) {
+                      const taskCount = selUnit.tasks.length;
+                      const allMaterials: { id: string; title: string }[] = [];
+                      for (const t of selUnit.tasks) {
+                        if (t.materials) allMaterials.push(...t.materials);
+                      }
+                      const typeSet = new Set(selUnit.tasks.map((t) => TASK_TYPE_LABEL[t.task_type] ?? t.task_type));
+                      const summary = `本章节包含 ${taskCount} 个学习任务，涵盖${[...typeSet].join("、")}等类型，预计用时 ${formatMinutes(selUnit.estimated_minutes)}。`;
+
+                      return (
+                        <>
+                          <div className="ps-adjust-plan-detail-head">
+                            <span className="ps-adjust-plan-detail-badge">第 {selUnit.position + 1} 章</span>
+                            <span className="ps-adjust-plan-detail-title">{selUnit.title || `第 ${selUnit.position + 1} 章`}</span>
+                          </div>
+                          <div className="ps-detail-section">
+                            <div className="ps-detail-section-head">基础信息</div>
+                            <dl className="ps-detail-basics">
+                              <div className="ps-detail-basic-row"><dt>章节序号</dt><dd>第 {selUnit.position + 1} 章</dd></div>
+                              <div className="ps-detail-basic-row"><dt>任务数</dt><dd>{taskCount} 个</dd></div>
+                              <div className="ps-detail-basic-row"><dt>目标深度</dt><dd>{DEPTH_LABEL[selUnit.target_depth] ?? selUnit.target_depth}</dd></div>
+                              <div className="ps-detail-basic-row"><dt>预估时长</dt><dd>{formatMinutes(selUnit.estimated_minutes)}</dd></div>
+                            </dl>
+                          </div>
+                          <div className="ps-detail-section">
+                            <div className="ps-detail-section-head">概述</div>
+                            <p className="ps-detail-summary">{summary}</p>
+                          </div>
+                          {allMaterials.length > 0 && (
+                            <div className="ps-detail-section">
+                              <div className="ps-detail-section-head">相关资料</div>
+                              <ul className="ps-detail-materials">
+                                {allMaterials.map((m) => (
+                                  <li key={m.id} className="ps-detail-material-item">
+                                    <span className="ps-detail-material-name">{m.title}</span>
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
+                        </>
+                      );
+                    }
+
+                    const taskCount = tp.units.reduce((s, u) => s + u.tasks.length, 0);
+                    return (
+                      <>
+                        <div className="ps-adjust-plan-detail-head">
+                          <span className="ps-adjust-plan-detail-badge">第 {tp.position + 1} 阶段</span>
+                          <span className="ps-adjust-plan-detail-title">{tp.title}</span>
+                        </div>
                         <div className="ps-detail-section">
-                          <div className="ps-detail-section-head">相关资料</div>
-                          <ul className="ps-detail-materials">
-                            {allMaterials.map((m) => (
-                              <li key={m.id} className="ps-detail-material-item">
-                                <span className="ps-detail-material-name">{m.title}</span>
-                              </li>
-                            ))}
-                          </ul>
+                          <div className="ps-detail-section-head">基础信息</div>
+                          <dl className="ps-detail-basics">
+                            <div className="ps-detail-basic-row"><dt>阶段序号</dt><dd>第 {tp.position + 1} 阶段</dd></div>
+                            <div className="ps-detail-basic-row"><dt>章节数</dt><dd>{tp.units.length} 章</dd></div>
+                            <div className="ps-detail-basic-row"><dt>任务数</dt><dd>{taskCount} 个</dd></div>
+                            <div className="ps-detail-basic-row"><dt>预估时长</dt><dd>{formatMinutes(tp.estimated_minutes)}</dd></div>
+                          </dl>
                         </div>
-                      )}
-                    </>
-                  );
-                }
-
-                // ── 阶段详情 ──
-                const taskCount = tp.units.reduce((s, u) => s + u.tasks.length, 0);
-                return (
-                  <>
-                    <div className="ps-adjust-plan-detail-head">
-                      <span className="ps-adjust-plan-detail-badge">第 {tp.position + 1} 阶段</span>
-                      <span className="ps-adjust-plan-detail-title">{tp.title}</span>
-                    </div>
-
-                    {/* 基础信息 */}
-                    <div className="ps-detail-section">
-                      <div className="ps-detail-section-head">基础信息</div>
-                      <dl className="ps-detail-basics">
-                        <div className="ps-detail-basic-row">
-                          <dt>阶段序号</dt>
-                          <dd>第 {tp.position + 1} 阶段</dd>
+                        <div className="ps-detail-section">
+                          <div className="ps-detail-section-head">概述</div>
+                          <p className="ps-detail-summary">{tp.objective}</p>
                         </div>
-                        <div className="ps-detail-basic-row">
-                          <dt>章节数</dt>
-                          <dd>{tp.units.length} 章</dd>
-                        </div>
-                        <div className="ps-detail-basic-row">
-                          <dt>任务数</dt>
-                          <dd>{taskCount} 个</dd>
-                        </div>
-                        <div className="ps-detail-basic-row">
-                          <dt>预估时长</dt>
-                          <dd>{formatMinutes(tp.estimated_minutes)}</dd>
-                        </div>
-                      </dl>
-                    </div>
-
-                    {/* 概述 */}
-                    <div className="ps-detail-section">
-                      <div className="ps-detail-section-head">概述</div>
-                      <p className="ps-detail-summary">{tp.objective}</p>
-                    </div>
-                  </>
-                );
-              })()}
-            </div>
+                      </>
+                    );
+                  })()}
+                </div>
+              </>
+            )}
           </div>
         </div>
         <div className="ps-adjust-footer">
