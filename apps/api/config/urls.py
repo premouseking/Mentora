@@ -11,7 +11,7 @@ from mentora.assessment.views import (
     quiz_session_detail,
     submit_quiz_attempt,
 )
-from mentora.agent_runtime.views import chat_api, chat_stream
+from django.urls import include
 from mentora.users.views import change_password, login, logout, profile, refresh, register, update_profile
 from mentora.learning.views import history_list
 from mentora.courses.views import (
@@ -61,9 +61,8 @@ urlpatterns = [
     path("api/auth/logout/", logout, name="auth-logout"),
     path("api/health/", health, name="health"),
     path("api/history/", history_list, name="history-list"),
-    # 聊天
-    path("api/chat/", chat_api, name="chat"),
-    path("api/chat/stream/", chat_stream, name="chat-stream"),
+    # Agent 聊天
+    path("api/", include("mentora.agent_runtime.urls")),
     path("api/assessment/sessions/generate/", generate_quiz_session, name="assessment-generate"),
     path("api/assessment/sessions/<uuid:session_id>/", quiz_session_detail, name="assessment-session-detail"),
     path("api/assessment/sessions/<uuid:session_id>/attempts/", submit_quiz_attempt, name="assessment-submit-attempt"),
