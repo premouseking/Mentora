@@ -522,8 +522,7 @@ export function CourseWorkspacePage() {
     [activeTabId, openTabs],
   );
 
-  const psRef = useRef<HTMLDivElement>(null);
-  const psSwipeStart = useRef<{ y: number; moved: boolean; active: boolean }>({ y: 0, moved: false, active: false });
+
 
   /* ── Fetch plan + update last_studied_at on mount ── */
   useEffect(() => {
@@ -684,33 +683,7 @@ export function CourseWorkspacePage() {
 
   const handleBottomClick = useCallback(() => setPhaseSummaryOpen(true), []);
 
-  const handlePSPointerDown = useCallback((event: React.PointerEvent) => {
-    psSwipeStart.current = { y: event.clientY, moved: false, active: true };
-    if (psRef.current) psRef.current.style.transition = "none";
-    event.currentTarget.setPointerCapture(event.pointerId);
-  }, []);
 
-  const handlePSPointerMove = useCallback((event: React.PointerEvent) => {
-    if (!phaseSummaryOpen || !psSwipeStart.current.active) return;
-    const dy = event.clientY - psSwipeStart.current.y;
-    if (dy > 20) psSwipeStart.current.moved = true;
-    if (psSwipeStart.current.moved && psRef.current) {
-      psRef.current.style.transform = `translateY(${Math.max(0, dy)}px)`;
-      psRef.current.style.opacity = String(Math.max(0.3, 1 - dy / 300));
-    }
-  }, [phaseSummaryOpen]);
-
-  const handlePSPointerUp = useCallback((event: React.PointerEvent) => {
-    if (!phaseSummaryOpen || !psSwipeStart.current.active) return;
-    psSwipeStart.current.active = false;
-    const dy = event.clientY - psSwipeStart.current.y;
-    if (psRef.current) {
-      psRef.current.style.transform = "";
-      psRef.current.style.opacity = "";
-      psRef.current.style.transition = "";
-    }
-    if (psSwipeStart.current.moved && dy > 60) setPhaseSummaryOpen(false);
-  }, [phaseSummaryOpen]);
 
   const explorerResizeRef = useRef(false);
   const onExplorerMove = useCallback((event: MouseEvent) => {
@@ -856,29 +829,12 @@ export function CourseWorkspacePage() {
             files={fileNodes}
           />
 
+          {/* Phase summary overlay */}
           <div
-            ref={psRef}
             className={`phase-summary-overlay${phaseSummaryOpen ? " open" : ""}`}
-            onPointerDown={handlePSPointerDown}
-            onPointerMove={handlePSPointerMove}
-            onPointerUp={handlePSPointerUp}
           >
             {phaseSummaryOpen && (
-              planLoading ? (
-                <div className="phase-summary">
-                  <div className="ps-body" style={{ padding: 40, textAlign: "center", color: "var(--quiet)" }}>
-                    加载方案中...
-                  </div>
-                </div>
-              ) : activePlan ? (
-                <PhaseSummary plan={activePlan} onClose={() => setPhaseSummaryOpen(false)} />
-              ) : (
-                <div className="phase-summary">
-                  <div className="ps-body" style={{ padding: 40, textAlign: "center" }}>
-                    <p style={{ color: "var(--quiet)" }}>暂无学习方案</p>
-                  </div>
-                </div>
-              )
+              <PhaseSummary onClose={() => setPhaseSummaryOpen(false)} />
             )}
           </div>
 
