@@ -27,10 +27,10 @@ const MOCK_PLAN = {
           prerequisite_unit_ids: [],
           priority: 1,
           tasks: [
-            { id: "p1-u1-t1", task_type: "lecture", delivery_mode: "self_paced", estimated_minutes: 40, required: true },
-            { id: "p1-u1-t2", task_type: "exercise", delivery_mode: "self_paced", estimated_minutes: 40, required: true },
-            { id: "p1-u1-t3", task_type: "lecture", delivery_mode: "self_paced", estimated_minutes: 40, required: true },
-            { id: "p1-u1-t4", task_type: "review", delivery_mode: "self_paced", estimated_minutes: 40, required: true },
+            { id: "p1-u1-t1", task_type: "lecture", delivery_mode: "self_paced", estimated_minutes: 40, required: true, knowledge_point: "集合的概念", materials: [{ id: "m-1-1", title: "集合概念讲义.pdf" }] },
+            { id: "p1-u1-t2", task_type: "exercise", delivery_mode: "self_paced", estimated_minutes: 40, required: true, materials: [{ id: "m-1-2", title: "集合运算练习.pdf" }] },
+            { id: "p1-u1-t3", task_type: "lecture", delivery_mode: "self_paced", estimated_minutes: 40, required: true, knowledge_point: "命题与逻辑", materials: [{ id: "m-1-3", title: "命题与逻辑讲义.pdf" }] },
+            { id: "p1-u1-t4", task_type: "review", delivery_mode: "self_paced", estimated_minutes: 40, required: true, materials: [] },
           ],
         },
         {
@@ -43,9 +43,9 @@ const MOCK_PLAN = {
           prerequisite_unit_ids: ["p1-u1"],
           priority: 1,
           tasks: [
-            { id: "p1-u2-t1", task_type: "lecture", delivery_mode: "self_paced", estimated_minutes: 50, required: true },
-            { id: "p1-u2-t2", task_type: "exercise", delivery_mode: "self_paced", estimated_minutes: 50, required: true },
-            { id: "p1-u2-t3", task_type: "lecture", delivery_mode: "self_paced", estimated_minutes: 50, required: true },
+            { id: "p1-u2-t1", task_type: "lecture", delivery_mode: "self_paced", estimated_minutes: 50, required: true, knowledge_point: "函数的定义", materials: [{ id: "m-2-1", title: "函数定义讲义.pdf" }] },
+            { id: "p1-u2-t2", task_type: "exercise", delivery_mode: "self_paced", estimated_minutes: 50, required: true, materials: [{ id: "m-2-2", title: "定义域值域练习.pdf" }] },
+            { id: "p1-u2-t3", task_type: "lecture", delivery_mode: "self_paced", estimated_minutes: 50, required: true, knowledge_point: "函数的表示方法", materials: [] },
           ],
         },
         {
@@ -58,10 +58,10 @@ const MOCK_PLAN = {
           prerequisite_unit_ids: ["p1-u2"],
           priority: 1,
           tasks: [
-            { id: "p1-u3-t1", task_type: "lecture", delivery_mode: "self_paced", estimated_minutes: 40, required: true },
-            { id: "p1-u3-t2", task_type: "exercise", delivery_mode: "self_paced", estimated_minutes: 45, required: true },
-            { id: "p1-u3-t3", task_type: "lecture", delivery_mode: "self_paced", estimated_minutes: 40, required: true },
-            { id: "p1-u3-t4", task_type: "review", delivery_mode: "self_paced", estimated_minutes: 45, required: true },
+            { id: "p1-u3-t1", task_type: "lecture", delivery_mode: "self_paced", estimated_minutes: 40, required: true, knowledge_point: "正比例函数", materials: [{ id: "m-3-1", title: "正比例函数讲义.pdf" }] },
+            { id: "p1-u3-t2", task_type: "exercise", delivery_mode: "self_paced", estimated_minutes: 45, required: true, materials: [{ id: "m-3-2", title: "反比例函数练习.pdf" }] },
+            { id: "p1-u3-t3", task_type: "lecture", delivery_mode: "self_paced", estimated_minutes: 40, required: true, knowledge_point: "一次函数", materials: [{ id: "m-3-3", title: "一次函数讲义.pdf" }] },
+            { id: "p1-u3-t4", task_type: "review", delivery_mode: "self_paced", estimated_minutes: 45, required: true, materials: [{ id: "m-3-4", title: "二次函数复习题.pdf" }] },
           ],
         },
       ],
@@ -83,9 +83,9 @@ const MOCK_PLAN = {
           prerequisite_unit_ids: [],
           priority: 1,
           tasks: [
-            { id: "p2-u1-t1", task_type: "lecture", delivery_mode: "self_paced", estimated_minutes: 60, required: true },
-            { id: "p2-u1-t2", task_type: "exercise", delivery_mode: "self_paced", estimated_minutes: 60, required: true },
-            { id: "p2-u1-t3", task_type: "project", delivery_mode: "self_paced", estimated_minutes: 60, required: true },
+            { id: "p2-u1-t1", task_type: "lecture", delivery_mode: "self_paced", estimated_minutes: 60, required: true, knowledge_point: "数列的概念", materials: [{ id: "m-4-1", title: "数列概念讲义.pdf" }] },
+            { id: "p2-u1-t2", task_type: "exercise", delivery_mode: "self_paced", estimated_minutes: 60, required: true, materials: [{ id: "m-4-2", title: "数列求和练习.pdf" }] },
+            { id: "p2-u1-t3", task_type: "project", delivery_mode: "self_paced", estimated_minutes: 60, required: true, knowledge_point: "极限的探究", materials: [{ id: "m-4-3", title: "极限探究项目.pdf" }] },
           ],
         },
         {
@@ -98,8 +98,8 @@ const MOCK_PLAN = {
           prerequisite_unit_ids: ["p2-u1"],
           priority: 1,
           tasks: [
-            { id: "p2-u2-t1", task_type: "lecture", delivery_mode: "self_paced", estimated_minutes: 50, required: true },
-            { id: "p2-u2-t2", task_type: "exercise", delivery_mode: "self_paced", estimated_minutes: 50, required: true },
+            { id: "p2-u2-t1", task_type: "lecture", delivery_mode: "self_paced", estimated_minutes: 50, required: true, knowledge_point: "三角函数的定义", materials: [{ id: "m-5-1", title: "三角函数讲义.pdf" }] },
+            { id: "p2-u2-t2", task_type: "exercise", delivery_mode: "self_paced", estimated_minutes: 50, required: true, materials: [{ id: "m-5-2", title: "三角恒等变换练习.pdf" }] },
           ],
         },
       ],
@@ -121,9 +121,9 @@ const MOCK_PLAN = {
           prerequisite_unit_ids: [],
           priority: 1,
           tasks: [
-            { id: "p3-u1-t1", task_type: "exercise", delivery_mode: "self_paced", estimated_minutes: 90, required: true },
-            { id: "p3-u1-t2", task_type: "exercise", delivery_mode: "self_paced", estimated_minutes: 90, required: true },
-            { id: "p3-u1-t3", task_type: "review", delivery_mode: "self_paced", estimated_minutes: 90, required: true },
+            { id: "p3-u1-t1", task_type: "exercise", delivery_mode: "self_paced", estimated_minutes: 90, required: true, materials: [{ id: "m-6-1", title: "函数题型专项训练.pdf" }] },
+            { id: "p3-u1-t2", task_type: "exercise", delivery_mode: "self_paced", estimated_minutes: 90, required: true, materials: [] },
+            { id: "p3-u1-t3", task_type: "review", delivery_mode: "self_paced", estimated_minutes: 90, required: true, materials: [{ id: "m-6-2", title: "函数易错题回顾.pdf" }] },
           ],
         },
         {
@@ -136,9 +136,9 @@ const MOCK_PLAN = {
           prerequisite_unit_ids: ["p3-u1"],
           priority: 1,
           tasks: [
-            { id: "p3-u2-t1", task_type: "exercise", delivery_mode: "self_paced", estimated_minutes: 90, required: true },
-            { id: "p3-u2-t2", task_type: "exercise", delivery_mode: "self_paced", estimated_minutes: 90, required: true },
-            { id: "p3-u2-t3", task_type: "project", delivery_mode: "self_paced", estimated_minutes: 90, required: true },
+            { id: "p3-u2-t1", task_type: "exercise", delivery_mode: "self_paced", estimated_minutes: 90, required: true, materials: [{ id: "m-7-1", title: "几何题型专项训练.pdf" }] },
+            { id: "p3-u2-t2", task_type: "exercise", delivery_mode: "self_paced", estimated_minutes: 90, required: true, materials: [] },
+            { id: "p3-u2-t3", task_type: "project", delivery_mode: "self_paced", estimated_minutes: 90, required: true, knowledge_point: "立体几何综合", materials: [{ id: "m-7-2", title: "立体几何综合项目.pdf" }] },
           ],
         },
       ],
@@ -160,8 +160,8 @@ const MOCK_PLAN = {
           prerequisite_unit_ids: [],
           priority: 1,
           tasks: [
-            { id: "p4-u1-t1", task_type: "project", delivery_mode: "self_paced", estimated_minutes: 120, required: true },
-            { id: "p4-u1-t2", task_type: "exercise", delivery_mode: "self_paced", estimated_minutes: 120, required: true },
+            { id: "p4-u1-t1", task_type: "project", delivery_mode: "self_paced", estimated_minutes: 120, required: true, knowledge_point: "高考真题实战", materials: [{ id: "m-8-1", title: "2025高考真题集.pdf" }] },
+            { id: "p4-u1-t2", task_type: "exercise", delivery_mode: "self_paced", estimated_minutes: 120, required: true, materials: [{ id: "m-8-2", title: "真题分类训练.pdf" }] },
           ],
         },
         {
@@ -174,9 +174,9 @@ const MOCK_PLAN = {
           prerequisite_unit_ids: ["p4-u1"],
           priority: 1,
           tasks: [
-            { id: "p4-u2-t1", task_type: "project", delivery_mode: "self_paced", estimated_minutes: 80, required: true },
-            { id: "p4-u2-t2", task_type: "exercise", delivery_mode: "self_paced", estimated_minutes: 80, required: true },
-            { id: "p4-u2-t3", task_type: "review", delivery_mode: "self_paced", estimated_minutes: 80, required: true },
+            { id: "p4-u2-t1", task_type: "project", delivery_mode: "self_paced", estimated_minutes: 80, required: true, knowledge_point: "跨章节综合", materials: [{ id: "m-9-1", title: "跨章节综合项目.pdf" }] },
+            { id: "p4-u2-t2", task_type: "exercise", delivery_mode: "self_paced", estimated_minutes: 80, required: true, materials: [] },
+            { id: "p4-u2-t3", task_type: "review", delivery_mode: "self_paced", estimated_minutes: 80, required: true, materials: [{ id: "m-9-2", title: "综合题解题思路.pdf" }] },
           ],
         },
       ],
@@ -198,8 +198,8 @@ const MOCK_PLAN = {
           prerequisite_unit_ids: [],
           priority: 1,
           tasks: [
-            { id: "p5-u1-t1", task_type: "review", delivery_mode: "self_paced", estimated_minutes: 90, required: true },
-            { id: "p5-u1-t2", task_type: "lecture", delivery_mode: "self_paced", estimated_minutes: 90, required: true },
+            { id: "p5-u1-t1", task_type: "review", delivery_mode: "self_paced", estimated_minutes: 90, required: true, materials: [{ id: "m-10-1", title: "考点全回顾.pdf" }] },
+            { id: "p5-u1-t2", task_type: "lecture", delivery_mode: "self_paced", estimated_minutes: 90, required: true, knowledge_point: "临场策略", materials: [{ id: "m-10-2", title: "临场策略讲义.pdf" }] },
           ],
         },
         {
@@ -212,8 +212,8 @@ const MOCK_PLAN = {
           prerequisite_unit_ids: ["p5-u1"],
           priority: 1,
           tasks: [
-            { id: "p5-u2-t1", task_type: "project", delivery_mode: "self_paced", estimated_minutes: 120, required: true },
-            { id: "p5-u2-t2", task_type: "review", delivery_mode: "self_paced", estimated_minutes: 60, required: true },
+            { id: "p5-u2-t1", task_type: "project", delivery_mode: "self_paced", estimated_minutes: 120, required: true, knowledge_point: "限时模拟", materials: [{ id: "m-11-1", title: "限时模拟卷A.pdf" }, { id: "m-11-2", title: "限时模拟卷B.pdf" }] },
+            { id: "p5-u2-t2", task_type: "review", delivery_mode: "self_paced", estimated_minutes: 60, required: true, materials: [{ id: "m-11-3", title: "模拟卷讲评.pdf" }] },
           ],
         },
       ],
@@ -229,6 +229,11 @@ const TASK_TYPE_LABEL: Record<string, string> = {
   project: "项目",
   review: "复习",
 };
+
+function formatMinutes(m: number): string {
+  if (m >= 60) return `${Math.round(m / 60 * 10) / 10} 小时`;
+  return `${m} 分钟`;
+}
 
 /* ── 左栏：纵向阶段导航（复用建课确认页滑轨逻辑，方向横→纵）── */
 
@@ -379,7 +384,9 @@ function computeLayout(units: typeof MOCK_PLAN.phases[0]["units"]): Layout {
     const taskStartY = y + (blockH - tasksH) / 2;
     const taskNodes: TaskNode[] = tasks.map((t, j) => ({
       id: t.id,
-      label: `${TASK_TYPE_LABEL[t.task_type] ?? t.task_type} ${j + 1}`,
+      label: t.task_type === "lecture" || t.task_type === "project"
+        ? (t.knowledge_point ?? `${TASK_TYPE_LABEL[t.task_type] ?? t.task_type} ${j + 1}`)
+        : `${TASK_TYPE_LABEL[t.task_type] ?? t.task_type} ${j + 1}`,
       taskType: t.task_type,
       minutes: t.estimated_minutes,
       x: side === 1 ? stemX + 14 : stemX - 14 - CANVAS.tkW,
@@ -543,38 +550,119 @@ function PhaseCanvas({
   );
 }
 
-/* ── 右栏：详情（占位，响应选中）── */
+/* ── 右栏：详情 ── */
+
+const DELIVERY_LABEL: Record<string, string> = {
+  self_paced: "自学",
+  live: "直播",
+  hybrid: "混合",
+};
+
+const DEPTH_LABEL: Record<string, string> = {
+  understand: "理解",
+  apply: "应用",
+  analyze: "分析",
+};
+
+type Material = { id: string; title: string };
+
+type DetailInfo = {
+  type: "phase" | "chapter" | "task";
+  title: string;
+  basics: { label: string; value: string }[];
+  summary: string;
+  materials: Material[];
+  /** 练习任务显示「开始练习」按钮 */
+  showStartButton: boolean;
+};
 
 function PhaseDetail({
   phase,
   units,
   selected,
+  onOpenMaterial,
+  onClose,
 }: {
   phase: typeof MOCK_PLAN.phases[0];
   units: typeof MOCK_PLAN.phases[0]["units"];
   selected: Selection;
+  onOpenMaterial: (m: Material) => void;
+  onClose: () => void;
 }) {
-  // 查找选中节点
-  const node = useMemo(() => {
+  const info = useMemo<DetailInfo | null>(() => {
     if (!selected) return null;
     if (selected.kind === "phase") {
       const taskCount = units.reduce((s, u) => s + u.tasks.length, 0);
-      return { type: "phase", title: phase.title, meta: `${units.length} 章节 · ${taskCount} 任务 · ${phase.estimated_minutes} 分钟`, objective: phase.objective };
+      return {
+        type: "phase",
+        title: phase.title,
+        basics: [
+          { label: "阶段序号", value: `第 ${phase.position + 1} 阶段` },
+          { label: "章节数", value: `${units.length} 章` },
+          { label: "任务数", value: `${taskCount} 个` },
+          { label: "预估时长", value: formatMinutes(phase.estimated_minutes) },
+        ],
+        summary: phase.objective,
+        materials: [],
+        showStartButton: false,
+      };
     }
     if (selected.kind === "chapter") {
       const u = units.find((u) => u.id === selected.id);
-      return u ? { type: "chapter", title: u.title || `单元 ${u.position + 1}`, meta: `${u.tasks.length} 个任务 · ${u.estimated_minutes} 分钟` } : null;
+      if (!u) return null;
+      return {
+        type: "chapter",
+        title: u.title || `单元 ${u.position + 1}`,
+        basics: [
+          { label: "章节序号", value: `第 ${u.position + 1} 章` },
+          { label: "任务数", value: `${u.tasks.length} 个` },
+          { label: "目标深度", value: DEPTH_LABEL[u.target_depth] ?? u.target_depth },
+          { label: "预估时长", value: formatMinutes(u.estimated_minutes) },
+        ],
+        summary: `本章节包含 ${u.tasks.length} 个学习任务，涵盖${u.tasks.map((t) => TASK_TYPE_LABEL[t.task_type] ?? t.task_type).join("、")}等类型，预计用时 ${formatMinutes(u.estimated_minutes)}。`,
+        materials: [],
+        showStartButton: false,
+      };
     }
     for (const u of units) {
       const t = u.tasks.find((t) => t.id === selected.id);
       if (t) {
-        return { type: "task", title: `${TASK_TYPE_LABEL[t.task_type] ?? t.task_type}`, meta: `${t.estimated_minutes} 分钟`, parent: u.title };
+        const typeLabel = TASK_TYPE_LABEL[t.task_type] ?? t.task_type;
+        const isExercise = t.task_type === "exercise";
+        // 讲解任务的任务类型显示为「知识点」
+        const typeDisplay = t.task_type === "lecture" ? "知识点" : typeLabel;
+        // 标题：讲解/项目用知识点名，练习用「练习 N」
+        const taskIdx = u.tasks.indexOf(t);
+        const title = (t.task_type === "lecture" || t.task_type === "project")
+          ? (t.knowledge_point ?? `${typeLabel} ${taskIdx + 1}`)
+          : `${typeLabel} ${taskIdx + 1}`;
+        // 交付方式：讲解→自主确认，练习→完成练习，其他沿用 delivery_mode 映射
+        const delivery = isExercise ? "完成练习"
+          : t.task_type === "lecture" ? "自主确认"
+          : (DELIVERY_LABEL[t.delivery_mode] ?? t.delivery_mode);
+        return {
+          type: "task",
+          title,
+          basics: [
+            { label: "任务类型", value: typeDisplay },
+            { label: "交付方式", value: delivery },
+            { label: "预估时长", value: formatMinutes(t.estimated_minutes) },
+            { label: "是否必修", value: t.required ? "必修" : "选修" },
+          ],
+          summary: isExercise
+            ? `通过完成练习巩固「${u.title || "本章节"}」的知识点，预计用时 ${formatMinutes(t.estimated_minutes)}。`
+            : t.task_type === "lecture"
+            ? `学习知识点「${t.knowledge_point ?? title}」，理解其在「${u.title || "本章节"}」中的应用，预计用时 ${formatMinutes(t.estimated_minutes)}。`
+            : `通过项目实践巩固「${t.knowledge_point ?? title}」，预计用时 ${formatMinutes(t.estimated_minutes)}。`,
+          materials: t.materials ?? [],
+          showStartButton: isExercise,
+        };
       }
     }
     return null;
   }, [selected, units, phase]);
 
-  if (!node) {
+  if (!info) {
     return (
       <div className="ps-detail">
         <p className="ps-detail-empty">点击章节或任务查看详情</p>
@@ -584,14 +672,57 @@ function PhaseDetail({
 
   return (
     <div className="ps-detail">
-      <div className="ps-detail-badge">{node.type === "phase" ? "阶段" : node.type === "chapter" ? "章节" : "任务"}</div>
-      <h3 className="ps-detail-title">{node.title}</h3>
-      <p className="ps-detail-meta">{node.meta}</p>
-      {"objective" in node && node.objective && (
-        <p className="ps-detail-objective">{node.objective}</p>
+      <div className="ps-detail-badge">{info.type === "phase" ? "阶段" : info.type === "chapter" ? "章节" : "任务"}</div>
+      <h3 className="ps-detail-title">{info.title}</h3>
+
+      {/* 基础信息 */}
+      <div className="ps-detail-section">
+        <div className="ps-detail-section-head">基础信息</div>
+        <dl className="ps-detail-basics">
+          {info.basics.map((b) => (
+            <div className="ps-detail-basic-row" key={b.label}>
+              <dt>{b.label}</dt>
+              <dd>{b.value}</dd>
+            </div>
+          ))}
+        </dl>
+      </div>
+
+      {/* 概述 */}
+      <div className="ps-detail-section">
+        <div className="ps-detail-section-head">概述</div>
+        <p className="ps-detail-summary">{info.summary}</p>
+      </div>
+
+      {/* 相关资料 */}
+      {info.type === "task" && (
+        <div className="ps-detail-section">
+          <div className="ps-detail-section-head">相关资料</div>
+          {info.materials.length === 0 ? (
+            <p className="ps-detail-no-materials">暂无关联资料</p>
+          ) : (
+            <div className="ps-detail-materials">
+              {info.materials.map((m) => (
+                <button
+                  key={m.id}
+                  type="button"
+                  className="ps-detail-material-btn"
+                  onClick={() => onOpenMaterial(m)}
+                  title={m.title}
+                >
+                  {m.title}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
       )}
-      {"parent" in node && node.parent && (
-        <p className="ps-detail-parent">所属章节：{node.parent}</p>
+
+      {/* 练习任务：开始练习按钮 */}
+      {info.showStartButton && (
+        <button type="button" className="ps-detail-start-btn" onClick={onClose}>
+          开始练习
+        </button>
       )}
     </div>
   );
@@ -609,11 +740,16 @@ export function PhaseSummary({
   const [selected, setSelected] = useState<Selection>({ kind: "phase", id: plan.phases[0].id });
   const phase = plan.phases[activePhase];
 
-  // 切换阶段时清空选中
+  // 点击左栏阶段块：未选中→切换阶段并显示阶段信息；已选中→仅把右栏切回阶段信息
   const handleSelectPhase = useCallback((i: number) => {
     setActivePhase(i);
-    setSelected(null);
-  }, []);
+    setSelected({ kind: "phase", id: plan.phases[i].id });
+  }, [plan.phases]);
+
+  // 点击资料按钮：关闭上划栏（mock 阶段不实际跳转资料页）
+  const handleOpenMaterial = useCallback(() => {
+    onClose();
+  }, [onClose]);
 
   return (
     <div className="phase-summary">
@@ -634,7 +770,7 @@ export function PhaseSummary({
         {/* 中栏：主干 + 分支画板 */}
         <PhaseCanvas units={phase.units} selected={selected} onSelect={setSelected} />
         {/* 右栏：详情 */}
-        <PhaseDetail phase={phase} units={phase.units} selected={selected} />
+        <PhaseDetail phase={phase} units={phase.units} selected={selected} onOpenMaterial={handleOpenMaterial} onClose={onClose} />
       </div>
 
       {/* 底部按钮 */}

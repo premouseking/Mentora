@@ -8270,6 +8270,7 @@ button.mistake-source-row:hover {
   flex: 1;
   min-width: 0;
   overflow: auto;
+  scrollbar-gutter: stable;
   position: relative;
   background: #fcfdfc;
 }
@@ -8352,7 +8353,9 @@ button.mistake-source-row:hover {
   flex: 0 0 280px;
   border-left: 1px solid var(--border);
   padding: 20px 18px;
+  overflow-x: hidden;
   overflow-y: auto;
+  scrollbar-gutter: stable;
 }
 
 .ps-detail-empty {
@@ -8376,29 +8379,115 @@ button.mistake-source-row:hover {
 }
 
 .ps-detail-title {
-  margin: 0 0 8px;
+  margin: 0 0 16px;
   font-size: 17px;
   font-weight: 700;
   color: var(--ink);
 }
 
-.ps-detail-meta {
-  margin: 0 0 8px;
-  font-size: 13px;
-  color: var(--muted);
+/* 详情分区 */
+.ps-detail-section {
+  margin-bottom: 18px;
 }
 
-.ps-detail-objective {
-  margin: 12px 0 0;
+.ps-detail-section-head {
+  font-size: 12px;
+  font-weight: 650;
+  color: var(--quiet);
+  margin-bottom: 8px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--border);
+}
+
+/* 基础信息键值对 */
+.ps-detail-basics {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ps-detail-basic-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-size: 13px;
+}
+
+.ps-detail-basic-row dt {
+  color: var(--quiet);
+  flex: 0 0 auto;
+}
+
+.ps-detail-basic-row dd {
+  margin: 0;
+  color: var(--ink);
+  text-align: right;
+  font-weight: 500;
+}
+
+/* 概述 */
+.ps-detail-summary {
+  margin: 0;
   font-size: 13px;
   line-height: 1.7;
   color: var(--ink);
 }
 
-.ps-detail-parent {
+/* 相关资料 */
+.ps-detail-no-materials {
   margin: 0;
   font-size: 12px;
   color: var(--quiet);
+}
+
+.ps-detail-materials {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ps-detail-material-btn {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 8px 12px;
+  border: 1.5px solid var(--border-strong);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--ink);
+  font-size: 12.5px;
+  font-weight: 500;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition: background .15s, border-color .15s;
+}
+
+.ps-detail-material-btn:hover {
+  background: #fbfdfc;
+  border-color: #86b5ab;
+}
+
+/* 开始练习按钮 */
+.ps-detail-start-btn {
+  display: block;
+  width: 100%;
+  margin-top: 8px;
+  padding: 10px 16px;
+  border: none;
+  border-radius: 8px;
+  background: var(--green-700, #2d6e5f);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background .15s;
+}
+
+.ps-detail-start-btn:hover {
+  background: var(--green-900, #1f4e44);
 }
 
 /* 底部按钮区 */
