@@ -4507,6 +4507,115 @@ p {
   overflow-wrap: anywhere;
 }
 
+.ai-chat-markdown {
+  overflow-wrap: anywhere;
+}
+
+.ai-chat-markdown > :first-child {
+  margin-top: 0;
+}
+
+.ai-chat-markdown > :last-child {
+  margin-bottom: 0;
+}
+
+.ai-chat-markdown p,
+.ai-chat-markdown ul,
+.ai-chat-markdown ol,
+.ai-chat-markdown blockquote,
+.ai-chat-markdown pre,
+.ai-chat-markdown table {
+  margin: 0 0 10px;
+}
+
+.ai-chat-markdown h1,
+.ai-chat-markdown h2,
+.ai-chat-markdown h3 {
+  margin: 12px 0 8px;
+  color: #25342f;
+  line-height: 1.35;
+}
+
+.ai-chat-markdown h1 {
+  font-size: 17px;
+}
+
+.ai-chat-markdown h2 {
+  font-size: 15px;
+}
+
+.ai-chat-markdown h3 {
+  font-size: 14px;
+}
+
+.ai-chat-markdown ul,
+.ai-chat-markdown ol {
+  padding-left: 20px;
+}
+
+.ai-chat-markdown li + li {
+  margin-top: 4px;
+}
+
+.ai-chat-markdown blockquote {
+  border-left: 3px solid rgba(58, 91, 78, 0.24);
+  padding-left: 10px;
+  color: #5d6b65;
+}
+
+.ai-chat-markdown a {
+  color: var(--green-700);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.ai-chat-markdown code {
+  border-radius: 5px;
+  padding: 2px 5px;
+  background: rgba(25, 42, 36, 0.08);
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 12px;
+}
+
+.ai-chat-markdown pre {
+  max-width: 100%;
+  overflow-x: auto;
+  border-radius: 8px;
+  padding: 10px;
+  background: #17211d;
+  color: #edf5f1;
+}
+
+.ai-chat-markdown pre code {
+  padding: 0;
+  background: transparent;
+  color: inherit;
+}
+
+.ai-chat-markdown table {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+  border-collapse: collapse;
+}
+
+.ai-chat-markdown th,
+.ai-chat-markdown td {
+  border: 1px solid rgba(58, 91, 78, 0.18);
+  padding: 6px 8px;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.ai-chat-markdown th {
+  background: rgba(255, 255, 255, 0.62);
+  font-weight: 650;
+}
+
+.ai-chat-markdown input[type="checkbox"] {
+  margin-right: 6px;
+}
+
 .ai-chat-status-list {
   display: grid;
   gap: 6px;
