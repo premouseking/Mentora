@@ -1,7 +1,13 @@
 import { useEffect, useState } from "react";
 import { AlertTriangle, BookOpen, Check, FileText, RotateCcw, X } from "lucide-react";
 
-import type { MistakeItem, MistakeSourceLink } from "../data/mistakes";
+import type { MistakeItem } from "../services/learningApi";
+
+interface MistakeSourceLink {
+  title: string;
+  location: string;
+  excerpt: string;
+}
 
 const OPTION_LETTERS = ["A", "B", "C", "D", "E", "F"];
 
@@ -61,9 +67,9 @@ export function MistakeReviewPanel({
   useEffect(() => {
     setSelected(null);
     setSubmitted(false);
-  }, [mistake.id]);
+  }, [mistake.item_id]);
 
-  const isCorrect = submitted && selected === mistake.answer;
+  const isCorrect = submitted && selected === parseInt(mistake.correct_answer);
 
   function handleRetry() {
     setSelected(null);
@@ -82,15 +88,15 @@ export function MistakeReviewPanel({
         </div>
         <div className="mistake-review-meta">
           <DifficultyBadge difficulty={mistake.difficulty} />
-          <span>错 {mistake.wrongCount} 次</span>
-          <span>最近 {mistake.lastWrong}</span>
+          <span>错 {mistake.wrong_count} 次</span>
+          <span>最近 {mistake.last_wrong}</span>
         </div>
       </header>
 
       <section className="mistake-review-question">
         <div className="mistake-topic-line">
           <span>{mistake.topic}</span>
-          {mistake.knowledgePoints.map((point) => (
+          {mistake.knowledge_points.map((point) => (
             <span key={point}>{point}</span>
           ))}
         </div>
@@ -101,23 +107,23 @@ export function MistakeReviewPanel({
         {mistake.options.map((option, index) => {
           let className = "mistake-review-option";
           if (selected === index) className += " selected";
-          if (submitted && index === mistake.answer) className += " correct";
-          if (submitted && selected === index && index !== mistake.answer) className += " wrong";
+          if (submitted && index === parseInt(mistake.correct_answer)) className += " correct";
+          if (submitted && selected === index && index !== parseInt(mistake.correct_answer)) className += " wrong";
 
           return (
             <button
               aria-checked={selected === index}
               className={className}
               disabled={submitted}
-              key={`${mistake.id}-${index}`}
+              key={`${mistake.item_id}-${index}`}
               onClick={() => setSelected(index)}
               role="radio"
               type="button"
             >
               <span className="mistake-option-letter">{OPTION_LETTERS[index]}</span>
               <span className="mistake-option-text">{option}</span>
-              {submitted && index === mistake.answer && <Check className="mistake-option-icon correct" size={16} />}
-              {submitted && selected === index && index !== mistake.answer && <X className="mistake-option-icon wrong" size={16} />}
+              {submitted && index === parseInt(mistake.correct_answer) && <Check className="mistake-option-icon correct" size={16} />}
+              {submitted && selected === index && index !== parseInt(mistake.correct_answer) && <X className="mistake-option-icon wrong" size={16} />}
             </button>
           );
         })}
@@ -143,11 +149,11 @@ export function MistakeReviewPanel({
             <strong>{isCorrect ? "这次答对了" : "这次仍需复盘"}</strong>
           </div>
           <p>
-            正确答案是 {OPTION_LETTERS[mistake.answer]}。{mistake.explanation}
+            正确答案是 {OPTION_LETTERS[parseInt(mistake.correct_answer)]}。{mistake.explanation}
           </p>
           <div className="mistake-error-note">
             <AlertTriangle size={15} />
-            <span>{mistake.errorReason}</span>
+            <span>{mistake.error_reason}</span>
           </div>
           <div className="mistake-review-actions after-submit">
             <button className="button compact secondary" onClick={handleRetry} type="button">
@@ -165,10 +171,10 @@ export function MistakeReviewPanel({
             <strong>涉及课程文件</strong>
           </div>
           <div className="mistake-source-list">
-            {mistake.sourceLinks.map((link) => (
+            {mistake.source_links.map((link) => (
               <SourceLinkRow
                 available={canOpenSource(link)}
-                key={link.id}
+                key={`${link.title}-${link.location}`}
                 link={link}
                 onOpen={onOpenSource}
               />

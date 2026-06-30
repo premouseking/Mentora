@@ -1,4 +1,4 @@
-import { useMemo, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "react";
 import {
   BookOpen,
   Check,
@@ -12,21 +12,33 @@ import {
 } from "lucide-react";
 
 import { AppShell } from "../components/AppShell";
-import { courses } from "../data/courses";
+import { listCourseSessions, type CourseSessionListItem } from "../services/courseApi";
+import { fetchHistory, type HistoryEvent } from "../services/learningApi";
 import {
   formatDateLabel,
   formatMonthTitle,
   formatWeekdayLabel,
   getMonthGrid,
   getWeekDates,
-  initialTasks,
   summarizeDay,
   TODAY_DATE_KEY,
-  type Task,
 } from "../data/history";
+
+/* ── 本地 Task 类型（与 history/Task 兼容）── */
 
 type ViewMode = "day" | "week" | "month";
 type ModalMode = "add" | "edit" | null;
+
+interface Task {
+  id: string | number;
+  date: string;
+  time: string;
+  status: "todo" | "done";
+  title: string;
+  course: string;
+  courseId: string;
+  desc: string;
+}
 
 interface TaskFormState {
   title: string;
@@ -36,28 +48,57 @@ interface TaskFormState {
   desc: string;
 }
 
-const emptyForm = (date: string): TaskFormState => ({
-  title: "",
-  courseId: courses[0]?.id ?? "",
-  date,
-  time: "09:00",
-  desc: "",
-});
+function emptyForm(date: string, courseId: string): TaskFormState {
+  return { title: "", courseId, date, time: "09:00", desc: "" };
+}
+
+/** HistoryEvent → Task 转换 */
+function historyEventToTask(ev: HistoryEvent): Task {
+  return {
+    id: ev.id,
+    date: ev.created_at?.slice(0, 10) ?? "",
+    time: ev.created_at?.slice(11, 16) ?? "",
+    status: "done",
+    title: ev.task_title || ev.description || ev.event_type,
+    course: ev.course_title || "",
+    courseId: ev.course_id ?? "",
+    desc: ev.description || "",
+  };
+}
 
 /* ── 主页面 ───────────────────────────────────────── */
 
 export function HistoryPage() {
-  const [tasks, setTasks] = useState<Task[]>(initialTasks);
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [courses, setCourses] = useState<CourseSessionListItem[]>([]);
+  const [loading, setLoading] = useState(true);
+
   const [view, setView] = useState<ViewMode>("day");
   const [selectedDate, setSelectedDate] = useState(TODAY_DATE_KEY);
   const [courseFilter, setCourseFilter] = useState("all");
   const [search, setSearch] = useState("");
   const [courseMenuOpen, setCourseMenuOpen] = useState(false);
   const [modalMode, setModalMode] = useState<ModalMode>(null);
-  const [editingId, setEditingId] = useState<number | null>(null);
-  const [form, setForm] = useState<TaskFormState>(emptyForm(TODAY_DATE_KEY));
+  const [editingId, setEditingId] = useState<string | number | null>(null);
+  const [form, setForm] = useState<TaskFormState>(emptyForm(TODAY_DATE_KEY, "all"));
   const [todoCollapsed, setTodoCollapsed] = useState(false);
   const [doneCollapsed, setDoneCollapsed] = useState(false);
+
+  /* 从后端加载历史记录 */
+  useEffect(() => {
+    let cancelled = false;
+    Promise.all([fetchHistory(), listCourseSessions()])
+      .then(([historyData, courseData]) => {
+        if (cancelled) return;
+        setCourses(courseData);
+        setTasks(historyData.items.map(historyEventToTask));
+      })
+      .catch(() => {
+        // 静默降级
+      })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, []);
 
   /** 课程 + 搜索筛选（不按日期，供周/月视图使用） */
   const baseFiltered = useMemo(() => {
@@ -84,9 +125,9 @@ export function HistoryPage() {
 
   const todoTasks = dayTasks.filter((t) => t.status === "todo");
   const doneTasks = dayTasks.filter((t) => t.status === "done");
-  const daySummary = summarizeDay(dayTasks);
+  const daySummary = summarizeDay(dayTasks as unknown as import("../data/history").Task[]);
 
-  function toggleStatus(id: number) {
+  function toggleStatus(id: string | number) {
     setTasks((prev) =>
       prev.map((t) =>
         t.id === id
@@ -96,13 +137,13 @@ export function HistoryPage() {
     );
   }
 
-  function deleteTask(id: number) {
+  function deleteTask(id: string | number) {
     if (!window.confirm("确定删除这条任务吗？")) return;
     setTasks((prev) => prev.filter((t) => t.id !== id));
   }
 
   function openAddModal() {
-    setForm(emptyForm(selectedDate));
+    setForm(emptyForm(selectedDate, courses[0]?.id ?? "all"));
     setEditingId(null);
     setModalMode("add");
   }
@@ -127,10 +168,10 @@ export function HistoryPage() {
   function submitForm() {
     if (!form.title.trim()) return;
     const course = courses.find((c) => c.id === form.courseId);
-    const courseName = course?.name ?? form.courseId;
+    const courseName = course?.title ?? form.courseId;
 
     if (modalMode === "add") {
-      const nextId = Math.max(0, ...tasks.map((t) => t.id)) + 1;
+      const nextId = Math.max(0, ...tasks.map((t) => typeof t.id === "number" ? t.id : 0)) + 1;
       setTasks((prev) => [
         ...prev,
         {
@@ -172,7 +213,7 @@ export function HistoryPage() {
   const courseLabel =
     courseFilter === "all"
       ? "全部课程"
-      : (courses.find((c) => c.id === courseFilter)?.name ?? courseFilter);
+      : (courses.find((c) => c.id === courseFilter)?.title ?? courseFilter);
 
   return (
     <AppShell>
@@ -254,7 +295,7 @@ export function HistoryPage() {
                     }}
                     type="button"
                   >
-                    {c.name}
+                    {c.title}
                     {courseFilter === c.id && <Check size={14} />}
                   </button>
                 ))}
@@ -313,6 +354,7 @@ export function HistoryPage() {
           <TaskModal
             form={form}
             mode={modalMode}
+            courses={courses}
             onChange={setForm}
             onClose={closeModal}
             onSubmit={submitForm}
@@ -347,9 +389,9 @@ function DayView({
   doneCollapsed: boolean;
   onToggleTodoCollapse: () => void;
   onToggleDoneCollapse: () => void;
-  onToggleStatus: (id: number) => void;
+  onToggleStatus: (id: string | number) => void;
   onEdit: (task: Task) => void;
-  onDelete: (id: number) => void;
+  onDelete: (id: string | number) => void;
   summary: { doneCount: number; totalMinutes: number };
 }) {
   const isEmpty = todoTasks.length === 0 && doneTasks.length === 0;
@@ -420,9 +462,9 @@ function TaskGroup({
   collapsed: boolean;
   done?: boolean;
   onToggleCollapse: () => void;
-  onToggleStatus: (id: number) => void;
+  onToggleStatus: (id: string | number) => void;
   onEdit: (task: Task) => void;
-  onDelete: (id: number) => void;
+  onDelete: (id: string | number) => void;
 }) {
   if (count === 0) return null;
 
@@ -459,9 +501,9 @@ function TaskItem({
   onDelete,
 }: {
   task: Task;
-  onToggleStatus: (id: number) => void;
+  onToggleStatus: (id: string | number) => void;
   onEdit: (task: Task) => void;
-  onDelete: (id: number) => void;
+  onDelete: (id: string | number) => void;
 }) {
   const isDone = task.status === "done";
 
@@ -523,7 +565,7 @@ function WeekView({
   selectedDate: string;
   tasks: Task[];
   onDayClick: (dateKey: string) => void;
-  onToggleStatus: (id: number) => void;
+  onToggleStatus: (id: string | number) => void;
 }) {
   const weekDates = getWeekDates(selectedDate);
 
@@ -638,12 +680,14 @@ function MonthView({
 function TaskModal({
   mode,
   form,
+  courses,
   onChange,
   onClose,
   onSubmit,
 }: {
   mode: "add" | "edit";
   form: TaskFormState;
+  courses: { id: string; title: string }[];
   onChange: (f: TaskFormState) => void;
   onClose: () => void;
   onSubmit: () => void;
@@ -679,7 +723,7 @@ function TaskModal({
               value={form.courseId}
             >
               {courses.map((c) => (
-                <option key={c.id} value={c.id}>{c.name}</option>
+                <option key={c.id} value={c.id}>{c.title}</option>
               ))}
             </select>
           </label>

@@ -1,109 +1,22 @@
 import { Check, GripVertical, Pencil, Plus, Undo2, X } from "lucide-react";
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 import { SetupShell } from "../components/AppShell";
-import { addMockCourse } from "../data/mockCourses";
-import type { CourseSessionListItem } from "../services/courseApi";
+import {
+  getActivePlan,
+  getCourseSession,
+  startCourse,
+  type ActivePlan,
+  type SessionDetail,
+} from "../services/courseApi";
 
-/* ── Mock 数据（从 PhaseSummary 复制）── */
+/* ── 类型 ── */
 
-const MOCK_PLAN = {
-  plan_id: "mock-plan",
-  revision_id: "mock-rev-1",
-  status: "active",
-  feasibility_status: "feasible",
-  profile_revision_id: "mock-profile-1",
-  phases: [
-    {
-      id: "p1", position: 0, title: "基础入门",
-      objective: "掌握集合、函数等核心概念与基本方法", estimated_minutes: 480,
-      units: [
-        { id: "p1-u1", title: "集合与逻辑", position: 0, topic_id: null, target_depth: "understand", estimated_minutes: 160, prerequisite_unit_ids: [], priority: 1, tasks: [
-          { id: "p1-u1-t1", task_type: "lecture", delivery_mode: "self_paced", estimated_minutes: 40, required: true, knowledge_point: "集合的概念", materials: [{ id: "m-1-1", title: "集合概念讲义.pdf" }] },
-          { id: "p1-u1-t2", task_type: "exercise", delivery_mode: "self_paced", estimated_minutes: 40, required: true, materials: [{ id: "m-1-2", title: "集合运算练习.pdf" }] },
-          { id: "p1-u1-t3", task_type: "lecture", delivery_mode: "self_paced", estimated_minutes: 40, required: true, knowledge_point: "命题与逻辑", materials: [{ id: "m-1-3", title: "命题与逻辑讲义.pdf" }] },
-          { id: "p1-u1-t4", task_type: "review", delivery_mode: "self_paced", estimated_minutes: 40, required: true, materials: [] },
-        ] },
-        { id: "p1-u2", title: "函数基础", position: 1, topic_id: null, target_depth: "understand", estimated_minutes: 150, prerequisite_unit_ids: ["p1-u1"], priority: 1, tasks: [
-          { id: "p1-u2-t1", task_type: "lecture", delivery_mode: "self_paced", estimated_minutes: 50, required: true, knowledge_point: "函数的定义", materials: [{ id: "m-2-1", title: "函数定义讲义.pdf" }] },
-          { id: "p1-u2-t2", task_type: "exercise", delivery_mode: "self_paced", estimated_minutes: 50, required: true, materials: [{ id: "m-2-2", title: "定义域值域练习.pdf" }] },
-          { id: "p1-u2-t3", task_type: "lecture", delivery_mode: "self_paced", estimated_minutes: 50, required: true, knowledge_point: "函数的表示方法", materials: [] },
-        ] },
-        { id: "p1-u3", title: "基本初等函数", position: 2, topic_id: null, target_depth: "understand", estimated_minutes: 170, prerequisite_unit_ids: ["p1-u2"], priority: 1, tasks: [
-          { id: "p1-u3-t1", task_type: "lecture", delivery_mode: "self_paced", estimated_minutes: 40, required: true, knowledge_point: "正比例函数", materials: [{ id: "m-3-1", title: "正比例函数讲义.pdf" }] },
-          { id: "p1-u3-t2", task_type: "exercise", delivery_mode: "self_paced", estimated_minutes: 45, required: true, materials: [{ id: "m-3-2", title: "反比例函数练习.pdf" }] },
-          { id: "p1-u3-t3", task_type: "lecture", delivery_mode: "self_paced", estimated_minutes: 40, required: true, knowledge_point: "一次函数", materials: [{ id: "m-3-3", title: "一次函数讲义.pdf" }] },
-          { id: "p1-u3-t4", task_type: "review", delivery_mode: "self_paced", estimated_minutes: 45, required: true, materials: [{ id: "m-3-4", title: "二次函数复习题.pdf" }] },
-        ] },
-      ],
-    },
-    {
-      id: "p2", position: 1, title: "知识梳理",
-      objective: "系统学习教材，按章节深入梳理知识体系", estimated_minutes: 600,
-      units: [
-        { id: "p2-u1", title: "数列与极限", position: 0, topic_id: null, target_depth: "apply", estimated_minutes: 300, prerequisite_unit_ids: [], priority: 1, tasks: [
-          { id: "p2-u1-t1", task_type: "lecture", delivery_mode: "self_paced", estimated_minutes: 60, required: true, knowledge_point: "数列的概念", materials: [{ id: "m-4-1", title: "数列概念讲义.pdf" }] },
-          { id: "p2-u1-t2", task_type: "exercise", delivery_mode: "self_paced", estimated_minutes: 60, required: true, materials: [{ id: "m-4-2", title: "数列求和练习.pdf" }] },
-          { id: "p2-u1-t3", task_type: "project", delivery_mode: "self_paced", estimated_minutes: 60, required: true, knowledge_point: "极限的探究", materials: [{ id: "m-4-3", title: "极限探究项目.pdf" }] },
-        ] },
-        { id: "p2-u2", title: "三角函数", position: 1, topic_id: null, target_depth: "apply", estimated_minutes: 300, prerequisite_unit_ids: ["p2-u1"], priority: 1, tasks: [
-          { id: "p2-u2-t1", task_type: "lecture", delivery_mode: "self_paced", estimated_minutes: 60, required: true, knowledge_point: "三角函数定义", materials: [{ id: "m-5-1", title: "三角函数讲义.pdf" }] },
-          { id: "p2-u2-t2", task_type: "exercise", delivery_mode: "self_paced", estimated_minutes: 60, required: true, materials: [{ id: "m-5-2", title: "三角恒等变换练习.pdf" }] },
-        ] },
-      ],
-    },
-    {
-      id: "p3", position: 2, title: "专项训练",
-      objective: "突破薄弱点，题型分类训练", estimated_minutes: 540,
-      units: [
-        { id: "p3-u1", title: "函数题型专项", position: 0, topic_id: null, target_depth: "apply", estimated_minutes: 270, prerequisite_unit_ids: [], priority: 1, tasks: [
-          { id: "p3-u1-t1", task_type: "exercise", delivery_mode: "self_paced", estimated_minutes: 90, required: true, materials: [{ id: "m-6-1", title: "函数题型专项训练.pdf" }] },
-          { id: "p3-u1-t2", task_type: "exercise", delivery_mode: "self_paced", estimated_minutes: 90, required: true, materials: [] },
-          { id: "p3-u1-t3", task_type: "review", delivery_mode: "self_paced", estimated_minutes: 90, required: true, materials: [{ id: "m-6-2", title: "函数易错题回顾.pdf" }] },
-        ] },
-        { id: "p3-u2", title: "几何题型专项", position: 1, topic_id: null, target_depth: "apply", estimated_minutes: 270, prerequisite_unit_ids: ["p3-u1"], priority: 1, tasks: [
-          { id: "p3-u2-t1", task_type: "exercise", delivery_mode: "self_paced", estimated_minutes: 90, required: true, materials: [{ id: "m-7-1", title: "几何题型专项训练.pdf" }] },
-          { id: "p3-u2-t2", task_type: "exercise", delivery_mode: "self_paced", estimated_minutes: 90, required: true, materials: [] },
-          { id: "p3-u2-t3", task_type: "project", delivery_mode: "self_paced", estimated_minutes: 90, required: true, knowledge_point: "立体几何综合", materials: [{ id: "m-7-2", title: "立体几何综合项目.pdf" }] },
-        ] },
-      ],
-    },
-    {
-      id: "p4", position: 3, title: "综合应用",
-      objective: "跨知识点实战，真题与综合项目", estimated_minutes: 480,
-      units: [
-        { id: "p4-u1", title: "综合真题训练", position: 0, topic_id: null, target_depth: "analyze", estimated_minutes: 240, prerequisite_unit_ids: [], priority: 1, tasks: [
-          { id: "p4-u1-t1", task_type: "project", delivery_mode: "self_paced", estimated_minutes: 120, required: true, knowledge_point: "高考真题实战", materials: [{ id: "m-8-1", title: "2025高考真题集.pdf" }] },
-          { id: "p4-u1-t2", task_type: "exercise", delivery_mode: "self_paced", estimated_minutes: 120, required: true, materials: [{ id: "m-8-2", title: "真题分类训练.pdf" }] },
-        ] },
-        { id: "p4-u2", title: "跨章节综合", position: 1, topic_id: null, target_depth: "analyze", estimated_minutes: 240, prerequisite_unit_ids: ["p4-u1"], priority: 1, tasks: [
-          { id: "p4-u2-t1", task_type: "project", delivery_mode: "self_paced", estimated_minutes: 80, required: true, knowledge_point: "跨章节综合", materials: [{ id: "m-9-1", title: "跨章节综合项目.pdf" }] },
-          { id: "p4-u2-t2", task_type: "exercise", delivery_mode: "self_paced", estimated_minutes: 80, required: true, materials: [] },
-          { id: "p4-u2-t3", task_type: "review", delivery_mode: "self_paced", estimated_minutes: 80, required: true, materials: [{ id: "m-9-2", title: "综合题解题思路.pdf" }] },
-        ] },
-      ],
-    },
-    {
-      id: "p5", position: 4, title: "考前冲刺",
-      objective: "考点回顾，临场策略与限时模拟", estimated_minutes: 360,
-      units: [
-        { id: "p5-u1", title: "考点回顾", position: 0, topic_id: null, target_depth: "analyze", estimated_minutes: 180, prerequisite_unit_ids: [], priority: 1, tasks: [
-          { id: "p5-u1-t1", task_type: "review", delivery_mode: "self_paced", estimated_minutes: 90, required: true, materials: [{ id: "m-10-1", title: "考点全回顾.pdf" }] },
-          { id: "p5-u1-t2", task_type: "lecture", delivery_mode: "self_paced", estimated_minutes: 90, required: true, knowledge_point: "临场策略", materials: [{ id: "m-10-2", title: "临场策略讲义.pdf" }] },
-        ] },
-        { id: "p5-u2", title: "限时模拟", position: 1, topic_id: null, target_depth: "analyze", estimated_minutes: 180, prerequisite_unit_ids: ["p5-u1"], priority: 1, tasks: [
-          { id: "p5-u2-t1", task_type: "project", delivery_mode: "self_paced", estimated_minutes: 120, required: true, knowledge_point: "限时模拟", materials: [{ id: "m-11-1", title: "限时模拟卷A.pdf" }, { id: "m-11-2", title: "限时模拟卷B.pdf" }] },
-          { id: "p5-u2-t2", task_type: "review", delivery_mode: "self_paced", estimated_minutes: 60, required: true, materials: [{ id: "m-11-3", title: "模拟卷讲评.pdf" }] },
-        ] },
-      ],
-    },
-  ],
-};
+interface PoolPhase { id: string; title: string; objective: string; }
 
 /* 阶段池（编辑模式下可选添加） */
-interface PoolPhase { id: string; title: string; objective: string; }
-const MOCK_PHASE_POOL: PoolPhase[] = [
+const PHASE_POOL_TEMPLATES: PoolPhase[] = [
   { id: "pool-k1", title: "知识衔接", objective: "补齐前置知识缺口" },
   { id: "pool-k2", title: "习题强化", objective: "大量针对性练习，巩固薄弱环节" },
   { id: "pool-k3", title: "阶段测评", objective: "定期检测学习效果，调整方向" },
@@ -112,18 +25,21 @@ const MOCK_PHASE_POOL: PoolPhase[] = [
   { id: "pool-k6", title: "实战模拟", objective: "全真模拟考试，训练应试能力" },
 ];
 
-/* mock 学习档案 */
 interface ProfileItem { key: string; title: string; value: string; }
-const MOCK_PROFILE: ProfileItem[] = [
-  { key: "goal", title: "学习目标", value: "高中数学系统复习，备战高考" },
-  { key: "level", title: "当前基础", value: "中等偏上，函数部分薄弱" },
-  { key: "pace", title: "推进方式", value: "按知识板块逐步推进" },
-  { key: "timeBudget", title: "每日时长", value: "2~3 小时" },
-  { key: "deadline", title: "目标日期", value: "2026-08-15" },
-  { key: "school", title: "学校/地区", value: "华南师大附中" },
-];
 
-/* ── 常量 / 辅助函数 ── */
+/* 从 SessionDetail 构建档案项 */
+function buildProfileItems(session: SessionDetail): ProfileItem[] {
+  return [
+    { key: "goal", title: "学习目标", value: session.goal || "" },
+    { key: "level", title: "当前基础", value: session.level || "" },
+    { key: "pace", title: "推进方式", value: session.pace || "" },
+    { key: "timeBudget", title: "每日时长", value: session.time_budget || "" },
+    { key: "deadline", title: "目标日期", value: session.deadline || "" },
+    { key: "school", title: "学校/地区", value: session.school || "" },
+  ];
+}
+
+/* ── 常量 ── */
 
 const TASK_TYPE_LABEL: Record<string, string> = { lecture: "讲解", exercise: "练习", project: "项目", review: "复习" };
 const DEPTH_LABEL: Record<string, string> = { understand: "理解", apply: "应用", analyze: "分析" };
@@ -140,7 +56,7 @@ function offsetOf(index: number, blockBasis: number) {
   return index * blockBasis - 4 * index;
 }
 
-/* ── PlanOverviewCanvas（从 PhaseSummary 复制）── */
+/* ── PlanOverviewCanvas ── */
 
 const OV_CANVAS = { UNIT_W: 130, UNIT_H: 60, ARROW_W: 40, PAD_H: 16, PAD_V: 14 };
 
@@ -149,9 +65,7 @@ interface OverviewUnitNode {
   x: number; y: number; w: number; h: number;
 }
 
-type UnitData = typeof MOCK_PLAN.phases[0]["units"];
-
-function computeOverviewLayout(units: UnitData) {
+function computeOverviewLayout(units: ActivePlan["phases"][0]["units"]) {
   const N = units.length;
   const contentW = 2 * OV_CANVAS.PAD_H + N * OV_CANVAS.UNIT_W + Math.max(0, N - 1) * OV_CANVAS.ARROW_W;
   const contentH = 2 * OV_CANVAS.PAD_V + OV_CANVAS.UNIT_H;
@@ -166,7 +80,7 @@ function computeOverviewLayout(units: UnitData) {
 function PlanOverviewCanvas({
   units, selectedUnitId, onSelectUnit,
 }: {
-  units: UnitData; selectedUnitId: string | null; onSelectUnit: (unitId: string | null) => void;
+  units: ActivePlan["phases"][0]["units"]; selectedUnitId: string | null; onSelectUnit: (unitId: string | null) => void;
 }) {
   const layout = useMemo(() => computeOverviewLayout(units), [units]);
   const { contentW, contentH, nodes } = layout;
@@ -183,6 +97,7 @@ function PlanOverviewCanvas({
             {nodes.map((n, i) => {
               if (i >= nodes.length - 1) return null;
               const next = nodes[i + 1];
+              if (!next) return null;
               const cy = n.y + n.h / 2;
               return <line key={`oa-${n.id}`} x1={n.x + n.w} y1={cy} x2={next.x} y2={cy} stroke="var(--border-strong)" strokeWidth="1.5" markerEnd="url(#ps-overview-arrow)" />;
             })}
@@ -207,13 +122,48 @@ function PlanOverviewCanvas({
 
 export function ConfirmPlanPage() {
   const navigate = useNavigate();
-  const plan = MOCK_PLAN;
+  const sessionId = sessionStorage.getItem("mentora-session-id");
+
+  /* 加载状态 */
+  const [plan, setPlan] = useState<ActivePlan | null>(null);
+  const [profileItems, setProfileItems] = useState<ProfileItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!sessionId) {
+      navigate("/courses/new");
+      return;
+    }
+
+    let cancelled = false;
+    Promise.all([
+      getActivePlan(sessionId),
+      getCourseSession(sessionId),
+    ])
+      .then(([planData, sessionData]) => {
+        if (cancelled) return;
+        setPlan(planData);
+        setProfileItems(buildProfileItems(sessionData));
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setError(err instanceof Error ? err.message : "加载方案失败");
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+
+    return () => { cancelled = true; };
+  }, [sessionId, navigate]);
 
   /* phase-track 状态 */
   const [trackPhaseIndex, setTrackPhaseIndex] = useState(0);
   const trackNavRef = useRef<HTMLDivElement>(null);
   const targetRef = useRef(0);
-  const N = plan.phases.length;
+
+  const phases = plan?.phases ?? [];
+  const N = phases.length;
 
   const scrollTrackTo = useCallback((index: number) => {
     const el = trackNavRef.current;
@@ -248,25 +198,32 @@ export function ConfirmPlanPage() {
 
   /* ── 档案编辑 ── */
   const [profileEditing, setProfileEditing] = useState(false);
-  const [profileValues, setProfileValues] = useState<ProfileItem[]>(() =>
-    MOCK_PROFILE.map((p) => ({ ...p })),
-  );
+  const [profileValues, setProfileValues] = useState<ProfileItem[]>([]);
   const [profileChanged, setProfileChanged] = useState(false);
+
+  // profileItems 变化时同步本地编辑态
+  useEffect(() => {
+    setProfileValues(profileItems.map((p) => ({ ...p })));
+  }, [profileItems]);
 
   /* ── 计划编辑 ── */
   const [planEditing, setPlanEditing] = useState(false);
   const [planChanged, setPlanChanged] = useState(false);
-  const [editPhases, setEditPhases] = useState(() =>
-    plan.phases.map((p) => ({ id: p.id, title: p.title, objective: p.objective })),
-  );
+  const [editPhases, setEditPhases] = useState<{ id: string; title: string; objective: string }[]>([]);
   const [showAddPhase, setShowAddPhase] = useState(false);
   const [dragIndex, setDragIndex] = useState<number | null>(null);
+
+  // plan 变化时同步编辑态
+  useEffect(() => {
+    if (plan) {
+      setEditPhases(plan.phases.map((p) => ({ id: p.id, title: p.title, objective: p.objective })));
+    }
+  }, [plan]);
 
   /* ── 档案编辑 handler ── */
 
   const handleProfileEditToggle = useCallback(() => {
     if (profileEditing) {
-      // ✓ → 标记已更改，退出编辑
       setProfileEditing(false);
       setProfileChanged(true);
     } else {
@@ -276,13 +233,13 @@ export function ConfirmPlanPage() {
 
   const handleProfileEditCancel = useCallback(() => {
     setProfileEditing(false);
-    setProfileValues(MOCK_PROFILE.map((p) => ({ ...p })));
-  }, []);
+    setProfileValues(profileItems.map((p) => ({ ...p })));
+  }, [profileItems]);
 
   const handleProfileUndo = useCallback(() => {
     setProfileChanged(false);
-    setProfileValues(MOCK_PROFILE.map((p) => ({ ...p })));
-  }, []);
+    setProfileValues(profileItems.map((p) => ({ ...p })));
+  }, [profileItems]);
 
   const handleProfileValueChange = useCallback((key: string, value: string) => {
     setProfileValues((prev) => prev.map((p) => (p.key === key ? { ...p, value } : p)));
@@ -293,17 +250,15 @@ export function ConfirmPlanPage() {
   const handlePlanEditToggle = useCallback(() => {
     if (planEditing) {
       if (planChanged) {
-        // 锁定模式 → 重新进入编辑
         setPlanChanged(false);
       } else {
-        // 编辑中 → ✓ 确认保存，锁定表格
         setPlanChanged(true);
       }
     } else {
       setPlanEditing(true);
-      setEditPhases(plan.phases.map((p) => ({ id: p.id, title: p.title, objective: p.objective })));
+      if (plan) setEditPhases(plan.phases.map((p) => ({ id: p.id, title: p.title, objective: p.objective })));
     }
-  }, [planEditing, planChanged, plan.phases]);
+  }, [planEditing, planChanged, plan]);
 
   const handlePlanEditCancel = useCallback(() => {
     setPlanEditing(false);
@@ -317,7 +272,7 @@ export function ConfirmPlanPage() {
     setShowAddPhase(false);
   }, []);
 
-  /* ── 阶段编辑表格：拖拽排序 ── */
+  /* ── 拖拽排序 ── */
 
   const handlePhaseDragStart = useCallback((e: React.DragEvent, index: number) => {
     setDragIndex(index);
@@ -350,36 +305,72 @@ export function ConfirmPlanPage() {
     setShowAddPhase(false);
   }, []);
 
-  /* 是否有任何编辑变更 */
   const isDirty = profileChanged || planChanged;
 
-  /* ── 开始学习：生成 mock 课程数据 ── */
-  const handleStartLearning = useCallback(() => {
-    const profileMap = Object.fromEntries(profileValues.map((p) => [p.key, p.value]));
-    const now = new Date().toISOString();
-    const mockId = `mock-${Date.now()}`;
+  /* ── 开始学习：调用后端激活课程 ── */
+  const [starting, setStarting] = useState(false);
 
-    const mockCourse: CourseSessionListItem = {
-      id: mockId,
-      goal: profileMap.goal || "高中数学系统复习",
-      title: profileMap.goal?.slice(0, 12) || "高中数学系统复习",
-      status: "started",
-      level: profileMap.level || "中等",
-      pace: profileMap.pace || "按知识板块逐步推进",
-      time_budget: profileMap.timeBudget || "2~3 小时",
-      school: profileMap.school || "",
-      deadline: profileMap.deadline || null,
-      current_phase: editPhases[0]?.title || "基础入门",
-      next_task: "lecture",
-      created_at: now,
-      updated_at: now,
-      last_studied_at: now,
-    };
+  const handleStartLearning = useCallback(async () => {
+    if (!sessionId) return;
+    setStarting(true);
+    try {
+      await startCourse(sessionId);
+      sessionStorage.setItem("mentora-course-started", "true");
+      navigate("/courses");
+    } catch (err) {
+      setStarting(false);
+      setError(err instanceof Error ? err.message : "启动课程失败");
+    }
+  }, [sessionId, navigate]);
 
-    addMockCourse(mockCourse);
-    sessionStorage.setItem("mentora-course-started", "true");
-    navigate("/courses");
-  }, [profileValues, editPhases, navigate]);
+  /* ── 加载中 / 错误 / 空 plan ── */
+
+  if (loading) {
+    return (
+      <SetupShell current={2} hideInfoBar footer={null}>
+        <div className="setup-heading compact-heading">
+          <h1 className="course-title-main">正在生成学习方案…</h1>
+          <p>AI 正在根据你的学习目标制定个性化方案，请稍候。</p>
+        </div>
+        <div className="ps-adjust-loading">
+          <div className="ps-spinner" />
+          <p>PlanGenerator 正在分析资料并构建方案</p>
+        </div>
+      </SetupShell>
+    );
+  }
+
+  if (error) {
+    return (
+      <SetupShell current={2} hideInfoBar footer={null}>
+        <div className="setup-heading compact-heading">
+          <h1 className="course-title-main">方案生成失败</h1>
+          <p>{error}</p>
+        </div>
+        <div className="setup-footer">
+          <button className="ps-btn ps-btn-primary" type="button" onClick={() => navigate("/courses/new")}>
+            返回重试
+          </button>
+        </div>
+      </SetupShell>
+    );
+  }
+
+  if (!plan || phases.length === 0) {
+    return (
+      <SetupShell current={2} hideInfoBar footer={null}>
+        <div className="setup-heading compact-heading">
+          <h1 className="course-title-main">暂无学习方案</h1>
+          <p>请返回上一步确认资料上传和方案生成是否完成。</p>
+        </div>
+        <div className="setup-footer">
+          <button className="ps-btn ps-btn-primary" type="button" onClick={() => navigate("/courses/new")}>
+            返回重新生成
+          </button>
+        </div>
+      </SetupShell>
+    );
+  }
 
   return (
     <SetupShell
@@ -398,8 +389,9 @@ export function ConfirmPlanPage() {
             className={`ps-btn ${!isDirty ? "ps-btn-primary" : "ps-btn-secondary"}`}
             type="button"
             onClick={handleStartLearning}
+            disabled={starting}
           >
-            开始学习
+            {starting ? "正在启动…" : "开始学习"}
           </button>
         </div>
       }
@@ -514,7 +506,6 @@ export function ConfirmPlanPage() {
           </div>
 
           {planEditing ? (
-            /* 阶段编辑表格 */
             <div className="ps-plan-edit-table">
               <div className="ps-plan-edit-head">
                 <span className="ps-plan-edit-col-name">阶段</span>
@@ -554,7 +545,7 @@ export function ConfirmPlanPage() {
                     <div className="ps-plan-edit-add-popup">
                       {(() => {
                         const selectedIds = new Set(editPhases.map((ep) => ep.id));
-                        const available = MOCK_PHASE_POOL.filter((pp) => !selectedIds.has(pp.id));
+                        const available = PHASE_POOL_TEMPLATES.filter((pp) => !selectedIds.has(pp.id));
                         if (available.length === 0) {
                           return <div className="ps-plan-edit-add-empty">没有更多可选阶段</div>;
                         }
@@ -575,7 +566,7 @@ export function ConfirmPlanPage() {
               {/* phase-track 横向滑轨 */}
               <div className="phase-track" ref={trackNavRef} onWheel={handleTrackWheel}>
                 <div className="phase-track-window">
-                  {plan.phases.map((p, i) => (
+                  {phases.map((p, i) => (
                     <div
                       key={p.id}
                       className={`phase-block${i === trackPhaseIndex ? " active" : ""}`}
@@ -589,26 +580,26 @@ export function ConfirmPlanPage() {
               </div>
 
               {/* 章节概览画布 */}
-              <PlanOverviewCanvas
-                units={plan.phases[trackPhaseIndex].units}
-                selectedUnitId={overviewSelectedUnitId}
-                onSelectUnit={(id) => setOverviewSelectedUnitId(id)}
-              />
+              {phases[trackPhaseIndex] && (
+                <PlanOverviewCanvas
+                  units={phases[trackPhaseIndex].units}
+                  selectedUnitId={overviewSelectedUnitId}
+                  onSelectUnit={(id) => setOverviewSelectedUnitId(id)}
+                />
+              )}
 
               {/* 阶段 / 章节详情 */}
               <div className="ps-adjust-plan-detail">
                 {(() => {
-                  const tp = plan.phases[trackPhaseIndex];
+                  const tp = phases[trackPhaseIndex];
+                  if (!tp) return null;
+
                   const selUnit = overviewSelectedUnitId
                     ? tp.units.find((u) => u.id === overviewSelectedUnitId) ?? null
                     : null;
 
                   if (selUnit) {
                     const taskCount = selUnit.tasks.length;
-                    const allMaterials: { id: string; title: string }[] = [];
-                    for (const t of selUnit.tasks) {
-                      if (t.materials) allMaterials.push(...t.materials);
-                    }
                     const typeSet = new Set(selUnit.tasks.map((t) => TASK_TYPE_LABEL[t.task_type] ?? t.task_type));
                     const summary = `本章节包含 ${taskCount} 个学习任务，涵盖${[...typeSet].join("、")}等类型，预计用时 ${formatMinutes(selUnit.estimated_minutes)}。`;
 
@@ -631,23 +622,12 @@ export function ConfirmPlanPage() {
                           <div className="ps-detail-section-head">概述</div>
                           <p className="ps-detail-summary">{summary}</p>
                         </div>
-                        {allMaterials.length > 0 && (
-                          <div className="ps-detail-section">
-                            <div className="ps-detail-section-head">相关资料</div>
-                            <ul className="ps-detail-materials">
-                              {allMaterials.map((m) => (
-                                <li key={m.id} className="ps-detail-material-item">
-                                  <span className="ps-detail-material-name">{m.title}</span>
-                                </li>
-                              ))}
-                            </ul>
-                          </div>
-                        )}
                       </>
                     );
                   }
 
                   /* 阶段信息 */
+                  const unitCount = tp.units.length;
                   const taskCount = tp.units.reduce((s, u) => s + u.tasks.length, 0);
                   return (
                     <>
@@ -659,7 +639,7 @@ export function ConfirmPlanPage() {
                         <div className="ps-detail-section-head">基础信息</div>
                         <dl className="ps-detail-basics">
                           <div className="ps-detail-basic-row"><dt>阶段序号</dt><dd>第 {tp.position + 1} 阶段</dd></div>
-                          <div className="ps-detail-basic-row"><dt>章节数</dt><dd>{tp.units.length} 章</dd></div>
+                          <div className="ps-detail-basic-row"><dt>章节数</dt><dd>{unitCount} 章</dd></div>
                           <div className="ps-detail-basic-row"><dt>任务数</dt><dd>{taskCount} 个</dd></div>
                           <div className="ps-detail-basic-row"><dt>预估时长</dt><dd>{formatMinutes(tp.estimated_minutes)}</dd></div>
                         </dl>

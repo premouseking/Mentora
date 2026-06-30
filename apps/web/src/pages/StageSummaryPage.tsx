@@ -10,15 +10,19 @@ import {
 } from "../components/stage-summary/PlanAdjustmentCard";
 import { StageEvidenceList } from "../components/stage-summary/StageEvidenceList";
 import { StageTransitionActions } from "../components/stage-summary/StageTransitionActions";
-import { stageEvidence } from "../data/courses";
 
 export function StageSummaryPage() {
-  const { courseId = "computer-architecture" } = useParams();
+  const { courseId } = useParams();
   const navigate = useNavigate();
   const [impactOpen, setImpactOpen] = useState(false);
   const [adjustmentDecision, setAdjustmentDecision] =
     useState<AdjustmentDecision>("pending");
   const [transitionNotice, setTransitionNotice] = useState<string | null>(null);
+
+  if (!courseId) {
+    navigate("/courses");
+    return null;
+  }
 
   const enterNextPhase = () => {
     setTransitionNotice("下一阶段已激活，正在返回课程主页。");
@@ -56,7 +60,7 @@ export function StageSummaryPage() {
         </section>
 
         <div className="stage-summary-grid">
-          <StageEvidenceList evidence={stageEvidence} />
+          <StageEvidenceList evidence={[]} />
           <NextPhasePreview />
         </div>
 

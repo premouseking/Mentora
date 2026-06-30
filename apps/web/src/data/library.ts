@@ -30,17 +30,8 @@ export interface LibraryItem {
   folderId: string | null;
 }
 
-export interface LibraryFolder {
-  id: string;
-  name: string;
-}
-
-export const libraryFolders: LibraryFolder[] = [
-  { id: "f-1", name: "计算机组成原理" },
-  { id: "f-2", name: "机器学习" },
-  { id: "f-3", name: "考研真题" },
-  { id: "f-4", name: "实验与数据" },
-];
+/* LibraryFolder 已由 services/documentApi.ts 的 FolderItem 替代。
+   文件夹数据通过 GET /api/library/folders/ 获取。 */
 
 export const libraryItems: LibraryItem[] = [
   {

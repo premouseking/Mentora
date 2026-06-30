@@ -13,12 +13,14 @@ from mentora.assessment.views import (
 )
 from django.urls import include
 from mentora.users.views import change_password, login, logout, profile, refresh, register, update_profile
-from mentora.learning.views import history_list
+from mentora.learning.views import explanation_list, history_list, mistake_list
 from mentora.courses.views import (
     course_activate,
     course_confirm,
     course_detail,
+    course_files,
     course_list,
+    course_phases,
     course_profile_revise,
     course_scope_extend,
     course_scope_suggest,
@@ -61,6 +63,8 @@ urlpatterns = [
     path("api/auth/logout/", logout, name="auth-logout"),
     path("api/health/", health, name="health"),
     path("api/history/", history_list, name="history-list"),
+    path("api/learning/mistakes/", mistake_list, name="learning-mistakes"),
+    path("api/learning/explanations/", explanation_list, name="learning-explanations"),
     # Agent 聊天
     path("api/", include("mentora.agent_runtime.urls")),
     # Workflow 异步任务
@@ -84,6 +88,8 @@ urlpatterns = [
     path("api/courses/<uuid:course_id>/profile/", course_profile_revise, name="course-profile-revise"),
     path("api/courses/<uuid:course_id>/scope/", course_scope_extend, name="course-scope-extend"),
     path("api/courses/<uuid:course_id>/scope-suggest/", course_scope_suggest, name="course-scope-suggest"),
+    path("api/courses/<uuid:course_id>/phases/", course_phases, name="course-phases"),
+    path("api/courses/<uuid:course_id>/files/", course_files, name="course-files"),
     path("api/courses/<uuid:course_id>/activate/", course_activate, name="course-activate"),
     # 课程资料关联
     path("api/courses/sessions/<uuid:session_id>/sources/", course_sources, name="course-sources"),

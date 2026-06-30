@@ -97,7 +97,6 @@ export const focusTasks = [
     estimate: "约 15 分钟",
   },
 ] as const;
-
 export type EvidenceState = "mastered" | "reinforce" | "unfinished";
 
 export type StageEvidence = {
@@ -107,44 +106,6 @@ export type StageEvidence = {
   detail: string;
   state: EvidenceState;
 };
-
-export const stageEvidence: StageEvidence[] = [
-  {
-    id: "mapping",
-    name: "Cache 映射方式",
-    source: "阶段检查 4/4",
-    detail: "能区分三种映射方式及其冲突特征",
-    state: "mastered",
-  },
-  {
-    id: "locality",
-    name: "局部性原理",
-    source: "阶段检查 4/4",
-    detail: "能解释时间与空间局部性的实际作用",
-    state: "mastered",
-  },
-  {
-    id: "replacement",
-    name: "Cache 替换策略",
-    source: "阶段检查 2/4",
-    detail: "需要继续比较 LRU、FIFO 与随机替换",
-    state: "reinforce",
-  },
-  {
-    id: "write-policy",
-    name: "写策略",
-    source: "阶段检查 2/4",
-    detail: "写直达与写回的适用场景仍容易混淆",
-    state: "reinforce",
-  },
-  {
-    id: "cache-lab",
-    name: "实验：Cache 性能对比",
-    source: "任务未完成",
-    detail: "保留为后续补学，不影响进入下一阶段",
-    state: "unfinished",
-  },
-];
 
 export const nextPhasePreview = {
   id: "application",
