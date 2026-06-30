@@ -4633,14 +4633,69 @@ p {
   white-space: nowrap;
 }
 
-.ai-chat-input-row {
+.ai-mentioned-context-list {
   display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.ai-mentioned-context-pill {
+  display: inline-flex;
+  max-width: 100%;
   align-items: center;
-  gap: 10px;
+  gap: 6px;
+  border: 1px solid #c6ddd5;
+  border-radius: 999px;
+  padding: 5px 6px 5px 9px;
+  background: #dcebe6;
+  box-shadow: 0 8px 22px rgba(31, 89, 72, 0.1);
+  color: #214f43;
+  font-size: 13px;
+}
+
+.ai-mentioned-context-icon {
+  display: inline-flex;
+  flex: 0 0 auto;
+  color: #3f7768;
+}
+
+.ai-mentioned-context-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ai-mentioned-context-pill button {
+  display: inline-flex;
+  width: 22px;
+  height: 22px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: #4d7b70;
+  cursor: pointer;
+}
+
+.ai-mentioned-context-pill button:hover {
+  background: rgba(35, 96, 78, 0.1);
+  color: #214f43;
+}
+
+.ai-chat-input-row {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
   border: 1px solid var(--border-strong);
   border-radius: 10px;
-  padding: 4px 4px 4px 14px;
+  padding: 9px 10px 8px 12px;
   background: #fff;
+  overflow: hidden;
   transition:
     border-color 160ms ease,
     box-shadow 160ms ease;
@@ -4652,18 +4707,83 @@ p {
 }
 
 .ai-chat-input {
-  flex: 1;
-  min-width: 0;
-  height: 38px;
+  display: block;
+  width: 100%;
+  min-height: 28px;
+  max-height: 140px;
   border: 0;
   outline: 0;
   background: transparent;
   color: var(--ink);
   font-size: 13px;
+  line-height: 1.55;
+  overflow-x: hidden;
+  overflow-y: hidden;
+  overflow-wrap: anywhere;
+  padding: 0 4px 0 0;
+  resize: none;
+  scrollbar-color: rgba(102, 102, 102, 0.5) transparent;
+  scrollbar-width: thin;
+  white-space: pre-wrap;
+}
+
+.ai-chat-input:focus-visible {
+  outline: 0;
 }
 
 .ai-chat-input::placeholder {
   color: #9ba49f;
+}
+
+.ai-chat-input::-webkit-scrollbar {
+  width: 6px;
+}
+
+.ai-chat-input::-webkit-scrollbar-track {
+  margin: 4px 0;
+  background: transparent;
+}
+
+.ai-chat-input::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: rgba(102, 102, 102, 0.5);
+}
+
+.ai-chat-input::-webkit-scrollbar-thumb:hover {
+  background: rgba(136, 136, 136, 0.82);
+}
+
+.ai-chat-input::-webkit-scrollbar-button {
+  display: none;
+}
+
+.ai-chat-input-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.ai-chat-mention-button {
+  display: inline-flex;
+  width: 34px;
+  height: 34px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 8px;
+  background: #edf6f2;
+  color: var(--green-700);
+  cursor: pointer;
+  transition:
+    background 140ms ease,
+    transform 140ms ease;
+}
+
+.ai-chat-mention-button:hover {
+  background: #dcebe6;
+  transform: scale(1.04);
 }
 
 .ai-chat-send {
@@ -4718,6 +4838,83 @@ p {
 
 .ai-selection-menu button:hover {
   background: #cfe3dc;
+}
+
+.ai-mention-menu {
+  position: absolute;
+  right: 44px;
+  bottom: calc(100% + 8px);
+  z-index: 45;
+  display: grid;
+  width: min(320px, calc(100vw - 56px));
+  max-height: 320px;
+  overflow-y: auto;
+  border: 1px solid #c6ddd5;
+  border-radius: 10px;
+  padding: 6px;
+  background: #f7fbf9;
+  box-shadow: 0 16px 36px rgba(31, 89, 72, 0.18);
+}
+
+.ai-mention-item {
+  display: flex;
+  width: 100%;
+  align-items: flex-start;
+  gap: 8px;
+  border: 0;
+  border-radius: 8px;
+  padding: 8px;
+  background: transparent;
+  color: #214f43;
+  cursor: pointer;
+  text-align: left;
+}
+
+.ai-mention-item:hover,
+.ai-mention-item.active {
+  background: #dcebe6;
+}
+
+.ai-mention-icon {
+  display: inline-flex;
+  width: 24px;
+  height: 24px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border-radius: 7px;
+  background: #e8f3ef;
+  color: #3f7768;
+}
+
+.ai-mention-main {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.ai-mention-main strong {
+  overflow: hidden;
+  color: #214f43;
+  font-size: 13px;
+  font-weight: 720;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ai-mention-main small {
+  overflow: hidden;
+  color: #5d756d;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ai-mention-empty {
+  padding: 10px;
+  color: #6d8179;
+  font-size: 13px;
+  text-align: center;
 }
 
 /* ── Small screen AI panel adjustments ── */

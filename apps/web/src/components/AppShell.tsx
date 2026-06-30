@@ -1,10 +1,12 @@
-import { type ReactNode, useEffect, useRef, useState } from "react";
+import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
+  AtSign,
   Beaker,
   Bell,
   BookOpen,
   Check,
   ChevronLeft,
+  File,
   FolderClosed,
   GripVertical,
   History,
@@ -22,6 +24,9 @@ import remarkGfm from "remark-gfm";
 
 import { DesktopTitleBar } from "./DesktopTitleBar";
 import { CourseInfoBar } from "./CourseInfoBar";
+import type { AiExplanation } from "../data/aiExplanations";
+import type { FileNode } from "../data/files";
+import type { MistakeItem } from "../data/mistakes";
 
 const navItems = [
   { to: "/courses", label: "课程", icon: BookOpen },
@@ -223,6 +228,29 @@ interface SelectionMenuState {
   left: number;
 }
 
+type AiChatMentionType = "course_file" | "course_folder" | "ai_explanation" | "mistake";
+
+interface AiChatMention {
+  id: string;
+  type: AiChatMentionType;
+  label: string;
+  source: string;
+}
+
+interface AiChatContext {
+  files?: FileNode[];
+  aiItems?: AiExplanation[];
+  mistakeItems?: MistakeItem[];
+  selectedFileId?: string | null;
+  selectedAiId?: string | null;
+  selectedMistakeId?: string | null;
+}
+
+interface MentionMenuItem extends AiChatMention {
+  subtitle: string;
+  current?: boolean;
+}
+
 type ChatStreamEvent =
   | { type: "chunk"; content: string }
   | { type: "status"; event: string; message: string; tool_name?: string; success?: boolean }
@@ -233,6 +261,9 @@ type ChatStreamEvent =
 const MAX_SELECTED_TEXT_SNIPPETS = 8;
 const MAX_SELECTED_TEXT_LENGTH = 1000;
 const SELECTED_TEXT_PREVIEW_LENGTH = 80;
+const MAX_MENTION_MENU_ITEMS = 12;
+const AI_CHAT_INPUT_MIN_HEIGHT = 28;
+const AI_CHAT_INPUT_MAX_HEIGHT = 140;
 
 function normalizeSelectedText(text: string) {
   return text.replace(/\s+/g, " ").trim();
@@ -257,6 +288,56 @@ function buildSelectedTextMessage(text: string, snippets: SelectedTextSnippet[])
   ].join("\n");
 }
 
+function flattenMentionFiles(nodes: FileNode[], parentNames: string[] = []): MentionMenuItem[] {
+  return nodes.flatMap((node) => {
+    const path = [...parentNames, node.name];
+    const item: MentionMenuItem = {
+      id: node.id,
+      type: node.type === "folder" ? "course_folder" : "course_file",
+      label: node.name,
+      source: path.join(" / "),
+      subtitle: node.type === "folder" ? "课程文件夹" : "课程文件",
+    };
+    return [item, ...(node.children ? flattenMentionFiles(node.children, path) : [])];
+  });
+}
+
+function buildMentionMenuItems(context?: AiChatContext, query = "") {
+  const files = flattenMentionFiles(context?.files ?? []);
+  const aiItems: MentionMenuItem[] = (context?.aiItems ?? []).map((item) => ({
+    id: item.id,
+    type: "ai_explanation",
+    label: item.title,
+    source: item.topic,
+    subtitle: "AI 讲解",
+  }));
+  const mistakes: MentionMenuItem[] = (context?.mistakeItems ?? []).map((item) => ({
+    id: item.id,
+    type: "mistake",
+    label: item.title,
+    source: item.topic,
+    subtitle: "错题集",
+  }));
+
+  const allItems = [...files, ...aiItems, ...mistakes].map((item) => ({
+    ...item,
+    current:
+      item.id === context?.selectedFileId ||
+      item.id === context?.selectedAiId ||
+      item.id === context?.selectedMistakeId,
+  }));
+  const normalizedQuery = query.trim().toLocaleLowerCase();
+  const filtered = normalizedQuery
+    ? allItems.filter((item) =>
+        `${item.label} ${item.source} ${item.subtitle}`.toLocaleLowerCase().includes(normalizedQuery),
+      )
+    : allItems;
+
+  return filtered
+    .sort((a, b) => Number(b.current) - Number(a.current))
+    .slice(0, MAX_MENTION_MENU_ITEMS);
+}
+
 function AiMarkdownMessage({ content }: { content: string }) {
   return (
     <div className="ai-chat-markdown">
@@ -274,12 +355,67 @@ function AiMarkdownMessage({ content }: { content: string }) {
   );
 }
 
+function getMentionTrigger(input: string, caret: number) {
+  const beforeCaret = input.slice(0, caret);
+  const atIndex = beforeCaret.lastIndexOf("@");
+  if (atIndex < 0) return null;
+  const charBeforeAt = atIndex > 0 ? beforeCaret[atIndex - 1] : "";
+  if (charBeforeAt && !/\s/.test(charBeforeAt)) return null;
+  const query = beforeCaret.slice(atIndex + 1);
+  if (/\s/.test(query)) return null;
+  return { atIndex, query };
+}
+
+function AiChatMentionMenu({
+  items,
+  activeIndex,
+  onSelect,
+}: {
+  items: MentionMenuItem[];
+  activeIndex: number;
+  onSelect: (item: MentionMenuItem) => void;
+}) {
+  return (
+    <div className="ai-mention-menu" role="listbox" aria-label="引用课程上下文">
+      {items.length ? (
+        items.map((item, index) => (
+          <button
+            className={`ai-mention-item${index === activeIndex ? " active" : ""}`}
+            key={`${item.type}:${item.id}`}
+            type="button"
+            role="option"
+            aria-selected={index === activeIndex}
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={() => onSelect(item)}
+          >
+            <span className="ai-mention-icon">
+              {item.type === "course_folder" ? <FolderClosed size={14} /> : <File size={14} />}
+            </span>
+            <span className="ai-mention-main">
+              <strong>{item.label}</strong>
+              <small>{item.current ? "当前 · " : ""}{item.subtitle}{item.source ? ` · ${item.source}` : ""}</small>
+            </span>
+          </button>
+        ))
+      ) : (
+        <div className="ai-mention-empty">没有可引用的课程内容</div>
+      )}
+    </div>
+  );
+}
+
+function getMentionIcon(type: AiChatMentionType) {
+  return type === "course_folder" ? <FolderClosed size={14} /> : <File size={14} />;
+}
+
 function AiChatPanel({
   width,
   onClose,
+  context,
 }: {
   width: number;
   onClose: () => void;
+  context?: AiChatContext;
 }) {
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
@@ -289,13 +425,19 @@ function AiChatPanel({
     },
   ]);
   const [input, setInput] = useState("");
-  const inputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
 
   const [sending, setSending] = useState(false);
   const [selectedTextSnippets, setSelectedTextSnippets] = useState<SelectedTextSnippet[]>([]);
   const [selectionMenu, setSelectionMenu] = useState<SelectionMenuState | null>(null);
+  const [mentions, setMentions] = useState<AiChatMention[]>([]);
+  const [mentionMenuOpen, setMentionMenuOpen] = useState(false);
+  const [mentionQuery, setMentionQuery] = useState("");
+  const [mentionActiveIndex, setMentionActiveIndex] = useState(0);
+
+  const mentionItems = buildMentionMenuItems(context, mentionQuery);
 
   function updateLastAssistant(update: (message: ChatMessage) => ChatMessage) {
     setMessages((prev) => {
@@ -309,6 +451,23 @@ function AiChatPanel({
 
   function closeSelectionMenu() {
     setSelectionMenu(null);
+  }
+
+  function syncInputHeight() {
+    const el = inputRef.current;
+    if (!el) return;
+    if (!el.value) {
+      el.style.height = `${AI_CHAT_INPUT_MIN_HEIGHT}px`;
+      el.style.overflowY = "hidden";
+      return;
+    }
+    el.style.height = "auto";
+    const nextHeight = Math.max(
+      AI_CHAT_INPUT_MIN_HEIGHT,
+      Math.min(el.scrollHeight, AI_CHAT_INPUT_MAX_HEIGHT),
+    );
+    el.style.height = `${nextHeight}px`;
+    el.style.overflowY = el.scrollHeight > AI_CHAT_INPUT_MAX_HEIGHT ? "auto" : "hidden";
   }
 
   function inspectAssistantSelection() {
@@ -374,11 +533,92 @@ function AiChatPanel({
     inputRef.current?.focus();
   }
 
+  function syncMentionMenu(nextInput: string, caret: number | null) {
+    if (caret == null) {
+      setMentionMenuOpen(false);
+      return;
+    }
+    const trigger = getMentionTrigger(nextInput, caret);
+    if (!trigger) {
+      setMentionMenuOpen(false);
+      return;
+    }
+    setMentionQuery(trigger.query);
+    setMentionActiveIndex(0);
+    setMentionMenuOpen(true);
+  }
+
+  function handleInputChange(event: React.ChangeEvent<HTMLTextAreaElement>) {
+    const nextInput = event.target.value;
+    setInput(nextInput);
+    syncMentionMenu(nextInput, event.target.selectionStart);
+    window.setTimeout(syncInputHeight, 0);
+  }
+
+  function openMentionMenuFromButton() {
+    inputRef.current?.focus();
+    const caret = inputRef.current?.selectionStart ?? input.length;
+    const needsSpace = input.length > 0 && caret > 0 && !/\s/.test(input[caret - 1] ?? "");
+    const prefix = needsSpace ? " @" : "@";
+    const nextInput = `${input.slice(0, caret)}${prefix}${input.slice(caret)}`;
+    const nextCaret = caret + prefix.length;
+    setInput(nextInput);
+    setMentionQuery("");
+    setMentionActiveIndex(0);
+    setMentionMenuOpen(true);
+    window.setTimeout(() => {
+      inputRef.current?.setSelectionRange(nextCaret, nextCaret);
+      syncInputHeight();
+    }, 0);
+  }
+
+  function handleMentionSelect(item: MentionMenuItem) {
+    const caret = inputRef.current?.selectionStart ?? input.length;
+    const trigger = getMentionTrigger(input, caret);
+    if (!trigger) return;
+
+    const inserted = `@${item.label} `;
+    const nextInput = `${input.slice(0, trigger.atIndex)}${inserted}${input.slice(caret)}`;
+    const nextCaret = trigger.atIndex + inserted.length;
+    setInput(nextInput);
+    setMentions((prev) => {
+      if (prev.some((mention) => mention.id === item.id && mention.type === item.type)) return prev;
+      return [...prev, {
+        id: item.id,
+        type: item.type,
+        label: item.label,
+        source: item.source,
+      }];
+    });
+    setMentionMenuOpen(false);
+    window.setTimeout(() => {
+      inputRef.current?.focus();
+      inputRef.current?.setSelectionRange(nextCaret, nextCaret);
+      syncInputHeight();
+    }, 0);
+  }
+
+  function handleRemoveMention(mention: AiChatMention) {
+    setMentions((prev) => prev.filter((item) => !(item.id === mention.id && item.type === mention.type)));
+    setInput((prev) => prev.replace(`@${mention.label} `, "").replace(`@${mention.label}`, "").trimStart());
+    window.setTimeout(syncInputHeight, 0);
+  }
+
+  useLayoutEffect(() => {
+    syncInputHeight();
+  }, [input]);
+
   useEffect(() => {
     function handleDocumentMouseDown(event: MouseEvent) {
       const target = event.target as Node | null;
-      if (target && panelRef.current?.contains(target)) return;
+      if (target && panelRef.current?.contains(target)) {
+        if (!(target as Element).closest(".ai-chat-input-area")) {
+          setMentionMenuOpen(false);
+        }
+        return;
+      }
       closeSelectionMenu();
+      setMentionMenuOpen(false);
     }
 
     function handleDocumentKeyDown(event: KeyboardEvent) {
@@ -403,12 +643,16 @@ function AiChatPanel({
     const text = input.trim();
     if (!text) return;
     const snippetsForRequest = selectedTextSnippets;
+    const mentionsForRequest = mentions.filter((mention) => text.includes(`@${mention.label}`));
     const requestMessage = buildSelectedTextMessage(text, snippetsForRequest);
     setMessages((prev) => [...prev, { role: "user", content: text }]);
     setInput("");
     setSelectedTextSnippets([]);
+    setMentions([]);
+    setMentionMenuOpen(false);
     closeSelectionMenu();
     setSending(true);
+    window.setTimeout(syncInputHeight, 0);
 
     // 先添加一条空的 assistant 消息，流式填充
     setMessages((prev) => [...prev, { role: "assistant", content: "" }]);
@@ -420,6 +664,7 @@ function AiChatPanel({
         body: JSON.stringify({
           message: requestMessage,
           history: messages.map((m) => ({ role: m.role, content: m.content })),
+          mentions: mentionsForRequest,
         }),
       });
 
@@ -502,6 +747,32 @@ function AiChatPanel({
   }
 
   function handleKeyDown(e: React.KeyboardEvent) {
+    if (mentionMenuOpen) {
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setMentionActiveIndex((index) => Math.min(index + 1, Math.max(mentionItems.length - 1, 0)));
+        return;
+      }
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setMentionActiveIndex((index) => Math.max(index - 1, 0));
+        return;
+      }
+      if (e.key === "Enter") {
+        const item = mentionItems[mentionActiveIndex];
+        if (item) {
+          e.preventDefault();
+          handleMentionSelect(item);
+          return;
+        }
+      }
+      if (e.key === "Escape") {
+        e.preventDefault();
+        setMentionMenuOpen(false);
+        return;
+      }
+    }
+
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       handleSend();
@@ -615,24 +886,62 @@ function AiChatPanel({
             </button>
           </div>
         )}
+        {mentions.length > 0 && (
+          <div className="ai-mentioned-context-list" aria-label="已引用课程内容">
+            {mentions.map((mention) => (
+              <div className="ai-mentioned-context-pill" key={`${mention.type}:${mention.id}`}>
+                <span className="ai-mentioned-context-icon">
+                  {getMentionIcon(mention.type)}
+                </span>
+                <span className="ai-mentioned-context-label">{mention.label}</span>
+                <button
+                  type="button"
+                  onClick={() => handleRemoveMention(mention)}
+                  aria-label={`移除 ${mention.label}`}
+                >
+                  <X size={13} />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
         <div className="ai-chat-input-row">
-          <input
+          {mentionMenuOpen && (
+            <AiChatMentionMenu
+              items={mentionItems}
+              activeIndex={mentionActiveIndex}
+              onSelect={handleMentionSelect}
+            />
+          )}
+          <textarea
             ref={inputRef}
             className="ai-chat-input"
             placeholder="输入消息…"
             value={input}
-            onChange={(e) => setInput(e.target.value)}
+            onChange={handleInputChange}
             onKeyDown={handleKeyDown}
+            onClick={(event) => syncMentionMenu(input, event.currentTarget.selectionStart)}
+            rows={1}
           />
-          <button
-            className="ai-chat-send"
-            type="button"
-            onClick={handleSend}
-            disabled={!input.trim() || sending}
-            aria-label="发送"
-          >
-            <Send size={16} />
-          </button>
+          <div className="ai-chat-input-actions">
+            <button
+              className="ai-chat-mention-button"
+              type="button"
+              onClick={openMentionMenuFromButton}
+              aria-label="引用课程内容"
+            >
+              <AtSign size={16} />
+            </button>
+            <button
+              className="ai-chat-send"
+              type="button"
+              onClick={handleSend}
+              disabled={!input.trim() || sending}
+              aria-label="发送"
+            >
+              <Send size={16} />
+            </button>
+          </div>
         </div>
       </div>
       {selectionMenu && (
@@ -652,7 +961,13 @@ function AiChatPanel({
 
 /* ── App Shell ── */
 
-export function AppShell({ children }: { children: ReactNode }) {
+export function AppShell({
+  children,
+  aiChatContext,
+}: {
+  children: ReactNode;
+  aiChatContext?: AiChatContext;
+}) {
   const [aiPanelOpen, setAiPanelOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(readStoredCollapsed);
   const [sidebarLabelsVisible, setSidebarLabelsVisible] = useState(
@@ -731,6 +1046,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             />
             <AiChatPanel
               width={panelWidth}
+              context={aiChatContext}
               onClose={() => setAiPanelOpen(false)}
             />
           </>

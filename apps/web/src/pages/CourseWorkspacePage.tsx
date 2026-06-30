@@ -767,7 +767,16 @@ export function CourseWorkspacePage() {
   const hasLeftSections = detachedSections.size < 3;
 
   return (
-    <AppShell>
+    <AppShell
+      aiChatContext={{
+        files: fileNodes,
+        aiItems: aiExplanations,
+        mistakeItems,
+        selectedFileId: selectedFile,
+        selectedAiId: selectedAi,
+        selectedMistakeId: selectedMistake,
+      }}
+    >
       {quizPracticeOpen ? (
         <QuizPracticeView
           files={fileNodes}
