@@ -15,7 +15,9 @@ import {
   Sparkles,
   X,
 } from "lucide-react";
+import ReactMarkdown from "react-markdown";
 import { Link, NavLink } from "react-router-dom";
+import remarkGfm from "remark-gfm";
 
 import { DesktopTitleBar } from "./DesktopTitleBar";
 import { CourseInfoBar } from "./CourseInfoBar";
@@ -214,6 +216,23 @@ type ChatStreamEvent =
   | { type: "error"; message: string }
   | { type: "done" };
 
+function AiMarkdownMessage({ content }: { content: string }) {
+  return (
+    <div className="ai-chat-markdown">
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        components={{
+          a: ({ ...props }) => (
+            <a {...props} target="_blank" rel="noreferrer noopener" />
+          ),
+        }}
+      >
+        {content}
+      </ReactMarkdown>
+    </div>
+  );
+}
+
 function AiChatPanel({
   width,
   onClose,
@@ -382,7 +401,13 @@ function AiChatPanel({
               </span>
             )}
             <div className="ai-chat-bubble">
-              {msg.content && <div className="ai-chat-content">{msg.content}</div>}
+              {msg.content && (
+                msg.role === "assistant" ? (
+                  <AiMarkdownMessage content={msg.content} />
+                ) : (
+                  <div className="ai-chat-content">{msg.content}</div>
+                )
+              )}
               {msg.statuses?.length ? (
                 <div className="ai-chat-status-list">
                   {msg.statuses.map((status, index) => (
