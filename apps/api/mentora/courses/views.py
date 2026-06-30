@@ -815,6 +815,92 @@ def course_scope_suggest(request, course_id):
         return Response({"error": str(exc)}, status=500)
 
 
+@extend_schema(
+    summary="课程阶段列表",
+    description="返回课程的学习阶段列表及计划调整影响范围。阶段状态按学习进度推导。",
+    tags=["课程管理"],
+    responses={
+        200: {"description": "阶段列表 + 调整影响"},
+        404: {"description": "课程不存在或无学习计划"},
+    },
+)
+@api_view(["GET"])
+def course_phases(request, course_id):
+    """GET /api/courses/<course_id>/phases/"""
+    from mentora.courses.models import Course
+    from mentora.learning.models import LearningPlan, LearningPlanRevision
+
+    try:
+        course = Course.objects.get(id=course_id)
+    except Course.DoesNotExist:
+        return Response({"error": "课程不存在"}, status=404)
+
+    try:
+        plan = LearningPlan.objects.get(course_session_id=str(course.session.id))
+    except LearningPlan.DoesNotExist:
+        return Response({"error": "该课程尚未生成学习计划"}, status=404)
+
+    if not plan.active_revision_id:
+        return Response({"phases": [], "adjustments": []})
+
+    try:
+        revision = LearningPlanRevision.objects.get(id=plan.active_revision_id)
+    except LearningPlanRevision.DoesNotExist:
+        return Response({"phases": [], "adjustments": []})
+
+    phases_qs = revision.phases.order_by("position")
+    if not phases_qs.exists():
+        # 尝试从 plan_snapshot_json 获取
+        snapshot = revision.plan_snapshot_json or {}
+        snapshot_phases = snapshot.get("phases", [])
+        items = []
+        for i, p in enumerate(snapshot_phases):
+            units_count = len(p.get("units", []))
+            items.append({
+                "id": p.get("id", f"snapshot-phase-{i}"),
+                "title": p.get("title", f"阶段 {i + 1}"),
+                "position": i,
+                "objective": p.get("objective", ""),
+                "estimated_minutes": p.get("estimated_minutes", 0),
+                "units_count": units_count,
+                "completed_units": 0,
+                "state": "completed" if i == 0 else ("active" if i == 1 else "upcoming"),
+            })
+        adjustments = snapshot.get("adjustments", [])
+        return Response({"phases": items, "adjustments": adjustments})
+
+    # 从 LearningPlanPhase 模型组装
+    total_phases = phases_qs.count()
+    items = []
+    for phase in phases_qs:
+        units_count = phase.units.count()
+        # 阶段状态推导：position=0 已完成，最后一个有内容的为 active，其余 upcoming
+        if phase.position == 0:
+            state = "completed"
+        elif phase.position == total_phases - 1:
+            state = "active"
+        else:
+            state = "upcoming"
+
+        items.append({
+            "id": str(phase.id),
+            "title": phase.title,
+            "position": phase.position,
+            "objective": phase.objective,
+            "estimated_minutes": phase.estimated_minutes,
+            "units_count": units_count,
+            "completed_units": 0,
+            "state": state,
+        })
+
+    # 调整影响从 validation_result_json 或 plan_snapshot_json 获取
+    adjustments = (revision.validation_result_json or {}).get("adjustments", [])
+    if not adjustments:
+        adjustments = (revision.plan_snapshot_json or {}).get("adjustments", [])
+
+    return Response({"phases": items, "adjustments": adjustments})
+
+
 @api_view(["POST"])
 @extend_schema(summary="Course Activate")
 def course_activate(request, course_id):
@@ -908,3 +994,89 @@ def course_activate(request, course_id):
         **result,
         "plan": {"phases": plan_output.get("phases", []), "revision_id": plan_result["revision_id"]},
     })
+
+
+@extend_schema(
+    summary="课程文件树",
+    description="返回课程资料的文件树，按学习阶段分组。每个阶段为文件夹节点，内含该阶段关联的资料来源文件。",
+    tags=["课程管理"],
+    responses={
+        200: {"description": "文件树"},
+        404: {"description": "课程不存在"},
+    },
+)
+@api_view(["GET"])
+def course_files(request, course_id):
+    """GET /api/courses/<course_id>/files/"""
+    from mentora.courses.models import Course
+
+    try:
+        course = Course.objects.get(id=course_id)
+    except Course.DoesNotExist:
+        return Response({"error": "课程不存在"}, status=404)
+
+    session_id = str(course.session.id)
+
+    # 课程关联的资料来源
+    source_links = CourseSource.objects.filter(
+        course_session_id=session_id,
+    ).select_related("source_version__source")
+
+    source_map: dict[str, str] = {}
+    for link in source_links:
+        sv = link.source_version
+        source_map[str(sv.id)] = sv.original_filename or sv.source.display_title or "未命名"
+
+    # 学习计划阶段 → 文件夹结构
+    from mentora.learning.models import LearningPlan, LearningPlanRevision
+
+    tree: list[dict] = []
+    try:
+        plan = LearningPlan.objects.get(course_session_id=session_id)
+        if plan.active_revision_id:
+            revision = LearningPlanRevision.objects.filter(
+                id=plan.active_revision_id,
+            ).first()
+            if revision:
+                phases_qs = revision.phases.order_by("position")
+                for phase in phases_qs:
+                    children: list[dict] = []
+                    for unit in phase.units.all():
+                        for task in unit.tasks.all():
+                            for mat in task.materials:
+                                name = source_map.get(mat.get("id", ""), mat.get("title", "资料"))
+                                children.append({
+                                    "id": mat.get("id", ""),
+                                    "name": name,
+                                    "type": "file",
+                                    "extension": ".md" if task.task_type == "lecture" else ".quiz",
+                                })
+
+                    tree.append({
+                        "id": str(phase.id),
+                        "name": phase.title,
+                        "type": "folder",
+                        "children": children,
+                    })
+    except LearningPlan.DoesNotExist:
+        pass
+
+    # 无阶段时，直接平铺所有 source 文件
+    if not tree and source_links:
+        flat_children: list[dict] = []
+        for link in source_links:
+            sv = link.source_version
+            flat_children.append({
+                "id": str(sv.id),
+                "name": sv.original_filename or sv.source.display_title,
+                "type": "file",
+                "extension": f".{sv.source.file_type}" if hasattr(sv.source, "file_type") else ".pdf",
+            })
+        tree.append({
+            "id": "all-sources",
+            "name": "全部资料",
+            "type": "folder",
+            "children": flat_children,
+        })
+
+    return Response({"tree": tree})

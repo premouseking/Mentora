@@ -1,53 +1,219 @@
-import { useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  ArrowLeft,
-  BookOpen,
-  Bot,
-  Check,
-  ChevronDown,
-  ChevronRight,
-  Clock3,
-  ExternalLink,
-  Lightbulb,
-  RefreshCw,
-  Sparkles,
-  X,
+  ArrowLeft, BookOpen, Bot, Check, ChevronRight, Clock3,
+  ExternalLink, Lightbulb, RefreshCw, Sparkles, X,
 } from "lucide-react";
 import { Link, useParams } from "react-router-dom";
 
 import { DesktopTitleBar } from "../components/DesktopTitleBar";
+import {
+  fetchTask,
+  type CalloutBlock,
+  type CitationBlock,
+  type ContentBlock,
+  type DiagramBlock,
+  type HeadingBlock,
+  type LearningTaskDetail,
+  type ParagraphBlock,
+  type QuizBlock,
+} from "../services/learningApi";
 
-const contentSections = [
-  { id: "goal", label: "本节目标" },
-  { id: "locality", label: "局部性原理" },
-  { id: "mapping", label: "三种映射方式" },
-  { id: "example", label: "示例" },
-  { id: "check", label: "即时检查" },
-  { id: "summary", label: "小结" },
-];
+/* ── 辅助面板 ── */
 
 type HelperPanel = "source" | "ai" | null;
 
-export function LearningTaskPage() {
-  const { courseId = "computer-architecture" } = useParams();
-  const [activeSection, setActiveSection] = useState("mapping");
-  const [helperPanel, setHelperPanel] = useState<HelperPanel>(null);
-  const [explanationMode, setExplanationMode] = useState<"standard" | "simple" | "example">("standard");
-  const [checkOpen, setCheckOpen] = useState(false);
-  const [answer, setAnswer] = useState<string | null>(null);
+/* ── 内容块渲染器 ── */
 
-  const explanation =
-    explanationMode === "simple"
-      ? "主存像一整排书架，Cache 像桌面。映射规则决定某本书应该放在桌面的哪个位置，避免每次都从全部位置里寻找。"
-      : explanationMode === "example"
-        ? "例如主存块 12 采用直接映射时，只能进入由 12 mod Cache 行数计算出的固定行。这样查找很快，但多个主存块可能争用同一行。"
-        : "Cache 的容量远小于主存。主存数据进入 Cache 时必须决定存放位置，这套规则就是映射规则。合理的规则可以降低查找成本，并在冲突与空间利用率之间取得平衡。";
+function BlockHeading({ block, active, onClick }: { block: HeadingBlock; active: boolean; onClick: () => void }) {
+  const Tag = block.level === 2 ? "h2" : "h3";
+  return <Tag id={block.id} className={active ? "active" : ""} onClick={onClick}>{block.label}</Tag>;
+}
+
+function BlockParagraph({ block, mode, onModeChange }: {
+  block: ParagraphBlock;
+  mode: "standard" | "simple" | "example";
+  onModeChange: (m: "standard" | "simple" | "example") => void;
+}) {
+  const text = block.modes
+    ? (block.modes[mode] ?? block.modes.standard)
+    : block.text;
+
+  return (
+    <div className="paragraph-block">
+      <p>{text}</p>
+      {block.modes && (
+        <div className="paragraph-modes">
+          <button className={mode === "simple" ? "active" : ""} onClick={() => onModeChange("simple")} type="button">
+            <RefreshCw size={14} /> 简单解释
+          </button>
+          <button className={mode === "example" ? "active" : ""} onClick={() => onModeChange("example")} type="button">
+            <Lightbulb size={14} /> 举例说明
+          </button>
+          <button className={mode === "standard" ? "active" : ""} onClick={() => onModeChange("standard")} type="button">
+            标准
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function BlockCitation({ block, onOpenPanel }: { block: CitationBlock; onOpenPanel: () => void }) {
+  return (
+    <button className="source-citation" onClick={onOpenPanel} type="button">
+      <span>来源：{block.source_title}{block.chapter ? ` · ${block.chapter}` : ""}</span>
+      <strong>查看原文 <ExternalLink size={13} /></strong>
+    </button>
+  );
+}
+
+function BlockCallout({ block }: { block: CalloutBlock }) {
+  const icon = block.variant === "tip" ? <Sparkles size={16} /> : <Lightbulb size={16} />;
+  return (
+    <div className={`callout-block callout-${block.variant}`}>
+      {icon}
+      <p>{block.text}</p>
+    </div>
+  );
+}
+
+function BlockQuiz({ block }: { block: QuizBlock }) {
+  const [open, setOpen] = useState(false);
+  const [answer, setAnswer] = useState<number | null>(null);
+
+  return (
+    <section className="quiz-block">
+      {!open ? (
+        <button className="quiz-open-btn" onClick={() => setOpen(true)} type="button">
+          开始检查 <ChevronRight size={17} />
+        </button>
+      ) : (
+        <div className="inline-check">
+          <h3>{block.question}</h3>
+          <div className="check-options">
+            {block.options.map((opt, i) => (
+              <button
+                key={i}
+                className={answer === i ? "selected" : ""}
+                onClick={() => setAnswer(i)}
+                type="button"
+              >
+                {opt}
+              </button>
+            ))}
+          </div>
+          {answer !== null && (
+            <p className={answer === block.correct_index ? "correct" : "retry"}>
+              {answer === block.correct_index
+                ? `回答正确。${block.explanation}`
+                : "再想一下。"}
+            </p>
+          )}
+          {block.next_step_link && answer === block.correct_index && (
+            <Link className="check-summary-link" to={block.next_step_link}>
+              查看阶段总结 <ChevronRight size={16} />
+            </Link>
+          )}
+        </div>
+      )}
+    </section>
+  );
+}
+
+/* ── 主页面 ── */
+
+export function LearningTaskPage() {
+  const { courseId, taskId } = useParams<{ courseId: string; taskId: string }>();
+
+  const [task, setTask] = useState<LearningTaskDetail | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  /* 切换段落解释模式 */
+  const [paraMode, setParaMode] = useState<"standard" | "simple" | "example">("standard");
+
+  /* 侧栏高亮 */
+  const [activeSection, setActiveSection] = useState<string | null>(null);
+  const [helperPanel, setHelperPanel] = useState<HelperPanel>(null);
+  const [citationSource, setCitationSource] = useState<CitationBlock | null>(null);
+
+  useEffect(() => {
+    if (!taskId) {
+      setError("缺少任务 ID");
+      setLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    fetchTask(taskId)
+      .then((data) => { if (!cancelled) setTask(data); })
+      .catch((err) => { if (!cancelled) setError(err instanceof Error ? err.message : "加载失败"); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+
+    return () => { cancelled = true; };
+  }, [taskId]);
+
+  /* 提取标题块作为侧栏导航 */
+  const headings = useMemo<HeadingBlock[]>(() => {
+    if (!task) return [];
+    return task.content_blocks.filter(
+      (b): b is HeadingBlock => b.type === "heading",
+    );
+  }, [task]);
+
+  /* 滚动到指定 id */
+  const scrollTo = useCallback((id: string) => {
+    setActiveSection(id);
+    document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, []);
+
+  /* 渲染内容块 */
+  const renderBlock = useCallback((block: ContentBlock) => {
+    switch (block.type) {
+      case "heading":
+        return <BlockHeading key={block.id} block={block} active={activeSection === block.id} onClick={() => scrollTo(block.id)} />;
+      case "paragraph":
+        return <BlockParagraph key={block.id} block={block} mode={paraMode} onModeChange={setParaMode} />;
+      case "citation":
+        return <BlockCitation key={block.id} block={block} onOpenPanel={() => { setCitationSource(block); setHelperPanel("source"); }} />;
+      case "diagram":
+        return <DiagramPlaceholder key={block.id} block={block} />;
+      case "callout":
+        return <BlockCallout key={block.id} block={block} />;
+      case "quiz":
+        return <BlockQuiz key={block.id} block={block} />;
+      default:
+        return null;
+    }
+  }, [activeSection, paraMode, scrollTo]);
+
+  /* ── 加载态 / 错误态 ── */
+  if (loading) {
+    return (
+      <div className="learning-shell">
+        <DesktopTitleBar />
+        <div className="loading-container"><span>正在加载任务内容…</span></div>
+      </div>
+    );
+  }
+
+  if (error || !task) {
+    return (
+      <div className="learning-shell">
+        <DesktopTitleBar />
+        <div className="error-container">
+          <p>{error ?? "任务不存在"}</p>
+          <Link to={courseId ? `/courses/${courseId}` : "/courses"}>返回课程</Link>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="learning-shell">
       <DesktopTitleBar />
       <header className="learning-topbar">
-        <Link to={`/courses/${courseId}`}>
+        <Link to={courseId ? `/courses/${courseId}` : "/courses"}>
           <ArrowLeft size={18} />
           返回课程主页
         </Link>
@@ -55,107 +221,35 @@ export function LearningTaskPage() {
 
       <header className="task-titlebar">
         <div>
-          <span>重点突破 · 2.2</span>
-          <h1>Cache 映射方式与命中率</h1>
+          <span>{task.phase_title} · {task.unit_title} · #{task.position}</span>
+          <h1>{task.title}</h1>
         </div>
-        <span className="task-estimate"><Clock3 size={15} /> 约 18 分钟</span>
+        <span className="task-estimate"><Clock3 size={15} /> 约 {task.estimated_minutes} 分钟</span>
       </header>
 
       <div className={`learning-layout${helperPanel ? " helper-open" : ""}`}>
         <aside className="lesson-outline">
-          <button className="outline-toggle" type="button">
-            本节内容 <ChevronDown size={15} />
-          </button>
+          <span className="outline-toggle" role="button" tabIndex={-1}>
+            本节内容
+          </span>
           <nav aria-label="本节目录">
-            {contentSections.map((section) => (
+            {headings.map((h) => (
               <button
-                className={activeSection === section.id ? "active" : ""}
-                key={section.id}
-                onClick={() => setActiveSection(section.id)}
+                key={h.id}
+                className={activeSection === h.id ? "active" : ""}
+                onClick={() => scrollTo(h.id)}
                 type="button"
               >
-                <span>{activeSection === section.id ? <Check size={12} /> : null}</span>
-                {section.label}
+                <span>{activeSection === h.id ? <Check size={12} /> : null}</span>
+                {h.label}
               </button>
             ))}
           </nav>
         </aside>
 
         <main className="lesson-content">
-          <section className="lesson-goal">
-            <span>本节目标</span>
-            <p>理解 Cache 为什么需要映射规则，掌握三种映射方式及命中率的基本概念。</p>
-          </section>
-
           <article className="lesson-article">
-            <h2>为什么 Cache 需要映射规则？</h2>
-            <p>{explanation}</p>
-
-            <button className="source-citation" onClick={() => setHelperPanel("source")} type="button">
-              <span>来源：计算机组成原理（第 6 版）第 3 章</span>
-              <strong>查看原文 <ExternalLink size={13} /></strong>
-            </button>
-
-            <section className="mapping-visual" aria-label="主存地址到 Cache 行的映射示例">
-              <div>
-                <strong>主存块号</strong>
-                {["0000", "0001", "0010", "0011", "…", "1110", "1111"].map((value) => (
-                  <span key={value}>{value}</span>
-                ))}
-              </div>
-              <div className="mapping-arrows" aria-hidden="true">
-                {Array.from({ length: 7 }, (_, index) => <span key={index}>→</span>)}
-              </div>
-              <div className="cache-lines">
-                <strong>Cache 行（示例）</strong>
-                {["0 · 有效位 / 标签 / 数据块", "1 · 有效位 / 标签 / 数据块", "2 · 有效位 / 标签 / 数据块", "3 · 有效位 / 标签 / 数据块", "…", "C-2 · 标签 / 数据块", "C-1 · 标签 / 数据块"].map((value) => (
-                  <span key={value}>{value}</span>
-                ))}
-              </div>
-            </section>
-
-            <div className="ai-tip">
-              <Sparkles size={16} />
-              <p><strong>AI 小贴士：</strong>映射规则决定主存块需要落入哪些 Cache 行，常见冲突会导致命中率下降。</p>
-            </div>
-
-            {checkOpen ? (
-              <section className="inline-check">
-                <div>
-                  <span>即时检查</span>
-                  <h3>直接映射中，一个主存块可以放入几个 Cache 行？</h3>
-                </div>
-                <div className="check-options">
-                  {["只能放入一个固定行", "可以放入任意行", "只能放入两个相邻行"].map((option) => (
-                    <button
-                      className={answer === option ? "selected" : ""}
-                      key={option}
-                      onClick={() => setAnswer(option)}
-                      type="button"
-                    >
-                      {option}
-                    </button>
-                  ))}
-                </div>
-                {answer ? (
-                  <>
-                    <p className={answer === "只能放入一个固定行" ? "correct" : "retry"}>
-                      {answer === "只能放入一个固定行"
-                        ? "回答正确。固定位置让硬件查找更快，但也更容易发生冲突。"
-                        : "再想一下：直接映射的“直接”意味着位置由块号唯一计算。"}
-                    </p>
-                    {answer === "只能放入一个固定行" ? (
-                      <Link
-                        className="check-summary-link"
-                        to={`/courses/${courseId}/phases/focus/summary`}
-                      >
-                        查看阶段总结 <ChevronRight size={16} />
-                      </Link>
-                    ) : null}
-                  </>
-                ) : null}
-              </section>
-            ) : null}
+            {task.content_blocks.map(renderBlock)}
           </article>
         </main>
 
@@ -171,47 +265,45 @@ export function LearningTaskPage() {
           </button>
         </aside>
 
-        {helperPanel ? (
+        {helperPanel && (
           <aside className="helper-panel">
             <div className="helper-panel-head">
               <div>
                 {helperPanel === "source" ? <BookOpen size={18} /> : <Bot size={18} />}
                 <strong>{helperPanel === "source" ? "资料原文" : "AI 助手"}</strong>
               </div>
-              <button aria-label="关闭辅助面板" onClick={() => setHelperPanel(null)} type="button">
+              <button aria-label="关闭辅助面板" onClick={() => { setHelperPanel(null); setCitationSource(null); }} type="button">
                 <X size={17} />
               </button>
             </div>
-            {helperPanel === "source" ? (
+            {helperPanel === "source" && citationSource ? (
               <div className="source-preview">
-                <span>第 3 章 · 存储系统</span>
-                <h3>3.4 Cache 映射方式</h3>
-                <p>主存块装入 Cache 时，需要按照某种函数关系映射到 Cache 行。常用方式包括直接映射、全相联映射与组相联映射。</p>
-                <mark>映射方式影响查找速度、硬件复杂度以及冲突概率。</mark>
+                {citationSource.chapter && <span>{citationSource.chapter}</span>}
+                <h3>{citationSource.source_title}</h3>
+                <p>页码：第 {citationSource.page_number} 页</p>
+                <mark>evidence_id: {citationSource.evidence_id}</mark>
               </div>
-            ) : (
+            ) : helperPanel === "ai" ? (
               <div className="assistant-panel-content">
                 <p>我会围绕当前任务和已授权课程资料回答。</p>
-                <button onClick={() => setExplanationMode("simple")} type="button">用更简单的话解释</button>
-                <button onClick={() => setExplanationMode("example")} type="button">再举一个例子</button>
-                <button type="button">这和局部性原理有什么关系？</button>
+                <button onClick={() => setParaMode("simple")} type="button">用更简单的话解释</button>
+                <button onClick={() => setParaMode("example")} type="button">再举一个例子</button>
               </div>
-            )}
+            ) : null}
           </aside>
-        ) : null}
+        )}
       </div>
-
-      <footer className="lesson-actions">
-        <button onClick={() => setExplanationMode("simple")} type="button">
-          <RefreshCw size={16} /> 换一种解释
-        </button>
-        <button onClick={() => setExplanationMode("example")} type="button">
-          <Lightbulb size={16} /> 看一个例子
-        </button>
-        <button className="primary" onClick={() => setCheckOpen(true)} type="button">
-          开始检查 <ChevronRight size={17} />
-        </button>
-      </footer>
     </div>
+  );
+}
+
+/* ── 图解占位（后端 diagram_type + data 由前端按类型渲染）── */
+
+function DiagramPlaceholder({ block }: { block: DiagramBlock }) {
+  return (
+    <section className="diagram-block" aria-label={block.label}>
+      <strong>{block.label}</strong>
+      <p className="diagram-fallback">[{block.diagram_type} 图解 — 渲染器待实现]</p>
+    </section>
   );
 }

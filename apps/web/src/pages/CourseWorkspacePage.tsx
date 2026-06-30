@@ -25,15 +25,27 @@ import { MistakeReviewPanel } from "../components/MistakeReviewPanel";
 import { PhaseSummary } from "../components/PhaseSummary";
 import { QuizPracticeView } from "../components/QuizPracticeView";
 import type { FileNode } from "../data/files";
-import { aiExplanations } from "../data/aiExplanations";
-import { mistakeItems, type MistakeSourceLink } from "../data/mistakes";
+interface MistakeSourceLink {
+  title: string;
+  location: string;
+  excerpt: string;
+}
 import {
   fetchSources,
   fetchSourceDetail,
   sourcesToFileNodes,
+  fetchCoursePhases,
   type BundleRaw,
+  type TreeNode,
+  type CoursePhasesResponse,
 } from "../services/documentApi";
 import { getActivePlan, updateCourseSession, type ActivePlan } from "../services/courseApi";
+import {
+  fetchExplanations,
+  fetchMistakes,
+  type ExplanationItem,
+  type MistakeItem,
+} from "../services/learningApi";
 
 const MIN_EXPLORER = 170;
 const MAX_EXPLORER = 360;
@@ -102,10 +114,16 @@ function getTabId(kind: WorkspaceTabKind, itemId: string) {
   return `${kind}:${itemId}`;
 }
 
-function getTabTitle(kind: WorkspaceTabKind, itemId: string, files: FileNode[]) {
+function getTabTitle(
+  kind: WorkspaceTabKind,
+  itemId: string,
+  files: FileNode[],
+  aiItems: ExplanationItem[],
+  mistakeItems: MistakeItem[],
+) {
   if (kind === "file") return findFileNode(files, itemId)?.name ?? `文件 ${itemId.slice(0, 8)}`;
-  if (kind === "ai") return aiExplanations.find((item) => item.id === itemId)?.title ?? "AI 讲解";
-  return mistakeItems.find((item) => item.id === itemId)?.title ?? "错题";
+  if (kind === "ai") return aiItems.find((item) => item.id === itemId)?.title ?? "AI 讲解";
+  return mistakeItems.find((item) => item.item_id === itemId)?.title ?? "错题";
 }
 
 function getTabIcon(kind: WorkspaceTabKind) {
@@ -157,6 +175,8 @@ function DetachedSidePanel({
   onSelectMistake,
   onContextMenu,
   width,
+  aiItems,
+  mistakeItems,
   onResizeStart,
   onMoveBack,
   files,
@@ -173,6 +193,8 @@ function DetachedSidePanel({
   onResizeStart: () => void;
   onMoveBack: (section: SectionKey) => void;
   files: FileNode[];
+  aiItems: ExplanationItem[];
+  mistakeItems: MistakeItem[];
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [heights, setHeights] = useState<number[] | null>(null);
@@ -257,7 +279,7 @@ function DetachedSidePanel({
             </button>
           ));
       case "ai":
-        return aiExplanations.map((item) => (
+        return aiItems.map((item) => (
           <button
             key={item.id}
             className={`fe-row${selectedAiId === item.id ? " selected" : ""}`}
@@ -276,17 +298,17 @@ function DetachedSidePanel({
       case "mistakes":
         return mistakeItems.map((item) => (
           <button
-            key={item.id}
-            className={`fe-row${selectedMistakeId === item.id ? " selected" : ""}`}
+            key={item.item_id}
+            className={`fe-row${selectedMistakeId === item.item_id ? " selected" : ""}`}
             style={{ paddingLeft: 8 }}
-            onClick={() => onSelectMistake(item.id)}
-            onContextMenu={(event) => onContextMenu(event, { kind: "mistake", id: item.id })}
+            onClick={() => onSelectMistake(item.item_id)}
+            onContextMenu={(event) => onContextMenu(event, { kind: "mistake", id: item.item_id })}
             type="button"
           >
             <AlertTriangle size={ICON_SIZE} className="fe-ai-icon mistake" />
             <div className="fe-ai-info">
               <span className="fe-ai-title">{item.title}</span>
-              <span className="fe-mistake-count">错 {item.wrongCount} 次</span>
+              <span className="fe-mistake-count">错 {item.wrong_count} 次</span>
             </div>
           </button>
         ));
@@ -411,22 +433,27 @@ function ContentBody({
   files,
   onOpenSourceFile,
   onStartQuiz,
+  aiItems,
+  mistakeItems,
 }: {
   tab: WorkspaceTab;
   fileState?: FileBundleState;
   files: FileNode[];
   onOpenSourceFile: (id: string, newTab?: boolean) => void;
   onStartQuiz: (sourceId: string | null) => void;
+  aiItems: ExplanationItem[];
+  mistakeItems: MistakeItem[];
 }) {
-  const selectedAi = tab.kind === "ai" ? aiExplanations.find((item) => item.id === tab.itemId) : null;
-  const selectedMistake = tab.kind === "mistake" ? mistakeItems.find((item) => item.id === tab.itemId) ?? null : null;
+  const selectedAi = tab.kind === "ai" ? aiItems.find((item) => item.id === tab.itemId) : null;
+  const selectedMistake = tab.kind === "mistake" ? mistakeItems.find((item) => item.item_id === tab.itemId) ?? null : null;
 
   function canOpenSource(link: MistakeSourceLink) {
-    return !!link.fileId && !!findFileNode(files, link.fileId);
+    // source_links 来自后端，可能无对应本地 fileId
+    return false;
   }
 
   function handleOpenSource(link: MistakeSourceLink) {
-    if (link.fileId && canOpenSource(link)) onOpenSourceFile(link.fileId, true);
+    // 预留：后续通过 evidence_id 定位原文
   }
 
   if (tab.kind === "file") {
@@ -515,6 +542,9 @@ export function CourseWorkspacePage() {
   const [fileNodes, setFileNodes] = useState<FileNode[]>([]);
   const [activePlan, setActivePlan] = useState<ActivePlan | null>(null);
   const [planLoading, setPlanLoading] = useState(false);
+  const [aiItems, setAiItems] = useState<ExplanationItem[]>([]);
+  const [mistakeItems, setMistakeItems] = useState<MistakeItem[]>([]);
+  const [phases, setPhases] = useState<CoursePhasesResponse | null>(null);
 
   const { courseId } = useParams<{ courseId: string }>();
   const activeTab = useMemo(
@@ -536,6 +566,13 @@ export function CourseWorkspacePage() {
     updateCourseSession(courseId, {
       last_studied_at: new Date().toISOString(),
     }).catch(() => {});
+
+    // 加载讲解、错题、阶段数据
+    Promise.all([
+      fetchExplanations(courseId).then((d) => setAiItems(d.items)).catch(() => {}),
+      fetchMistakes(courseId).then((d) => setMistakeItems(d.items)).catch(() => {}),
+      fetchCoursePhases(courseId).then(setPhases).catch(() => {}),
+    ]);
   }, [courseId]);
 
   /* ── Fetch sources on mount (filtered by course) ── */
@@ -613,7 +650,7 @@ export function CourseWorkspacePage() {
       id: getTabId(kind, itemId),
       kind,
       itemId,
-      title: getTabTitle(kind, itemId, fileNodes),
+      title: getTabTitle(kind, itemId, fileNodes, aiItems, mistakeItems),
     };
     setOpenTabs((prev) => {
       const existing = prev.find((tab) => tab.id === nextTab.id);
@@ -757,7 +794,7 @@ export function CourseWorkspacePage() {
               <div style={{ width: explorerWidth, flexShrink: 0, overflow: "hidden", display: "flex", flexDirection: "column" }}>
                 <FileExplorer
                   files={fileNodes}
-                  aiItems={aiExplanations}
+                  aiItems={aiItems}
                   mistakeItems={mistakeItems}
                   selectedFileId={selectedFile}
                   selectedAiId={selectedAi}
@@ -799,6 +836,8 @@ export function CourseWorkspacePage() {
                       files={fileNodes}
                       onOpenSourceFile={(id, newTab = false) => openItem("file", id, newTab ? "new" : "replace")}
                       onStartQuiz={startQuiz}
+                      aiItems={aiItems}
+                      mistakeItems={mistakeItems}
                     />
                   )}
                 </main>
@@ -826,6 +865,8 @@ export function CourseWorkspacePage() {
             onResizeStart={startSideResize}
             onMoveBack={toggleDetach}
             files={fileNodes}
+            aiItems={aiItems}
+            mistakeItems={mistakeItems}
           />
 
           {/* Phase summary overlay */}

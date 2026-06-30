@@ -30,14 +30,17 @@ import {
 } from "lucide-react";
 
 import { AppShell } from "../components/AppShell";
-import { fetchSources, deleteSource, reparseSource, type SourceItem } from "../services/documentApi";
+import {
+  fetchSources, deleteSource, reparseSource,
+  fetchFolders, createFolder, deleteFolder,
+  fetchTags, moveSource,
+  type SourceItem, type FolderItem,
+} from "../services/documentApi";
 import { uploadFile, type UploadProgress } from "../services/uploadService";
 import {
-  libraryFolders,
   parseStateLabels,
   roleLabels,
   typeLabels,
-  type LibraryFolder,
   type LibraryItem,
   type LibraryItemType,
   type ParseState,
@@ -288,10 +291,10 @@ function FolderSidebar({
   onDropItem,
   getFolderCount,
 }: {
-  folders: LibraryFolder[];
+  folders: FolderItem[];
   activeFolder: string | null;
   onSelectFolder: (id: string | null) => void;
-  onCreateFolder: () => void;
+  onCreateFolder: (name: string) => void;
   onDeleteFolder: (id: string) => void;
   onDropItem: (itemId: string, folderId: string | null) => void;
   getFolderCount: (folderId: string | null) => number;
@@ -303,7 +306,7 @@ function FolderSidebar({
 
   function handleCreate() {
     if (!newName.trim()) return;
-    onCreateFolder();
+    onCreateFolder(newName.trim());
     setIsCreating(false);
     setNewName("");
   }
@@ -428,7 +431,8 @@ function sourceToLibraryItem(s: SourceItem): LibraryItem {
 
 export function LibraryPage() {
   const [items, setItems] = useState<LibraryItem[]>([]);
-  const [folders, setFolders] = useState<LibraryFolder[]>(libraryFolders);
+  const [folders, setFolders] = useState<FolderItem[]>([]);
+  const [allTags, setAllTags] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const sourceIdMap = useRef<Map<string, string>>(new Map());
 
@@ -441,17 +445,23 @@ export function LibraryPage() {
   const [typeMenuOpen, setTypeMenuOpen] = useState(false);
   const [tagMenuOpen, setTagMenuOpen] = useState(false);
 
-  const loadSources = useCallback(async () => {
+  const loadData = useCallback(async () => {
     try {
-      const sources = await fetchSources();
+      const [sources, folderData, tagData] = await Promise.all([
+        fetchSources(),
+        fetchFolders(),
+        fetchTags(),
+      ]);
       const map = new Map<string, string>();
       const mapped = sources.map((s) => {
         const item = sourceToLibraryItem(s);
-        map.set(item.id, s.id);  // LibraryItem.id → source.id
+        map.set(item.id, s.id);
         return item;
       });
       sourceIdMap.current = map;
       setItems(mapped);
+      setFolders(folderData);
+      setAllTags(tagData);
     } catch {
       // 保留现有数据
     } finally {
@@ -459,25 +469,38 @@ export function LibraryPage() {
     }
   }, []);
 
-  useEffect(() => { loadSources(); }, [loadSources]);
+  useEffect(() => { loadData(); }, [loadData]);
 
   /* folder operations */
-  function handleCreateFolder() {
-    const name = `新建文件夹`;
-    let num = 1;
-    while (folders.some((f) => f.name === `${name} ${num}`)) num++;
-    const newFolder: LibraryFolder = { id: `f-${Date.now()}`, name: `${name} ${num}` };
-    setFolders((prev) => [...prev, newFolder]);
+  async function handleCreateFolder(name: string) {
+    try {
+      const created = await createFolder(name);
+      setFolders((prev) => [...prev, created]);
+    } catch {
+      // 失败静默
+    }
   }
 
-  function handleDeleteFolder(id: string) {
-    setFolders((prev) => prev.filter((f) => f.id !== id));
-    setItems((prev) => prev.map((item) => (item.folderId === id ? { ...item, folderId: null } : item)));
-    if (activeFolder === id) setActiveFolder(null);
+  async function handleDeleteFolder(id: string) {
+    try {
+      await deleteFolder(id);
+      setFolders((prev) => prev.filter((f) => f.id !== id));
+      setItems((prev) => prev.map((item) => (item.folderId === id ? { ...item, folderId: null } : item)));
+      if (activeFolder === id) setActiveFolder(null);
+    } catch {
+      // 失败静默
+    }
   }
 
-  function handleMoveItem(itemId: string, folderId: string | null) {
-    setItems((prev) => prev.map((item) => (item.id === itemId ? { ...item, folderId } : item)));
+  async function handleMoveItem(itemId: string, folderId: string | null) {
+    const sourceId = sourceIdMap.current.get(itemId);
+    if (!sourceId) return;
+    try {
+      await moveSource(sourceId, folderId);
+      setItems((prev) => prev.map((item) => (item.id === itemId ? { ...item, folderId } : item)));
+    } catch {
+      // 失败静默
+    }
   }
 
   function getFolderCount(folderId: string | null): number {
@@ -501,7 +524,7 @@ export function LibraryPage() {
     if (!sourceId) return;
     try {
       await reparseSource(sourceId);
-      loadSources();  // 刷新列表（更新解析状态）
+      loadData();  // 刷新列表（更新解析状态）
     } catch {
       // 重新解析失败静默
     }
@@ -729,7 +752,7 @@ export function LibraryPage() {
         </div>
       </div>
 
-      {showUpload && <UploadModal onClose={() => setShowUpload(false)} onUploaded={loadSources} />}
+      {showUpload && <UploadModal onClose={() => setShowUpload(false)} onUploaded={loadData} />}
     </AppShell>
   );
 }

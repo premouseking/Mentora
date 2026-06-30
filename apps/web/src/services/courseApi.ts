@@ -1,23 +1,18 @@
 /**
  * 建课流程 API 服务层。
  *
- * 封装 /api/courses/sessions/ 下全部端点：
- * - create / get / update（步骤 1-2）
- * - inquiry（步骤 4 追问循环）
- * - plan（步骤 5 方案生成）
- *
- * 约定：
- * - 所有函数接受 AbortSignal 用于组件卸载时取消请求
- * - 超时默认 60s（plan 生成可能较慢）
- * - 错误统一抛出 { status, message } 结构
+ * 封装 /api/courses/sessions/ 下全部端点。
  *
  * @module services/courseApi
  */
 
+import { apiClient, ApiError } from "./client";
+
 const BASE = "/api/courses/sessions";
-const DEFAULT_TIMEOUT_MS = 60_000;
 
 /* ── 类型 ── */
+
+export { ApiError };
 
 export interface SessionResponse {
   id: string;
@@ -68,70 +63,6 @@ export interface PlanResponse {
   revision_id: string;
 }
 
-export class ApiError extends Error {
-  status: number;
-  constructor(status: number, message: string) {
-    super(message);
-    this.name = "ApiError";
-    this.status = status;
-  }
-}
-
-/* ── 内部 ── */
-
-async function request<T>(
-  url: string,
-  options: RequestInit & { timeoutMs?: number } = {},
-): Promise<T> {
-  const { timeoutMs = DEFAULT_TIMEOUT_MS, signal: externalSignal, ...fetchOpts } = options;
-
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
-
-  // 组合外部 signal
-  const signal = externalSignal
-    ? combineSignals(externalSignal, controller.signal)
-    : controller.signal;
-
-  try {
-    const resp = await fetch(url, {
-      ...fetchOpts,
-      signal,
-      headers: {
-        "Content-Type": "application/json",
-        ...fetchOpts.headers,
-      },
-    });
-
-    const data = await resp.json().catch(() => ({}));
-
-    if (!resp.ok) {
-      throw new ApiError(
-        resp.status,
-        data.error || data.detail || `请求失败 (${resp.status})`,
-      );
-    }
-
-    return data as T;
-  } catch (err: unknown) {
-    if (err instanceof ApiError) throw err;
-    if (err instanceof DOMException && err.name === "AbortError") {
-      throw new ApiError(0, "请求已取消或超时");
-    }
-    throw new ApiError(0, err instanceof Error ? err.message : "网络错误");
-  } finally {
-    clearTimeout(timeoutId);
-  }
-}
-
-function combineSignals(s1: AbortSignal, s2: AbortSignal): AbortSignal {
-  if (s1.aborted || s2.aborted) return AbortSignal.abort("已取消");
-  const c = new AbortController();
-  s1.addEventListener("abort", () => c.abort(s1.reason));
-  s2.addEventListener("abort", () => c.abort(s2.reason));
-  return c.signal;
-}
-
 export interface CourseSessionListItem {
   id: string;
   goal: string;
@@ -154,25 +85,21 @@ export interface CourseSessionListItem {
 export async function listCourseSessions(
   signal?: AbortSignal,
 ): Promise<CourseSessionListItem[]> {
-  return request<CourseSessionListItem[]>(`${BASE}/`, { signal });
+  return apiClient.get<CourseSessionListItem[]>(`${BASE}/`, { signal });
 }
 
 export async function createCourseSession(
   goal: string,
   signal?: AbortSignal,
 ): Promise<SessionResponse> {
-  return request<SessionResponse>(`${BASE}/`, {
-    method: "POST",
-    body: JSON.stringify({ goal }),
-    signal,
-  });
+  return apiClient.post<SessionResponse>(`${BASE}/`, { goal }, { signal });
 }
 
 export async function getCourseSession(
   id: string,
   signal?: AbortSignal,
 ): Promise<SessionDetail> {
-  return request<SessionDetail>(`${BASE}/${encodeURIComponent(id)}/`, { signal });
+  return apiClient.get<SessionDetail>(`${BASE}/${encodeURIComponent(id)}/`, { signal });
 }
 
 export async function updateCourseSession(
@@ -180,11 +107,7 @@ export async function updateCourseSession(
   data: { level?: string; pace?: string; time_budget?: string; school?: string; deadline?: string | null; last_studied_at?: string },
   signal?: AbortSignal,
 ): Promise<{ status: string }> {
-  return request<{ status: string }>(`${BASE}/${encodeURIComponent(id)}/update/`, {
-    method: "PATCH",
-    body: JSON.stringify(data),
-    signal,
-  });
+  return apiClient.patch<{ status: string }>(`${BASE}/${encodeURIComponent(id)}/update/`, data, { signal });
 }
 
 /* ── Inquiry 追问 ── */
@@ -195,11 +118,9 @@ export async function inquiryNext(
   signal?: AbortSignal,
 ): Promise<InquiryResponse> {
   const body = answer ? { answer } : {};
-  return request<InquiryResponse>(`${BASE}/${encodeURIComponent(id)}/inquiry/`, {
-    method: "POST",
-    body: JSON.stringify(body),
+  return apiClient.post<InquiryResponse>(`${BASE}/${encodeURIComponent(id)}/inquiry/`, body, {
     signal,
-    timeoutMs: 30_000, // 追问单次 30s 超时
+    timeoutMs: 30_000,
   });
 }
 
@@ -209,10 +130,9 @@ export async function generatePlan(
   id: string,
   signal?: AbortSignal,
 ): Promise<PlanResponse> {
-  return request<PlanResponse>(`${BASE}/${encodeURIComponent(id)}/plan/`, {
-    method: "POST",
+  return apiClient.post<PlanResponse>(`${BASE}/${encodeURIComponent(id)}/plan/`, undefined, {
     signal,
-    timeoutMs: 90_000, // 方案生成 90s 超时
+    timeoutMs: 90_000,
   });
 }
 
@@ -260,19 +180,17 @@ export async function getActivePlan(
   id: string,
   signal?: AbortSignal,
 ): Promise<ActivePlan> {
-  return request<ActivePlan>(`${BASE}/${encodeURIComponent(id)}/plan/`, { signal });
+  return apiClient.get<ActivePlan>(`${BASE}/${encodeURIComponent(id)}/plan/`, { signal });
 }
 
 /* ── 删除 ── */
 
 export async function deleteCourseSession(id: string): Promise<void> {
-  await fetch(`${BASE}/${encodeURIComponent(id)}/delete/`, { method: "DELETE" });
+  await apiClient.delete(`${BASE}/${encodeURIComponent(id)}/delete/`);
 }
 
 /* ── 开始学习 ── */
 
 export async function startCourse(id: string): Promise<{ status: string; revision_id: string }> {
-  return request(`${BASE}/${encodeURIComponent(id)}/start/`, {
-    method: "POST",
-  });
+  return apiClient.post<{ status: string; revision_id: string }>(`${BASE}/${encodeURIComponent(id)}/start/`);
 }

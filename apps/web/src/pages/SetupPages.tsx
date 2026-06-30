@@ -103,16 +103,6 @@ export function BuildProfilePage() {
   /* ── 创建会话并跳转方案页 ── */
   async function goToPlan() {
     if (!sessionId) {
-      // 环境变量 VITE_SKIP_BACKEND 跳过真实后端，直接 mock 跳转
-      if (import.meta.env.VITE_SKIP_BACKEND === "true") {
-        const mockId = "mock-session-" + Date.now();
-        const goal = inputValue.trim() || sessionStorage.getItem("mentora-course-goal") || "待完善的学习目标";
-        sessionStorage.setItem("mentora-session-id", mockId);
-        setSessionId(mockId);
-        addItem({ key: "goal", title: "学习目标", value: goal, source: "AI 对话" });
-        navigate("/courses/new/plan");
-        return;
-      }
       try {
         const goal = inputValue.trim() || sessionStorage.getItem("mentora-course-goal") || "待完善的学习目标";
         const session = await createCourseSession(goal);

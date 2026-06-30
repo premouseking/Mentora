@@ -14,7 +14,6 @@ import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useCallback, useEffect, useState } from "react";
 
 import { AppShell } from "../components/AppShell";
-import { getMockCourses, removeMockCourse } from "../data/mockCourses";
 import { deleteCourseSession, listCourseSessions, type CourseSessionListItem } from "../services/courseApi";
 
 /* ── 状态映射 ── */
@@ -268,30 +267,20 @@ export function CoursesPage() {
     fetchSessions();
   }, [fetchSessions]);
 
-  // 监听建课完成后的 sessionStorage 标记，回到列表页时刷新
+  // 建课完成后跳回列表页时主动刷新
   useEffect(() => {
     const started = sessionStorage.getItem("mentora-course-started");
     if (started) {
       sessionStorage.removeItem("mentora-course-started");
-      // 刷新 mock 课程（已通过模块级变量共享，触发重渲染即可）
-      setSessions((prev) => [...prev]);
+      fetchSessions();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const mockCourses = getMockCourses();
-  const displayCourses = [
-    ...sessions.filter((s) => s.status === "started" || s.status === "completed"),
-    ...mockCourses,
-  ];
+  const displayCourses = sessions.filter((s) => s.status === "started" || s.status === "completed");
   const hasCourses = displayCourses.length > 0;
 
   const handleDelete = useCallback(async (id: string) => {
-    if (id.startsWith("mock-")) {
-      removeMockCourse(id);
-      // 强制刷新以触发重渲染
-      setSessions((prev) => [...prev]);
-      return;
-    }
     try {
       await deleteCourseSession(id);
       setSessions((prev) => prev.filter((s) => s.id !== id));
@@ -303,12 +292,12 @@ export function CoursesPage() {
   return (
     <AppShell>
       <CourseHeader hasCourses={hasCourses} />
-      {loading && mockCourses.length === 0 && (
+      {loading && (
         <div className="empty-state">
           <p style={{ color: "var(--quiet)" }}>加载中…</p>
         </div>
       )}
-      {error && mockCourses.length === 0 && (
+      {error && (
         <div className="empty-state">
           <p className="error-text">{error}</p>
           <button className="button secondary" onClick={fetchSessions} type="button">

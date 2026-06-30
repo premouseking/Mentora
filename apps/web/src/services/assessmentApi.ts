@@ -1,3 +1,5 @@
+import { apiClient, ApiError } from "./client";
+
 const API = "/api/assessment/sessions";
 
 export interface QuizSourceLink {
@@ -38,45 +40,17 @@ export interface QuizSession {
   items: QuizItem[];
 }
 
-export class AssessmentApiError extends Error {
-  status: number;
-
-  constructor(status: number, message: string) {
-    super(message);
-    this.name = "AssessmentApiError";
-    this.status = status;
-  }
-}
-
-async function request<T>(url: string, options: RequestInit = {}): Promise<T> {
-  const resp = await fetch(url, {
-    ...options,
-    headers: {
-      "Content-Type": "application/json",
-      ...options.headers,
-    },
-  });
-  const data = await resp.json().catch(() => ({}));
-  if (!resp.ok) {
-    throw new AssessmentApiError(resp.status, data.error || `请求失败 (${resp.status})`);
-  }
-  return data as T;
-}
-
 export async function generateQuizSession(input: {
   sourceVersionIds: string[];
   count?: number;
   difficulty?: string;
   courseSessionId?: string;
 }): Promise<QuizSession> {
-  return request<QuizSession>(`${API}/generate/`, {
-    method: "POST",
-    body: JSON.stringify({
-      source_version_ids: input.sourceVersionIds,
-      count: input.count ?? 10,
-      difficulty: input.difficulty ?? "综合",
-      course_session_id: input.courseSessionId,
-    }),
+  return apiClient.post<QuizSession>(`${API}/generate/`, {
+    source_version_ids: input.sourceVersionIds,
+    count: input.count ?? 10,
+    difficulty: input.difficulty ?? "综合",
+    course_session_id: input.courseSessionId,
   });
 }
 
@@ -86,22 +60,20 @@ export async function submitQuizAnswer(input: {
   userAnswer: string;
   durationSeconds?: number;
 }): Promise<{ attempt_id: string; is_correct: boolean; score: number }> {
-  return request(`${API}/${encodeURIComponent(input.sessionId)}/attempts/`, {
-    method: "POST",
-    body: JSON.stringify({
+  return apiClient.post<{ attempt_id: string; is_correct: boolean; score: number }>(
+    `${API}/${encodeURIComponent(input.sessionId)}/attempts/`,
+    {
       item_id: input.itemId,
       user_answer: input.userAnswer,
       duration_seconds: input.durationSeconds,
-    }),
-  });
+    },
+  );
 }
 
 export async function completeQuizSession(sessionId: string): Promise<QuizSession> {
-  return request<QuizSession>(`${API}/${encodeURIComponent(sessionId)}/complete/`, {
-    method: "POST",
-  });
+  return apiClient.post<QuizSession>(`${API}/${encodeURIComponent(sessionId)}/complete/`);
 }
 
 export async function fetchQuizSession(sessionId: string): Promise<QuizSession> {
-  return request<QuizSession>(`${API}/${encodeURIComponent(sessionId)}/`);
+  return apiClient.get<QuizSession>(`${API}/${encodeURIComponent(sessionId)}/`);
 }

@@ -1,172 +1,134 @@
-# Agent Runtime 开发进度（Phase A-D 完成）
+# Mentora 开发进度
 
 > 更新日期：2026-06-30  
 > 分支：`lh`  
-> 状态：Phase A ✅ / Phase B ✅ / Phase C ✅ / Phase D ✅
 
 ---
 
-## Phase A — API 规范化与 Swagger 集成 ✅
+## 后端 agent_runtime（Phase A-D）
 
-| 任务 | 说明 |
-|------|------|
-| A1 | `chat_api` 添加完整 `@extend_schema`（request / responses 200/400/500/503） |
-| A2 | `chat_stream` 添加完整 `@extend_schema`（含 `text/event-stream` content-type） |
-| A3 | 创建 `agent_runtime/urls.py`，`config/urls.py` 改为 `include()` 方式引入 |
-| A4 | 新增 `GET /api/runs/` — Agent 运行历史列表（支持 limit/offset 分页） |
-| A5 | 新增 `GET /api/runs/{run_id}/` — 单次运行详情（含 sub_runs + tool_invocations） |
+```
+Phase A ████████████████████████ 100%  Swagger 标注 + 审计查询 API + 路由独立化
+Phase B ████████████████████████ 100%  Pipeline HTTP/SSE 端点 + 引文提取修复
+Phase C ████████████████████████ 100%  workflow_runtime 持久化状态机模块
+Phase D ████████████████████████ 100%  Redis 滑动窗口限流 + 核心测试（9/9 通过）
+```
 
-**涉及文件**：`views.py` + `urls.py` + `config/urls.py`
-
-**技术决策**：
-- Swagger 标注采用统一 inline schema 模式，不创建额外 serializer 类
-- 审计查询端点直接使用 Django ORM，不经过 RunManager
-- URL 路径保持兼容，前端无需改动
+详见 `docs/development/agent-runtime-phase-ab.md` 的早期版本（Phase C/D 章节）。
 
 ---
 
-## Phase B — Pipeline HTTP 端点 + 引文提取修复 ✅
+## 后端 API 补齐（Phase G）
 
-### B1 — Pipeline 非流式端点
+为前端清除硬编码数据而新建的 4 个端点：
 
-新增 `POST /api/chat/pipeline/`，前端通过 HTTP 直接调用多步 Agent Pipeline。
-
-### B2 — Pipeline SSE 流式端点
-
-新增 `POST /api/chat/pipeline/stream/`，逐步骤推送 SSE 事件（step_started / step_completed / done）。在 view 层直接编排步骤循环，不修改 `Orchestrator.run_stream()`。
-
-### B3/B4 — 引文提取数据流修复
-
-**问题**：`AgentOutput.citations` 始终为空 `[]`。
-
-**根因**：`_extract_tool_citations(result)` 已正确提取引文，但只发给 SSE EventEmitter，未回填到 `AgentOutput`。3 个 Agent 的 `_extract_citations(ChatResponse)` 签名错误，始终返回 `[]`。
-
-**修复**：
-
-| 文件 | 改动 |
-|------|------|
-| `agents/turn_loop.py` | `_execute_tool` 返回 `(record, content, citations)` 三元组；累积 citations 填入 `AgentOutput`；移除 `extract_citations` 回调参数 |
-| `agents/{tutor,planner,assessor}.py` | 删除 `_extract_citations()` 死代码 |
-
-**修复后数据流**：`ToolResult` → `_extract_tool_citations()` → 累积 → `AgentOutput.citations` → 前端展示。
+| 端点 | 用途 | 文件 |
+|------|------|------|
+| `GET /api/courses/{id}/phases/` | 课程阶段列表 + 调整影响 | `courses/views.py` |
+| `GET /api/courses/{id}/files/` | 课程文件树（按阶段分组） | `courses/views.py` |
+| `GET /api/learning/mistakes/` | 错题汇总 | `learning/views.py` + `services/mistakes.py` |
+| `GET /api/learning/explanations/` | AI 讲解列表 | `learning/views.py` + `services/mistakes.py` |
 
 ---
 
-## Phase C — workflow_runtime 持久化状态机模块 ✅
+## 前端适配（Phase F + H）
 
-### C1 — 模块骨架
+### F1 — 统一 API 客户端 + HTTP 认证
+- 新建 `services/client.ts`（`apiClient` + `tokenStore` + 自动 401 refresh）
+- 新建 `services/authApi.ts`（7 个认证端点）
+- 改造 `hooks/useAuth.ts`（浏览器模式走 HTTP JWT，dev bypass 保留）
+- 改造 `courseApi.ts` / `assessmentApi.ts` 使用 `apiClient`
 
-新建 `mentora/workflow_runtime/` Django app（`__init__.py`、`apps.py`、`models.py`、`migrations/`）。
+### F2 — 建课流程对接
+- `SetupContinuationPages.tsx` 删 `MOCK_PLAN`/`MOCK_PROFILE`/`MOCK_PHASE_POOL`
+- 对接 `getActivePlan()` / `startCourse()` API
+- 删除 `VITE_SKIP_BACKEND` 逻辑
+- `CoursesPage.tsx` 删除 mock course 逻辑
 
-**WorkflowState**（表 `workflow_runtime_state`）：9 字段 + 3 索引，记录工作流完整生命周期（pending → running → completed/failed）。
+### F3 — 学习页面对接
+- 新建 `services/learningApi.ts`（ContentBlock 类型 + `fetchTask` + `fetchHistory`）
+- `LearningTaskPage.tsx` 按 `content_blocks[]` 动态渲染
+- `HistoryPage.tsx` 对接 `GET /api/history/`，删 `initialTasks`
+- `StageSummaryPage.tsx` 删 `stageEvidence` 硬编码
 
-**WorkflowLease**（表 `workflow_runtime_lease`）：4 字段 + 2 索引，Celery worker 租约防重复执行。
+### F4 — 资料库同步
+- `documentApi.ts` 新增 `fetchFolders`/`createFolder`/`deleteFolder`/`moveSource`/`fetchTags`
+- `renameFolder` / `updateSourceTags` 预留（待前端 UI）
+- `LibraryPage.tsx` 文件夹/拖拽移动/标签全对接 API
 
-### C2 — WorkflowRuntime 服务
-
-`services.py`（~150 行），9 个方法：
-
-| 方法 | 职责 |
-|------|------|
-| `submit()` | 创建 pending 状态 |
-| `claim_next()` | `select_for_update(skip_locked=True)` 原子认领 |
-| `complete()` / `fail()` | 终态写回 |
-| `checkpoint()` | 保存检查点 |
-| `renew_lease()` | 延长租约 |
-| `recover_stalled()` | 释放过期租约，重置为 pending |
-| `get()` / `list_by_owner()` | 查询 |
-
-### C3 — Celery 任务
-
-`tasks.py` — `run_workflow(workflow_id)`：从 DB 加载 → 反序列化 `OrchestratorTask` → 执行 → 写回结果。支持自动重试（max_retries=2）。
-
-`config/settings.py` 追加 `"mentora.workflow_runtime.tasks.*": {"queue": "agent"}`。
-
-### C4 — HTTP 端点
-
-3 个端点（均含 `@extend_schema`）：
-
-| 方法 | URL | 说明 |
-|------|-----|------|
-| `POST` | `/api/workflows/submit/` | 提交异步 workflow |
-| `GET` | `/api/workflows/{id}/` | 查询状态 + 结果 |
-| `GET` | `/api/workflows/` | 用户 workflow 列表 |
-
-### C5 — 注册验证
-
-- `INSTALLED_APPS`：`"mentora.workflow_runtime"`
-- `CELERY_TASK_ROUTES`：`{"queue": "agent"}`
-- `config/urls.py`：`include("mentora.workflow_runtime.urls")`
+### H1-H5 — 硬编码清理
+- 新增前端 API 函数对接 4 个 G 阶段端点
+- `CourseWorkspacePage` / `FileExplorer` / `MistakeReviewPanel` 替换硬编码导入
+- 删除 `mockCourses.ts`、`courseFiles[]` 数据、无引用的硬编码数组
 
 ---
 
-## Phase D — 生产加固 ✅
+## 文件变更统计
 
-### D1 — 请求频率限流
-
-参考 LightRead `rate_limit.py` 的 Redis 滑动窗口 + 装饰器模式。
-
-**新建** `agent_runtime/decorators.py`：`@rate_limit(key_prefix, max_attempts, window_seconds)` 装饰器，以 IP 为粒度。
-
-**安装** `django-redis`，`config/settings.py` 新增 `CACHES` Redis 后端配置。
-
-**挂载**：
-
-| 端点 | 限流 |
-|------|------|
-| `chat_api` | 10 次/分钟 |
-| `chat_stream` | 5 次/分钟 |
-| `pipeline_chat` | 3 次/2 分钟 |
-
-超限返回 `429 {error, retry_after}`。
-
-### D2 — SSE 断线恢复
-
-**不做**。参考 LightRead 同样未实现此功能——生产级项目也依赖客户端断线后重新发送完整请求。
-
-### D3 — 核心流程测试
-
-**新增 5 个测试**，与已有 4 个回归测试合计 **9/9 通过**。
-
-| 测试 | 文件 |
-|------|------|
-| `test_citations_accumulate_from_tool_results` | `test_agent_loop.py` |
-| `test_citations_empty_when_tool_returns_no_results` | `test_agent_loop.py` |
-| `test_rate_limit_allows_within_window` | `test_rate_limit.py` |
-| `test_rate_limit_blocks_when_exceeded` | `test_rate_limit.py` |
-| `test_rate_limit_ip_isolation` | `test_rate_limit.py` |
-
----
-
-## 涉及文件总览
+### 后端新增/改造
 
 ```
 apps/api/
 ├── config/
-│   ├── settings.py                    # CACHES + workflow_runtime 注册 + task routes
-│   └── urls.py                        # agent_runtime + workflow_runtime include
+│   ├── settings.py           (+CACHES Redis, +workflow_runtime, +task routes)
+│   └── urls.py                (+6 条新路由)
 ├── mentora/
 │   ├── agent_runtime/
-│   │   ├── views.py                   # 6 端点（chat×2 + pipeline×2 + run×2）
-│   │   ├── urls.py                    # 模块路由（新）
-│   │   ├── decorators.py              # rate_limit 装饰器（新）
-│   │   ├── schemas/task.py            # agent_role/user_message 可选
+│   │   ├── views.py           (+pipeline_chat, +pipeline_chat_stream, +run_list, +run_detail)
+│   │   ├── urls.py            (新)
+│   │   ├── decorators.py      (新 — rate_limit)
+│   │   ├── schemas/task.py    (agent_role/user_message 可选)
 │   │   └── agents/
-│   │       ├── turn_loop.py           # 引文修复（_execute_tool 三元组）
-│   │       ├── tutor.py               # 清理 _extract_citations
-│   │       ├── planner.py             # 清理 _extract_citations
-│   │       └── assessor.py            # 清理 _extract_citations
-│   └── workflow_runtime/              # 新模块
-│       ├── __init__.py / apps.py
-│       ├── models.py                  # WorkflowState + WorkflowLease
-│       ├── services.py                # WorkflowRuntime（9 方法）
-│       ├── tasks.py                   # run_workflow Celery 任务
-│       ├── views.py / urls.py         # 3 个 HTTP 端点
-│       └── migrations/0001_initial.py
-├── tests/
-│   ├── test_agent_loop.py             # +2 引文测试
-│   └── test_rate_limit.py             # +3 限流测试（新）
-└── pyproject.toml                     # +django-redis
-
-docs/development/agent-runtime-phase-ab.md  # 本文档
+│   │       ├── turn_loop.py   (引文修复 — _execute_tool 三元组)
+│   │       └── {tutor,planner,assessor}.py  (清理 _extract_citations)
+│   ├── workflow_runtime/      (新模块 — 6 文件)
+│   ├── courses/
+│   │   └── views.py           (+course_phases, +course_files)
+│   └── learning/
+│       ├── views.py           (+mistake_list, +explanation_list)
+│       └── services/
+│           └── mistakes.py    (新 — get_mistake_items, get_explanations)
+└── tests/
+    ├── test_agent_loop.py     (+2 引文测试)
+    └── test_rate_limit.py     (新 — 3 限流测试)
 ```
+
+### 前端新增/改造
+
+```
+apps/web/src/
+├── services/
+│   ├── client.ts              (新 — apiClient + tokenStore)
+│   ├── authApi.ts             (新 — 7 认证端点)
+│   ├── learningApi.ts         (新 — ContentBlock 类型 + fetchTask/fetchHistory/fetchMistakes/fetchExplanations)
+│   ├── courseApi.ts           (改用 apiClient)
+│   ├── assessmentApi.ts       (改用 apiClient)
+│   └── documentApi.ts         (+folder/tag/move/fetchCourseFiles/fetchCoursePhases)
+├── hooks/
+│   └── useAuth.ts             (+HTTP JWT 支持)
+├── pages/
+│   ├── SetupContinuationPages.tsx  (删 MOCK_PLAN → API)
+│   ├── CoursesPage.tsx        (删 mock course → API)
+│   ├── CourseWorkspacePage.tsx (删 3 处硬编码 → API)
+│   ├── LearningTaskPage.tsx   (删硬编码 → content_blocks 动态渲染)
+│   ├── HistoryPage.tsx        (接 /api/history/)
+│   ├── LibraryPage.tsx        (文件夹/标签/移动 全接 API)
+│   └── StageSummaryPage.tsx   (删 stageEvidence)
+├── components/
+│   ├── FileExplorer.tsx       (类型迁移 → service types)
+│   └── MistakeReviewPanel.tsx (类型迁移 → service types)
+└── data/
+    ├── mockCourses.ts         (已删除)
+    ├── history.ts             (删 initialTasks)
+    ├── files.ts               (删 courseFiles 数据)
+    ├── library.ts             (删 libraryFolders)
+    └── courses.ts             (删 stageEvidence)
+```
+
+## 下一步
+
+1. **后端**：`TaskContent` 模型 + `GET /api/learning/tasks/{id}/` 端点（支撑 LearningTaskPage 内容渲染）
+2. **前端**：文件夹重命名 UI + 标签编辑 UI（API 已就绪）
+3. **数据**：`error_reason` AI 错因分析 + `phase.state` 真实进度计算
+
+详见 `docs/development/frontend-reserved-api.md`（交付前端文档）。

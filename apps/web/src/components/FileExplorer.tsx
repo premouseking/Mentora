@@ -14,8 +14,8 @@ import {
   XCircle,
 } from "lucide-react";
 import type { FileNode } from "../data/files";
-import type { AiExplanation } from "../data/aiExplanations";
-import type { MistakeItem } from "../data/mistakes";
+import type { TreeNode } from "../services/documentApi";
+import type { MistakeItem, ExplanationItem } from "../services/learningApi";
 
 export type SectionKey = "file" | "ai" | "mistakes";
 export type ExplorerItemKind = "file" | "ai" | "mistake";
@@ -93,7 +93,7 @@ function TreeNode({
   );
 }
 
-function AiTypeIcon({ type }: { type: AiExplanation["type"] }) {
+function AiTypeIcon({ type }: { type: string }) {
   if (type === "解题思路") return <Lightbulb size={ICON_SIZE} className="fe-ai-icon solve" />;
   if (type === "知识点讲解") return <BookOpen size={ICON_SIZE} className="fe-ai-icon explain" />;
   if (type === "错题分析") return <AlertTriangle size={ICON_SIZE} className="fe-ai-icon mistake" />;
@@ -137,7 +137,7 @@ export function FileExplorer({
   onToggleDetach,
 }: {
   files: FileNode[];
-  aiItems: AiExplanation[];
+  aiItems: ExplanationItem[];
   mistakeItems: MistakeItem[];
   selectedFileId: string | null;
   selectedAiId: string | null;
@@ -245,18 +245,18 @@ export function FileExplorer({
       case "mistakes":
         return mistakeItems.map((item) => (
           <button
-            key={item.id}
-            className={`fe-row${selectedMistakeId === item.id ? " selected" : ""}`}
+            key={item.item_id}
+            className={`fe-row${selectedMistakeId === item.item_id ? " selected" : ""}`}
             style={{ paddingLeft: 8 }}
-            onClick={() => onSelectMistake(item.id)}
-            onContextMenu={(event) => onContextMenu?.(event, { kind: "mistake", id: item.id })}
+            onClick={() => onSelectMistake(item.item_id)}
+            onContextMenu={(event) => onContextMenu?.(event, { kind: "mistake", id: item.item_id })}
           >
             <AlertTriangle size={ICON_SIZE} className="fe-ai-icon mistake" />
             <div className="fe-ai-info">
               <span className="fe-ai-title">{item.title}</span>
               <div className="fe-mistake-meta">
                 <MistakeDiffBadge difficulty={item.difficulty} />
-                <span className="fe-mistake-count">错 {item.wrongCount} 次</span>
+                <span className="fe-mistake-count">错 {item.wrong_count} 次</span>
               </div>
             </div>
           </button>
