@@ -4539,6 +4539,100 @@ p {
   background: #fff;
 }
 
+.ai-selected-text-wrap {
+  position: relative;
+  display: inline-flex;
+  max-width: 100%;
+  align-items: center;
+  gap: 2px;
+  margin-bottom: 10px;
+  border: 1px solid #c6ddd5;
+  border-radius: 999px;
+  background: #dcebe6;
+  box-shadow: 0 8px 22px rgba(31, 89, 72, 0.12);
+  color: #214f43;
+}
+
+.ai-selected-text-pill,
+.ai-selected-text-clear {
+  display: inline-flex;
+  align-items: center;
+  border: 0;
+  background: transparent;
+  color: inherit;
+}
+
+.ai-selected-text-pill {
+  min-width: 0;
+  gap: 6px;
+  padding: 7px 4px 7px 10px;
+  cursor: default;
+  font-size: 13px;
+}
+
+.ai-selected-text-pill svg {
+  flex: 0 0 auto;
+  color: #3f7768;
+}
+
+.ai-selected-text-pill strong {
+  font-size: 14px;
+  font-weight: 760;
+}
+
+.ai-selected-text-pill span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ai-selected-text-clear {
+  width: 28px;
+  height: 28px;
+  flex: 0 0 auto;
+  justify-content: center;
+  margin-right: 2px;
+  border-radius: 999px;
+  color: #4d7b70;
+  cursor: pointer;
+}
+
+.ai-selected-text-clear:hover {
+  background: rgba(35, 96, 78, 0.1);
+  color: #214f43;
+}
+
+.ai-selected-text-preview {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0;
+  z-index: 40;
+  display: none;
+  width: max-content;
+  max-width: min(360px, calc(100vw - 48px));
+  padding: 10px 12px;
+  border: 1px solid #c6ddd5;
+  border-radius: 10px;
+  background: #eef7f3;
+  box-shadow: 0 14px 34px rgba(31, 89, 72, 0.18);
+  color: #214f43;
+  font-size: 13px;
+  line-height: 1.75;
+}
+
+.ai-selected-text-wrap:hover .ai-selected-text-preview,
+.ai-selected-text-wrap:focus-within .ai-selected-text-preview {
+  display: grid;
+  gap: 2px;
+}
+
+.ai-selected-text-preview-item {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .ai-chat-input-row {
   display: flex;
   align-items: center;
@@ -4598,6 +4692,32 @@ p {
   background: #c9d4d0;
   cursor: not-allowed;
   transform: none;
+}
+
+.ai-selection-menu {
+  position: fixed;
+  z-index: 1000;
+  transform: translate(-50%, -100%);
+}
+
+.ai-selection-menu button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid #c6ddd5;
+  border-radius: 999px;
+  padding: 8px 13px;
+  background: #dcebe6;
+  box-shadow: 0 12px 30px rgba(31, 89, 72, 0.18);
+  color: #214f43;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.ai-selection-menu button:hover {
+  background: #cfe3dc;
 }
 
 /* ── Small screen AI panel adjustments ── */
