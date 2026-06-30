@@ -17,7 +17,7 @@ import { Link, NavLink } from "react-router-dom";
 
 import { DesktopTitleBar } from "./DesktopTitleBar";
 import { CourseInfoBar } from "./CourseInfoBar";
-import { AiChatPanel } from "../features/assistant/AiChatPanel";
+import { AiChatPanel, type AiChatContext } from "../features/assistant/AiChatPanel";
 
 const navItems = [
   { to: "/courses", label: "课程", icon: BookOpen },
@@ -186,7 +186,13 @@ function ResizeHandle({
 
 /* ── App Shell ── */
 
-export function AppShell({ children }: { children: ReactNode }) {
+export function AppShell({
+  children,
+  aiChatContext,
+}: {
+  children: ReactNode;
+  aiChatContext?: AiChatContext;
+}) {
   const [aiPanelOpen, setAiPanelOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(readStoredCollapsed);
   const [sidebarLabelsVisible, setSidebarLabelsVisible] = useState(
@@ -265,6 +271,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             />
             <AiChatPanel
               width={panelWidth}
+              context={aiChatContext}
               onClose={() => setAiPanelOpen(false)}
             />
           </>
