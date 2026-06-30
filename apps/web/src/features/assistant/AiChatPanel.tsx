@@ -51,6 +51,19 @@ interface ChatSession {
   createdAt: number;
 }
 
+interface SelectedTextSnippet {
+  id: string;
+  text: string;
+  sourceMessageIndex: number;
+}
+
+interface SelectionMenuState {
+  text: string;
+  sourceMessageIndex: number;
+  top: number;
+  left: number;
+}
+
 /* ── 工具函数 ── */
 
 function AiMarkdownMessage({ content }: { content: string }) {
@@ -97,6 +110,33 @@ function formatDateLabel(key: string) {
   if (diff < 7) return `${diff}天前`;
   const weeks = Math.floor(diff / 7);
   return `${weeks}周前`;
+}
+
+const MAX_SELECTED_TEXT_SNIPPETS = 8;
+const MAX_SELECTED_TEXT_LENGTH = 1000;
+const SELECTED_TEXT_PREVIEW_LENGTH = 80;
+
+function normalizeSelectedText(text: string) {
+  return text.replace(/\s+/g, " ").trim();
+}
+
+function truncateText(text: string, maxLength: number) {
+  return text.length > maxLength ? `${text.slice(0, maxLength)}…` : text;
+}
+
+function buildSelectedTextMessage(text: string, snippets: SelectedTextSnippet[]) {
+  if (!snippets.length) return text;
+
+  const context = snippets
+    .map((snippet, index) => `${index + 1}. ${snippet.text}`)
+    .join("\n");
+
+  return [
+    "以下是用户从上一轮 AI 回复中选中的重点上下文，请优先围绕它回答：",
+    context,
+    "",
+    `用户问题：${text}`,
+  ].join("\n");
 }
 
 /* ── AiChatPanel 组件 ──
@@ -148,7 +188,10 @@ export function AiChatPanel({
   const [input, setInput] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
   const [sending, setSending] = useState(false);
+  const [selectedTextSnippets, setSelectedTextSnippets] = useState<SelectedTextSnippet[]>([]);
+  const [selectionMenu, setSelectionMenu] = useState<SelectionMenuState | null>(null);
 
   function createSession() {
     const newSession: ChatSession = {
@@ -254,9 +297,104 @@ export function AiChatPanel({
     );
   }
 
+  function closeSelectionMenu() {
+    setSelectionMenu(null);
+  }
+
+  function inspectAssistantSelection() {
+    const selection = window.getSelection();
+    if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
+      closeSelectionMenu();
+      return;
+    }
+
+    const range = selection.getRangeAt(0);
+    const ancestor = range.commonAncestorContainer;
+    const element =
+      ancestor.nodeType === Node.ELEMENT_NODE
+        ? (ancestor as Element)
+        : ancestor.parentElement;
+    const assistantMessage = element?.closest(".ai-chat-message.assistant") as HTMLElement | null;
+
+    if (!assistantMessage || !panelRef.current?.contains(assistantMessage)) {
+      closeSelectionMenu();
+      return;
+    }
+
+    const text = normalizeSelectedText(selection.toString()).slice(0, MAX_SELECTED_TEXT_LENGTH);
+    if (!text) {
+      closeSelectionMenu();
+      return;
+    }
+
+    const rect = range.getBoundingClientRect();
+    const fallbackRect = range.getClientRects()[0];
+    const targetRect = rect.width || rect.height ? rect : fallbackRect;
+    if (!targetRect) {
+      closeSelectionMenu();
+      return;
+    }
+
+    const sourceMessageIndex = Number(assistantMessage.dataset.messageIndex ?? "-1");
+    const left = Math.min(window.innerWidth - 16, Math.max(16, targetRect.left + targetRect.width / 2));
+    const top = Math.max(12, targetRect.top - 12);
+
+    setSelectionMenu({ text, sourceMessageIndex, left, top });
+  }
+
+  function handleSelectionEnd() {
+    window.setTimeout(inspectAssistantSelection, 0);
+  }
+
+  function handleAddSelectionToChat() {
+    if (!selectionMenu) return;
+    const snippet: SelectedTextSnippet = {
+      id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+      text: selectionMenu.text,
+      sourceMessageIndex: selectionMenu.sourceMessageIndex,
+    };
+
+    setSelectedTextSnippets((prev) => {
+      if (prev.some((item) => item.text === snippet.text)) return prev;
+      return [...prev, snippet].slice(-MAX_SELECTED_TEXT_SNIPPETS);
+    });
+
+    window.getSelection()?.removeAllRanges();
+    closeSelectionMenu();
+    inputRef.current?.focus();
+  }
+
+  useEffect(() => {
+    function handleDocumentMouseDown(event: MouseEvent) {
+      const target = event.target as Node | null;
+      if (target && panelRef.current?.contains(target)) return;
+      closeSelectionMenu();
+    }
+
+    function handleDocumentKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") closeSelectionMenu();
+    }
+
+    function handleDocumentKeyUp() {
+      handleSelectionEnd();
+    }
+
+    document.addEventListener("mousedown", handleDocumentMouseDown);
+    document.addEventListener("keydown", handleDocumentKeyDown);
+    document.addEventListener("keyup", handleDocumentKeyUp);
+    return () => {
+      document.removeEventListener("mousedown", handleDocumentMouseDown);
+      document.removeEventListener("keydown", handleDocumentKeyDown);
+      document.removeEventListener("keyup", handleDocumentKeyUp);
+    };
+  });
+
   async function handleSend() {
     const text = input.trim();
     if (!text || !activeSession) return;
+
+    const snippetsForRequest = selectedTextSnippets;
+    const requestMessage = buildSelectedTextMessage(text, snippetsForRequest);
 
     setSessions((prev) =>
       prev.map((s) => {
@@ -272,6 +410,8 @@ export function AiChatPanel({
       }),
     );
     setInput("");
+    setSelectedTextSnippets([]);
+    closeSelectionMenu();
     setSending(true);
 
     try {
@@ -281,7 +421,7 @@ export function AiChatPanel({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          message: text,
+          message: requestMessage,
           history: historyMessages.map((m) => ({
             role: m.role,
             content: m.content,
@@ -383,6 +523,7 @@ export function AiChatPanel({
 
   return (
     <div
+      ref={panelRef}
       className={`ai-chat-panel${isPage ? " ai-chat-panel--page" : ""}`}
       style={!isPage ? { width } : undefined}
       role="complementary"
@@ -549,9 +690,14 @@ export function AiChatPanel({
             ))}
           </nav>
 
-          <div className="ai-chat-messages" ref={listRef}>
+          <div
+            className="ai-chat-messages"
+            ref={listRef}
+            onMouseUp={handleSelectionEnd}
+            onScroll={closeSelectionMenu}
+          >
             {activeSession?.messages.map((msg, i) => (
-              <div className={`ai-chat-message ${msg.role}`} key={i}>
+              <div className={`ai-chat-message ${msg.role}`} data-message-index={i} key={i}>
                 {msg.role === "assistant" && (
                   <span className="ai-chat-avatar">
                     <Sparkles size={13} />
@@ -607,6 +753,34 @@ export function AiChatPanel({
           </div>
 
           <div className="ai-chat-input-area">
+            {selectedTextSnippets.length > 0 && (
+              <div className="ai-selected-text-wrap">
+                <button
+                  className="ai-selected-text-pill"
+                  type="button"
+                  aria-label={`已选择 ${selectedTextSnippets.length} 个文本片段`}
+                >
+                  <MessageSquare size={14} />
+                  <strong>{selectedTextSnippets.length}</strong>
+                  <span>个已选文本片段</span>
+                </button>
+                <div className="ai-selected-text-preview" role="tooltip">
+                  {selectedTextSnippets.map((snippet) => (
+                    <div className="ai-selected-text-preview-item" key={snippet.id}>
+                      "{truncateText(snippet.text, SELECTED_TEXT_PREVIEW_LENGTH)}"
+                    </div>
+                  ))}
+                </div>
+                <button
+                  className="ai-selected-text-clear"
+                  type="button"
+                  onClick={() => setSelectedTextSnippets([])}
+                  aria-label="清除已选文本片段"
+                >
+                  <X size={14} />
+                </button>
+              </div>
+            )}
             <div className="ai-chat-input-row">
               <input
                 ref={inputRef}
@@ -628,6 +802,17 @@ export function AiChatPanel({
             </div>
           </div>
         </>
+      )}
+      {selectionMenu && (
+        <div
+          className="ai-selection-menu"
+          style={{ top: selectionMenu.top, left: selectionMenu.left }}
+        >
+          <button type="button" onMouseDown={(event) => event.preventDefault()} onClick={handleAddSelectionToChat}>
+            <MessageSquare size={15} />
+            添加到对话
+          </button>
+        </div>
       )}
     </div>
   );
