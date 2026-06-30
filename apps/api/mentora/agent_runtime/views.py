@@ -29,6 +29,7 @@ from mentora.agent_runtime.runtime import build_orchestrator
 from mentora.agent_runtime.schemas.context import AgentContext
 from mentora.agent_runtime.schemas.task import OrchestratorTask, PipelineStep
 from mentora.model_gateway.gateway import ModelGateway
+from mentora.model_gateway.schemas import Message
 from mentora.agent_runtime.prompts.manager import PromptManager
 
 _orchestrator = None
@@ -55,6 +56,73 @@ def get_prompt_manager() -> PromptManager:
     _ensure_runtime()
     assert _prompt_manager is not None
     return _prompt_manager
+
+
+def _parse_history_messages(raw_history) -> list[Message]:
+    if not isinstance(raw_history, list):
+        return []
+
+    messages: list[Message] = []
+    for item in raw_history:
+        if not isinstance(item, dict):
+            continue
+        role = item.get("role")
+        content = item.get("content")
+        if role not in {"user", "assistant"} or not isinstance(content, str):
+            continue
+        content = content.strip()
+        if not content:
+            continue
+        messages.append(Message(role=role, content=content))
+    return messages[-20:]
+
+
+def _format_attachment_summary(raw_attachments) -> str:
+    if not isinstance(raw_attachments, list):
+        return ""
+
+    lines: list[str] = []
+    for item in raw_attachments[:10]:
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("name") or "unnamed").strip()[:120]
+        kind = "image" if item.get("kind") == "image" else "file"
+        mime_type = str(item.get("mime_type") or "application/octet-stream").strip()[:80]
+        size = item.get("size")
+        size_text = f", {size} bytes" if isinstance(size, int) and size >= 0 else ""
+        label = "image" if kind == "image" else "file"
+        lines.append(f"- {label}: {name} ({mime_type}{size_text})")
+
+    if not lines:
+        return ""
+    return "\n\nAttached files provided by the user:\n" + "\n".join(lines)
+
+
+def _resolve_model_id(raw_model_id) -> str | None:
+    model_key = raw_model_id.strip().lower() if isinstance(raw_model_id, str) else "auto"
+    if model_key == "fast":
+        return getattr(settings, "LLM_MODEL_FAST", None)
+    if model_key == "premium":
+        return getattr(settings, "LLM_MODEL_PREMIUM", None)
+    return getattr(settings, "LLM_MODEL_BALANCED", None)
+
+
+def _build_chat_task(body: dict) -> OrchestratorTask | None:
+    user_message = body.get("message", "").strip()
+    if not user_message:
+        return None
+
+    user_message += _format_attachment_summary(body.get("attachments"))
+    return OrchestratorTask(
+        id=f"chat-{uuid.uuid4().hex[:12]}",
+        mode="single",
+        agent_role="tutor",
+        user_message=user_message,
+        context_sources=[],
+        history_messages=_parse_history_messages(body.get("history")),
+        model_id=_resolve_model_id(body.get("model_id")),
+        max_tool_rounds=3,
+    )
 
 
 @extend_schema(
@@ -126,14 +194,8 @@ def chat_api(request):
     if not user_message:
         return Response({"error": "message 不能为空"}, status=400)
 
-    task = OrchestratorTask(
-        id=f"chat-{uuid.uuid4().hex[:12]}",
-        mode="single",
-        agent_role="tutor",
-        user_message=user_message,
-        context_sources=[],
-        max_tool_rounds=3,
-    )
+    task = _build_chat_task(body)
+    assert task is not None
 
     try:
         orch = _ensure_runtime()
@@ -214,14 +276,8 @@ def chat_stream(request):
             status=400,
         )
 
-    task = OrchestratorTask(
-        id=f"chat-{uuid.uuid4().hex[:12]}",
-        mode="single",
-        agent_role="tutor",
-        user_message=user_message,
-        context_sources=[],
-        max_tool_rounds=3,
-    )
+    task = _build_chat_task(body)
+    assert task is not None
 
     orch = _ensure_runtime()
 

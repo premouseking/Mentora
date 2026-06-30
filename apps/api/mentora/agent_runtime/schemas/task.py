@@ -68,6 +68,10 @@ class OrchestratorTask(BaseModel):
         description="历史对话消息",
     )
     max_tool_rounds: int = Field(default=5, description="最大工具调用轮次")
+    model_id: str | None = Field(
+        default=None,
+        description="Model override for this task.",
+    )
     budget_config: BudgetConfig = Field(default_factory=BudgetConfig)
     pipeline_steps: list[PipelineStep] | None = Field(
         default=None,

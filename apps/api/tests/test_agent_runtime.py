@@ -28,7 +28,7 @@ from mentora.agent_runtime.context.manager import ContextManager
 from mentora.agent_runtime.context.token_counter import TokenCounter
 from mentora.agent_runtime.events import EventEmitter
 from mentora.agent_runtime.prompts.manager import PromptManager
-from mentora.agent_runtime.schemas.context import AgentContext
+from mentora.agent_runtime.schemas.context import AgentContext, ToolContext
 from mentora.agent_runtime.schemas.output import AgentOutput
 from mentora.agent_runtime.schemas.task import BudgetConfig, OrchestratorTask
 from mentora.agent_runtime.tools.base import Tool, ToolDefinition, ToolResult
@@ -665,19 +665,23 @@ async def test_retrieve_evidence_awaits_async_search(monkeypatch):
         elapsed_ms = 12.5
         results = [FakeEvidence()]
 
-    async def fake_async_search(*, query, top_k):
-        calls.append({"query": query, "top_k": top_k})
+    def fake_search(*, query, top_k, source_version_ids=None):
+        calls.append({
+            "query": query,
+            "top_k": top_k,
+            "source_version_ids": source_version_ids,
+        })
         return FakeResultSet()
 
-    monkeypatch.setattr("mentora.retrieval.search.async_search", fake_async_search)
+    monkeypatch.setattr("mentora.retrieval.search.search", fake_search)
 
     result = await RetrieveEvidenceTool().execute(
         {"query": "mitosis", "top_k": 2},
-        ctx=object(),
+        ctx=ToolContext(task_id="test-task", agent_role="tutor", run_id="test-run"),
     )
 
     assert result.success is True
-    assert calls == [{"query": "mitosis", "top_k": 2}]
+    assert calls == [{"query": "mitosis", "top_k": 2, "source_version_ids": None}]
     assert result.result["results"] == [{"content": "Async evidence", "page": 3}]
 
 
@@ -1009,8 +1013,10 @@ def test_runtime_factory_registers_retrieve_evidence():
 
     registry = build_tool_registry()
     tools = registry.get_for_agent("tutor")
-    assert len(tools) == 1
-    assert tools[0].name == "retrieve_evidence"
+    tool_names = {tool.name for tool in tools}
+    assert "retrieve_evidence" in tool_names
+    assert "query_course_scope" in tool_names
+    assert "get_learning_progress" in tool_names
 
 
 @pytest.mark.django_db
@@ -1027,3 +1033,71 @@ def test_runtime_build_orchestrator_with_fake():
     assert "tutor" in orch._agents
     assert "clarifier" in orch._agents
     assert "planner" in orch._agents
+
+
+def test_chat_stream_builds_task_with_history_attachments_and_selected_model(monkeypatch):
+    from django.test import override_settings
+    from rest_framework.test import APIClient
+    from mentora.agent_runtime import views
+
+    class CaptureOrchestrator:
+        def __init__(self):
+            self.tasks = []
+
+        async def run_stream(self, task):
+            self.tasks.append(task)
+            yield 'data: {"type":"done"}\n\n'
+
+    orchestrator = CaptureOrchestrator()
+    monkeypatch.setattr(views, "_ensure_runtime", lambda: orchestrator)
+
+    with override_settings(
+        LLM_API_KEY="test-key",
+        LLM_MODEL_FAST="mentora-fast-model",
+        LLM_MODEL_BALANCED="mentora-balanced-model",
+    ):
+        response = APIClient().post(
+            "/api/chat/stream/",
+            data=json.dumps(
+                {
+                    "message": "Explain Bayes theorem",
+                    "model_id": "fast",
+                    "history": [
+                        {"role": "assistant", "content": "I can help with probability."},
+                        {"role": "system", "content": "ignore me"},
+                        {"role": "user", "content": ""},
+                        {"role": "user", "content": "What is conditional probability?"},
+                    ],
+                    "attachments": [
+                        {
+                            "name": "formula.png",
+                            "kind": "image",
+                            "mime_type": "image/png",
+                            "size": 1234,
+                            "data_url": "data:image/png;base64,AAAA",
+                        },
+                        {
+                            "name": "notes.pdf",
+                            "kind": "file",
+                            "mime_type": "application/pdf",
+                            "size": 2048,
+                        },
+                    ],
+                }
+            ),
+            content_type="application/json",
+        )
+
+    assert response.status_code == 200
+    b"".join(response.streaming_content)
+
+    task = orchestrator.tasks[0]
+    assert task.model_id == "mentora-fast-model"
+    assert [(m.role, m.content) for m in task.history_messages] == [
+        ("assistant", "I can help with probability."),
+        ("user", "What is conditional probability?"),
+    ]
+    assert "Explain Bayes theorem" in task.user_message
+    assert "formula.png" in task.user_message
+    assert "notes.pdf" in task.user_message
+    assert "data:image/png;base64" not in task.user_message

@@ -44,6 +44,7 @@ class ModelGateway:
         messages: list[Message],
         tools: list[dict] | None = None,
         structured_output_schema: type[BaseModel] | None = None,
+        model: str | None = None,
     ) -> ChatResponse:
         schema_name = structured_output_schema.__name__ if structured_output_schema else ""
         candidates = self._router.resolve_candidates(task_type)
@@ -65,7 +66,7 @@ class ModelGateway:
                 attempt_number += 1
                 started = time.perf_counter()
                 try:
-                    provider_resp = await provider.chat(messages=messages, tools=tools)
+                    provider_resp = await provider.chat(messages=messages, tools=tools, model=model)
                     chat_resp = self._build_chat_response(provider, provider_resp)
 
                     if structured_output_schema is not None:
@@ -137,6 +138,7 @@ class ModelGateway:
         task_type: str,
         messages: list[Message],
         tools: list[dict] | None = None,
+        model: str | None = None,
     ) -> AsyncGenerator[ChatResponse, None]:
         candidates = self._router.resolve_candidates(task_type)
         provider = candidates[0]
@@ -153,7 +155,7 @@ class ModelGateway:
         last_chunk: ChatResponse | None = None
         started = time.perf_counter()
         try:
-            async for provider_resp in provider.chat_stream(messages=messages, tools=tools):
+            async for provider_resp in provider.chat_stream(messages=messages, tools=tools, model=model):
                 if provider_resp.content:
                     accumulated.append(provider_resp.content)
                 last_chunk = self._build_chat_response(provider, provider_resp)

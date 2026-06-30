@@ -265,4 +265,89 @@ DRAFT → REFINING → GENERATING_PLAN → COMPLETED → STARTED
 
 ---
 
-> 最后更新：2026-06-29（学习方案展示更新至 v9）
+## 九、建课流程：5 步 → 2 步（v10）
+
+### 概述
+
+建课流程从 5 步简化为 2 步：**建立档案 → 确认方案**，去除冗余的中间确认环节。
+
+### 步骤对比
+
+| 旧流程（5 步） | 新流程（2 步） |
+|---------------|---------------|
+| 描述目标 | → 建立学习档案（内含 4 个子步骤） |
+| 基础信息 | ↗ |
+| 资料上传 | ↗ |
+| 信息追问 | ↗ |
+| 确认方案 | → 确认学习方案 |
+
+### 步骤 1：建立学习档案（BuildProfilePage）
+
+路径 `/courses/new`，4 个子步骤：
+
+| 子步骤 | 类型 | 内容 |
+|--------|------|------|
+| 1 | input | 学习方向：你想学习什么？ |
+| 2 | materials | 学习资料：选择资料 + 右上角「上传资料」按钮（弹出和资源库相同的上传弹窗） |
+| 3 | choice | 学习方式：6 选项（视频/阅读/练习/实践/讨论/辅导） |
+| 4 | choice | 时间安排：6 选项（30 分钟/1 小时/2 小时/工作日/周末/灵活） |
+
+- 底部双按钮：**确认并生成学习方案**（→ 步骤 2）、**确认并继续完善档案**（→ 下一子步骤）
+- 第 1 步两按钮均灰色，第 1 步「生成方案」不可用（必须有学习目标）
+- 最后一步只显示「确认并生成学习方案」，占满横向
+- 按钮固定底部（SetupShell footer prop）
+
+### 调整方案重新生成态
+
+路径 `/courses/new?adjust=true`，从确认方案页「调整方案」按钮进入：
+- 问题描述："已收到你的更改。是否重新生成学习方案？"
+- 内容区：输入框（placeholder: "描述你希望如何调整学习方案…"）
+- 底部双按钮均可用（不再受 step1 限制）
+
+### 步骤 2：确认学习方案（ConfirmPlanPage）
+
+路径 `/courses/new/plan`，复用 PhaseSummary 调整模式布局：
+- **学习档案**：表格展示，支持编辑（🖉/✕✓/↩ 三态 + dirty 星号）
+- **学习计划**：阶段导航滑轨 + 章节画布 + 详情栏 + 编辑表格（拖拽排序/添加阶段/锁定模式）
+- 底部按钮：
+  - **调整方案**（→ `/courses/new?adjust=true`）：`isDirty` 时绿色，否则灰色
+  - **开始学习**：`!isDirty` 时绿色 → 生成 mock 课程 + 跳转 `/courses`
+  - 逻辑互斥：一个绿色时另一个灰色
+
+### mock 课程生成
+
+点击「开始学习」时：
+- 从 `profileValues` 提取信息生成 `CourseSessionListItem`
+- mock 课程 ID 以 `mock-` 开头，删除走内存移除不调 API
+- `CoursesPage` 合并 API 结果 + mock 课程一起显示
+
+**mock 数据存储文件**：`apps/web/src/data/mockCourses.ts`
+
+该文件是**内存级存储**，提供 3 个导出函数：
+
+| 函数 | 作用 |
+|------|------|
+| `addMockCourse(course)` | 添加一门 mock 课程到数组 |
+| `getMockCourses()` | 获取全部 mock 课程 |
+| `removeMockCourse(id)` | 按 ID 删除（仅匹配 `mock-` 前缀） |
+
+**关键约束**：
+- 数据仅在当前浏览器会话中保留，刷新页面后丢失
+- 不接入后端，不写入任何持久化存储
+- **未来接入真实 API 后，直接删除整个 `data/mockCourses.ts` 文件，并移除 `CoursesPage` 和 `SetupContinuationPages` 中对它的引用即可**
+
+### 涉及文件
+
+| 文件 | 角色 |
+|------|------|
+| `App.tsx` | 路由精简 5→2 |
+| `AppShell.tsx` | setupSteps 改为 2 步 |
+| `SetupPages.tsx` | BuildProfilePage：4 子步骤 + adjust 模式 + 上传弹窗 |
+| `SetupContinuationPages.tsx` | ConfirmPlanPage：复用调整模式布局 + mock 课程生成（第 675-700 行附近，`handleStartLearning`） |
+| `CoursesPage.tsx` | 合并 API 结果 + `getMockCourses()` 显示；删除 mock 课程时调 `removeMockCourse` |
+| `data/mockCourses.ts` | **mock 存储**：3 个导出函数，内存级，刷新丢失，未来接入 API 后整体删除 |
+| `styles.css` | 新增 build-profile / material-list-top 等样式 |
+
+---
+
+> 最后更新：2026-06-29（建课流程重构至 v10 2 步流程 + mock 课程 + 调整方案重新生成 + 资料上传）

@@ -14,6 +14,7 @@ import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useCallback, useEffect, useState } from "react";
 
 import { AppShell } from "../components/AppShell";
+import { getMockCourses, removeMockCourse } from "../data/mockCourses";
 import { deleteCourseSession, listCourseSessions, type CourseSessionListItem } from "../services/courseApi";
 
 /* ── 状态映射 ── */
@@ -272,16 +273,25 @@ export function CoursesPage() {
     const started = sessionStorage.getItem("mentora-course-started");
     if (started) {
       sessionStorage.removeItem("mentora-course-started");
-      fetchSessions();
+      // 刷新 mock 课程（已通过模块级变量共享，触发重渲染即可）
+      setSessions((prev) => [...prev]);
     }
-  }, [fetchSessions]);
+  }, []);
 
-  const displayCourses = sessions.filter(
-    (s) => s.status === "started" || s.status === "completed",
-  );
+  const mockCourses = getMockCourses();
+  const displayCourses = [
+    ...sessions.filter((s) => s.status === "started" || s.status === "completed"),
+    ...mockCourses,
+  ];
   const hasCourses = displayCourses.length > 0;
 
   const handleDelete = useCallback(async (id: string) => {
+    if (id.startsWith("mock-")) {
+      removeMockCourse(id);
+      // 强制刷新以触发重渲染
+      setSessions((prev) => [...prev]);
+      return;
+    }
     try {
       await deleteCourseSession(id);
       setSessions((prev) => prev.filter((s) => s.id !== id));
@@ -293,12 +303,12 @@ export function CoursesPage() {
   return (
     <AppShell>
       <CourseHeader hasCourses={hasCourses} />
-      {loading && (
+      {loading && mockCourses.length === 0 && (
         <div className="empty-state">
           <p style={{ color: "var(--quiet)" }}>加载中…</p>
         </div>
       )}
-      {error && (
+      {error && mockCourses.length === 0 && (
         <div className="empty-state">
           <p className="error-text">{error}</p>
           <button className="button secondary" onClick={fetchSessions} type="button">
@@ -306,7 +316,8 @@ export function CoursesPage() {
           </button>
         </div>
       )}
-      {!loading && !error && (hasCourses ? <CourseList courses={displayCourses} onDelete={handleDelete} /> : <EmptyCourses />)}
+      {!loading && !error && !hasCourses && <EmptyCourses />}
+      {hasCourses && <CourseList courses={displayCourses} onDelete={handleDelete} />}
     </AppShell>
   );
 }
