@@ -69,6 +69,7 @@ INSTALLED_APPS = [
     "mentora.retrieval",
     "mentora.topics",
     "mentora.model_gateway",
+    "mentora.workflow_runtime",
     "drf_spectacular",
 ]
 
@@ -142,12 +143,20 @@ DATABASES = {
 
 CELERY_BROKER_URL = _env("REDIS_URL")
 CELERY_RESULT_BACKEND = CELERY_BROKER_URL
+
+CACHES = {
+    "default": {
+        "BACKEND": "django.core.cache.backends.redis.RedisCache",
+        "LOCATION": _env("REDIS_URL"),
+    },
+}
 CELERY_TASK_ALWAYS_EAGER = os.getenv("CELERY_TASK_ALWAYS_EAGER", "false").lower() == "true"
 CELERY_TASK_ROUTES = {
     "mentora.knowledge.tasks.*": {"queue": "heavy"},
     "mentora.knowledge.tasks.run_processing": {"queue": "heavy"},
     "mentora.parsing.tasks.*": {"queue": "heavy"},
     "mentora.agent_runtime.tasks.*": {"queue": "agent"},
+    "mentora.workflow_runtime.tasks.*": {"queue": "agent"},
     "mentora.learning.tasks.*": {"queue": "learning"},
 }
 

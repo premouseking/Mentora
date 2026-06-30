@@ -199,3 +199,115 @@ def test_turn_loop_max_rounds():
     )
     assert output.finish_reason == "max_rounds"
     assert len(output.tool_calls_made) == 2
+
+
+class _RetrieveEvidenceLikeTool(Tool):
+    """模拟 retrieve_evidence 工具——返回含 evidence 结构的结果。"""
+
+    async def execute(self, args, ctx):
+        return ToolResult(
+            tool_name="retrieve_evidence",
+            success=True,
+            result={
+                "results": [
+                    {
+                        "evidence_id": "ev-001",
+                        "content_preview": "过拟合可以通过正则化、早停和 dropout 等方法解决",
+                        "page_number": 42,
+                        "source_title": "机器学习导论",
+                    },
+                    {
+                        "evidence_id": "ev-002",
+                        "content_preview": "交叉验证是评估模型泛化能力的标准方法",
+                        "page_number": 88,
+                    },
+                ],
+                "total_candidates": 2,
+            },
+        )
+
+
+def _registry_with_evidence() -> ToolRegistry:
+    registry = ToolRegistry()
+    registry.register(
+        _RetrieveEvidenceLikeTool(),
+        ToolDefinition(
+            name="retrieve_evidence",
+            description="检索学习资料",
+            parameters={
+                "type": "object",
+                "properties": {"query": {"type": "string"}},
+                "required": ["query"],
+            },
+            agent_roles={"tester"},
+        ),
+    )
+    return registry
+
+
+@pytest.mark.django_db
+def test_citations_accumulate_from_tool_results():
+    """B3/B4 修复验证——工具返回的 evidence 结果应累积到 AgentOutput.citations。"""
+    fake = FakeProvider(
+        tool_call_scenarios=[
+            [make_tool_call("call_1", "retrieve_evidence", '{"query": "过拟合"}')],
+        ],
+        text_responses=["根据资料，过拟合可以通过正则化、早停和 dropout 解决。"],
+    )
+    gateway = ModelGateway(
+        router=TaskRouter(default_provider=fake),
+        output_validator=StructuredOutputValidator(),
+        audit_enabled=False,
+    )
+    messages = [
+        Message(role="system", content="你是助手"),
+        Message(role="user", content="如何解决过拟合？"),
+    ]
+    output = asyncio.run(
+        run_tool_loop(
+            agent_role="tester",
+            agent_input=_agent_input(messages),
+            registry=_registry_with_evidence(),
+            gateway=gateway,
+        )
+    )
+
+    assert output.finish_reason == "completed"
+    assert len(output.tool_calls_made) == 1
+    assert len(output.citations) == 2
+    assert output.citations[0].evidence_id == "ev-001"
+    assert output.citations[0].content_preview == "过拟合可以通过正则化、早停和 dropout 等方法解决"
+    assert output.citations[0].page_number == 42
+    assert output.citations[1].evidence_id == "ev-002"
+    assert output.citations[1].page_number == 88
+
+
+@pytest.mark.django_db
+def test_citations_empty_when_tool_returns_no_results():
+    """工具成功但无 results 字段时，citations 应为空列表。"""
+    fake = FakeProvider(
+        tool_call_scenarios=[
+            [make_tool_call("call_1", "echo", '{"text": "hello"}')],
+        ],
+        text_responses=["完成"],
+    )
+    gateway = ModelGateway(
+        router=TaskRouter(default_provider=fake),
+        output_validator=StructuredOutputValidator(),
+        audit_enabled=False,
+    )
+    messages = [
+        Message(role="system", content="test"),
+        Message(role="user", content="hello"),
+    ]
+    output = asyncio.run(
+        run_tool_loop(
+            agent_role="tester",
+            agent_input=_agent_input(messages),
+            registry=_registry_with_echo(),
+            gateway=gateway,
+        )
+    )
+
+    assert output.finish_reason == "completed"
+    assert output.citations == []

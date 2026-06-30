@@ -63,6 +63,8 @@ urlpatterns = [
     path("api/history/", history_list, name="history-list"),
     # Agent 聊天
     path("api/", include("mentora.agent_runtime.urls")),
+    # Workflow 异步任务
+    path("api/", include("mentora.workflow_runtime.urls")),
     path("api/assessment/sessions/generate/", generate_quiz_session, name="assessment-generate"),
     path("api/assessment/sessions/<uuid:session_id>/", quiz_session_detail, name="assessment-session-detail"),
     path("api/assessment/sessions/<uuid:session_id>/attempts/", submit_quiz_attempt, name="assessment-submit-attempt"),

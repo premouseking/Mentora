@@ -24,6 +24,7 @@ from rest_framework.decorators import api_view
 from drf_spectacular.utils import extend_schema
 
 from mentora.agent_runtime.agents.base import AgentInput
+from mentora.agent_runtime.decorators import rate_limit
 from mentora.agent_runtime.models import OrchestratorRun
 from mentora.agent_runtime.runtime import build_orchestrator
 from mentora.agent_runtime.schemas.context import AgentContext
@@ -176,6 +177,7 @@ def _build_chat_task(body: dict) -> OrchestratorTask | None:
         503: {"description": "LLM_API_KEY 未配置"},
     },
 )
+@rate_limit("chat", max_attempts=10, window_seconds=60)
 @api_view(["POST"])
 def chat_api(request):
     """POST /api/chat/"""
@@ -249,6 +251,7 @@ def chat_api(request):
         503: {"description": "LLM_API_KEY 未配置"},
     },
 )
+@rate_limit("chat_stream", max_attempts=5, window_seconds=60)
 @api_view(["POST"])
 def chat_stream(request):
     """POST /api/chat/stream/"""
@@ -468,6 +471,7 @@ def run_detail(request, run_id):
         503: {"description": "LLM_API_KEY 未配置"},
     },
 )
+@rate_limit("pipeline", max_attempts=3, window_seconds=120)
 @api_view(["POST"])
 def pipeline_chat(request):
     """POST /api/chat/pipeline/"""
