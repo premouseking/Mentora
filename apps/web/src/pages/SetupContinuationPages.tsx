@@ -1,420 +1,284 @@
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  ArrowDown,
   ArrowLeft,
-  ArrowRight,
-  ArrowUp,
-  BookOpen,
-  Check,
-  ChevronRight,
-  CircleCheck,
-  Clock3,
-  File,
   FileText,
-  FolderOpen,
-  Link as LinkIcon,
   ListTree,
   LockKeyhole,
   Sparkles,
   Target,
-  Upload,
-  UserRound,
-  X,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
 import { SetupShell } from "../components/AppShell";
+import { useCourseCreation } from "../components/CourseCreationContext";
+import { AiMessageBubble } from "../components/AiMessageBubble";
+import { MentoraLoader } from "../components/MentoraLoader";
+import { generatePlan, inquiryNext, startCourse as startCourseSession, type InquiryQuestion } from "../services/courseApi";
 
-type SourceItem = {
-  id: string;
-  name: string;
-  type: "PDF" | "DOCX" | "LINK" | "OFFICIAL";
-  size?: string;
-  purpose: string;
-  state: "ready" | "processing";
-};
+/* ── 步骤 4：信息追问 ── */
 
-const initialSources: SourceItem[] = [
-  {
-    id: "textbook",
-    name: "计算机组成原理（第 6 版）.pdf",
-    type: "PDF",
-    size: "23.4 MB",
-    purpose: "主要参考书",
-    state: "ready",
-  },
-  {
-    id: "class-notes",
-    name: "计算机组成原理课堂笔记.docx",
-    type: "DOCX",
-    size: "1.8 MB",
-    purpose: "课堂笔记",
-    state: "processing",
-  },
-];
-
-const libraryCandidates: SourceItem[] = [
-  {
-    id: "exam-outline",
-    name: "期末考试范围与重点.pdf",
-    type: "PDF",
-    size: "860 KB",
-    purpose: "考试范围",
-    state: "ready",
-  },
-  {
-    id: "cache-notes",
-    name: "Cache 重点整理.md",
-    type: "LINK",
-    purpose: "重点补充",
-    state: "ready",
-  },
-];
-
-function readSources(): SourceItem[] {
-  const stored = sessionStorage.getItem("mentora-course-sources");
-  if (!stored) return initialSources;
-  try {
-    return JSON.parse(stored) as SourceItem[];
-  } catch {
-    return initialSources;
-  }
-}
-
-function persistSources(sources: SourceItem[]) {
-  sessionStorage.setItem("mentora-course-sources", JSON.stringify(sources));
-}
-
-function SourceTypeIcon({ type }: { type: SourceItem["type"] }) {
-  if (type === "OFFICIAL") return <BookOpen size={19} />;
-  if (type === "LINK") return <LinkIcon size={19} />;
-  return <FileText size={19} />;
-}
-
-export function SelectSourcesPage() {
+export function AiInquiryPage() {
   const navigate = useNavigate();
-  const [sources, setSources] = useState<SourceItem[]>(readSources);
-  const [pickerOpen, setPickerOpen] = useState(false);
-  const [selectedCandidate, setSelectedCandidate] = useState("exam-outline");
-  const [officialAdded, setOfficialAdded] = useState(
-    sources.some((source) => source.type === "OFFICIAL"),
-  );
+  const { addItem, sessionId } = useCourseCreation();
+  const [loading, setLoading] = useState(true);        // 首个问题加载
+  const [answering, setAnswering] = useState(false);   // 回答提交中
+  const [ready, setReady] = useState(false);
+  const [current, setCurrent] = useState<InquiryQuestion | null>(null);
+  const [round, setRound] = useState(0);
+  const [error, setError] = useState("");
 
-  function updateSources(nextSources: SourceItem[]) {
-    setSources(nextSources);
-    persistSources(nextSources);
-  }
+  const initRef = useRef(false);  // 防止 StrictMode 双调用
 
-  function addCandidate() {
-    const candidate = libraryCandidates.find((item) => item.id === selectedCandidate);
-    if (candidate && !sources.some((source) => source.id === candidate.id)) {
-      updateSources([...sources, candidate]);
-    }
-    setPickerOpen(false);
-  }
-
-  function simulateUpload() {
-    if (sources.some((source) => source.id === "uploaded-review")) return;
-    updateSources([
-      ...sources,
-      {
-        id: "uploaded-review",
-        name: "老师划重点整理.pdf",
-        type: "PDF",
-        size: "2.1 MB",
-        purpose: "考试范围",
-        state: "processing",
-      },
-    ]);
-  }
-
-  function addLink() {
-    if (sources.some((source) => source.id === "linked-video")) return;
-    updateSources([
-      ...sources,
-      {
-        id: "linked-video",
-        name: "CPU 指令执行过程讲解",
-        type: "LINK",
-        purpose: "重点补充",
-        state: "ready",
-      },
-    ]);
-  }
-
-  function toggleOfficial() {
-    if (officialAdded) {
-      const next = sources.filter((source) => source.type !== "OFFICIAL");
-      updateSources(next);
-      setOfficialAdded(false);
+  // 获取下一个问题
+  const fetchNext = useCallback(async (answer?: string) => {
+    if (!sessionId) {
+      setError("会话未创建，请返回第一步重新开始。");
       return;
     }
-    updateSources([
-      ...sources,
-      {
-        id: "official-base",
-        name: "计算机组成原理 · 官方基础资源",
-        type: "OFFICIAL",
-        purpose: "基础讲解",
-        state: "ready",
-      },
-    ]);
-    setOfficialAdded(true);
-  }
+    try {
+      const resp = await inquiryNext(sessionId, answer);
+      if (resp.ready) {
+        setReady(true);
+        setCurrent(null);
+      } else if (resp.questions && resp.questions.length > 0) {
+        setCurrent(resp.questions[0]);
+        setRound((r) => r + 1);
+      }
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "追问请求失败");
+    }
+  }, [sessionId]);
 
-  function continueToProfile() {
-    persistSources(sources);
-    navigate("/courses/new/profile");
-  }
+  // 首次进入 → 触发首个问题（ref 防 StrictMode 双调用）
+  useEffect(() => {
+    if (initRef.current) return;
+    initRef.current = true;
+    fetchNext().finally(() => setLoading(false));
+  }, [fetchNext]);
 
-  return (
-    <SetupShell current={3}>
-      <div className="sources-page">
-        <div className="setup-heading compact-heading">
-          <h1>添加资料 <span>（可选）</span></h1>
-          <p>资料可以帮助 AI 更好地理解学习范围，但没有资料也能继续。</p>
-        </div>
+  // 追问记录攒到一起
+  const [inquiryLog, setInquiryLog] = useState<string[]>([]);
 
-        <div className="source-actions">
-          <button type="button" onClick={() => setPickerOpen(true)}>
-            <FolderOpen size={27} />
-            <strong>从资源库选择</strong>
-            <span>从已有资料中筛选</span>
-          </button>
-          <button type="button" onClick={simulateUpload}>
-            <Upload size={27} />
-            <strong>上传本地文件</strong>
-            <span>支持 PDF、DOCX、PPTX</span>
-          </button>
-          <button type="button" onClick={addLink}>
-            <LinkIcon size={27} />
-            <strong>添加链接</strong>
-            <span>添加网页或教学视频</span>
-          </button>
-        </div>
+  async function handleAnswer(value: string) {
+    if (!current) return;
+    // 同步到底栏 — 追问信息汇总为一条
+    const roundLabel = current.text.replace(/[？?]$/, "");
+    const entry = `${roundLabel}：${value}`;
+    const updated = [...inquiryLog, entry];
+    setInquiryLog(updated);
+    addItem({
+      key: "inquiry",
+      title: "补充信息",
+      value: updated.join("\n"),
+      source: "AI 追问",
+    });
 
-        {pickerOpen ? (
-          <section className="source-picker" aria-label="从资源库选择资料">
-            <div className="source-picker-head">
-              <div>
-                <strong>从资源库选择</strong>
-                <span>选择一项加入当前课程</span>
-              </div>
-              <button aria-label="关闭资料选择" onClick={() => setPickerOpen(false)} type="button">
-                <X size={18} />
-              </button>
-            </div>
-            <div className="candidate-list">
-              {libraryCandidates.map((candidate) => (
-                <button
-                  aria-pressed={selectedCandidate === candidate.id}
-                  className={selectedCandidate === candidate.id ? "selected" : ""}
-                  key={candidate.id}
-                  onClick={() => setSelectedCandidate(candidate.id)}
-                  type="button"
-                >
-                  <SourceTypeIcon type={candidate.type} />
-                  <span>
-                    <strong>{candidate.name}</strong>
-                    <small>{candidate.purpose} · {candidate.size ?? "链接"}</small>
-                  </span>
-                  <i>{selectedCandidate === candidate.id ? <Check size={13} /> : null}</i>
-                </button>
-              ))}
-            </div>
-            <div className="picker-footer">
-              <button className="button secondary" onClick={() => setPickerOpen(false)} type="button">
-                取消
-              </button>
-              <button className="button primary" onClick={addCandidate} type="button">
-                添加到课程
-              </button>
-            </div>
-          </section>
-        ) : null}
+    const prevQuestion = current;
+    setCurrent(null);
+    setAnswering(true);
 
-        <section className="selected-sources">
-          <div className="section-heading-row">
-            <h2>已选择的资料</h2>
-            <span>{sources.length} 项</span>
-          </div>
-          <div className="source-list">
-            {sources.length === 0 ? (
-              <div className="source-list-empty">暂未添加资料，你仍然可以继续确认学习需求。</div>
-            ) : (
-              sources.map((source) => (
-                <div className="source-row" key={source.id}>
-                  <span className={`source-type ${source.type.toLowerCase()}`}>
-                    <SourceTypeIcon type={source.type} />
-                    <small>{source.type}</small>
-                  </span>
-                  <div className="source-name">
-                    <strong>{source.name}</strong>
-                    <span>{source.size ?? "平台资源"}</span>
-                  </div>
-                  <span className="source-purpose">{source.purpose}</span>
-                  <span className={`source-state ${source.state}`}>
-                    {source.state === "ready" ? (
-                      <>
-                        <CircleCheck size={16} />
-                        已就绪
-                      </>
-                    ) : (
-                      <>
-                        <span className="processing-dot" />
-                        解析中
-                        <small>约 1 分钟</small>
-                      </>
-                    )}
-                  </span>
-                  <button
-                    aria-label={`移除${source.name}`}
-                    className="remove-source"
-                    onClick={() => updateSources(sources.filter((item) => item.id !== source.id))}
-                    type="button"
-                  >
-                    <X size={17} />
-                  </button>
-                </div>
-              ))
-            )}
-          </div>
-        </section>
-
-        <section className="official-source">
-          <div>
-            <span className="official-icon"><BookOpen size={20} /></span>
-            <div>
-              <strong>计算机组成原理 · 官方基础资源</strong>
-              <span>包含核心概念、常见考点和基础练习</span>
-            </div>
-          </div>
-          <span className="official-state">{officialAdded ? "已加入课程" : "尚未添加"}</span>
-          <button className="button secondary compact" onClick={toggleOfficial} type="button">
-            {officialAdded ? "移除" : "添加"}
-          </button>
-        </section>
-
-        <div className="sources-footer">
-          <button className="button secondary" onClick={() => {
-            updateSources([]);
-            setOfficialAdded(false);
-          }} type="button">
-            暂不添加
-          </button>
-          <button className="button primary" onClick={continueToProfile} type="button">
-            继续确认学习需求
-          </button>
-        </div>
-        <p className="privacy-note"><LockKeyhole size={13} /> 资料仅用于本课程学习。</p>
-      </div>
-    </SetupShell>
-  );
-}
-
-type ProfileKey = "goal" | "level" | "pace" | "focus" | "sources" | "suggestion";
-
-const profileMeta: Array<{
-  key: ProfileKey;
-  title: string;
-  icon: typeof Target;
-  source: string;
-}> = [
-  { key: "goal", title: "学习目标", icon: Target, source: "你的输入" },
-  { key: "level", title: "当前基础", icon: UserRound, source: "你的回答" },
-  { key: "pace", title: "推进方式", icon: Clock3, source: "你的输入" },
-  { key: "focus", title: "学习重点", icon: Sparkles, source: "资料识别" },
-  { key: "sources", title: "课程资料", icon: File, source: "资料选择" },
-  { key: "suggestion", title: "系统建议", icon: Sparkles, source: "AI 建议" },
-];
-
-export function ConfirmProfilePage() {
-  const navigate = useNavigate();
-  const sources = readSources();
-  const [editing, setEditing] = useState<ProfileKey | null>(null);
-  const [profile, setProfile] = useState({
-    goal: sessionStorage.getItem("mentora-course-goal") || "两周后完成计算机组成原理重点复习",
-    level: sessionStorage.getItem("mentora-course-level") || "了解基础",
-    pace: "按阶段推进，有时间时可以连续学习多个任务",
-    focus: "存储系统、指令系统、CPU 组成与工作原理",
-    sources: `${sources.length} 项资料，其中 ${sources.filter((source) => source.state === "processing").length} 项仍在解析`,
-    suggestion: "建议分为 4 个阶段，从基础梳理开始，并根据检查结果动态加快",
-  });
-
-  function editValue(key: ProfileKey, value: string) {
-    setProfile((current) => ({ ...current, [key]: value }));
-    setEditing(null);
-  }
-
-  function generatePlan() {
-    sessionStorage.setItem("mentora-course-profile", JSON.stringify(profile));
-    navigate("/courses/new/plan");
+    try {
+      const resp = await inquiryNext(sessionId!, value);
+      if (resp.ready) {
+        setReady(true);
+      } else if (resp.questions && resp.questions.length > 0) {
+        setCurrent(resp.questions[0]);
+        setRound((r) => r + 1);
+      }
+    } catch (err: unknown) {
+      // 回答失败时恢复当前问题供重试
+      setCurrent(prevQuestion);
+      setError(err instanceof Error ? err.message : "回答提交失败");
+    } finally {
+      setAnswering(false);
+    }
   }
 
   return (
-    <SetupShell current={4}>
-      <div className="profile-page">
-        <div className="setup-heading compact-heading">
-          <h1>确认学习需求</h1>
-          <p>请确认或补充以下信息，AI 将基于这些事实生成学习方案。</p>
+    <SetupShell
+      current={4}
+      leftAside={
+        <AiMessageBubble visible={!!current?.guidance || !!error}>
+          {error || current?.guidance || ""}
+        </AiMessageBubble>
+      }
+      footer={
+        <div className="setup-footer">
+          <button className="button secondary" onClick={() => navigate("/courses/new/materials")} type="button">
+            <ArrowLeft size={15} /> 上一步
+          </button>
+          <div className="footer-buttons">
+            <button className="button primary" onClick={() => navigate("/courses/new/plan")} type="button">
+              <Sparkles size={16} /> {ready ? "生成学习方案" : "停止追问 → 生成方案"}
+            </button>
+          </div>
         </div>
+      }
+    >
+      <div className="inquiry-page">
+        <div className="inquiry-main">
+          <div className="setup-heading compact-heading">
+            <h1>信息追问</h1>
+            <p>
+              AI 正在根据你的目标进一步确认需求。
+              {round > 0 && (
+                <span className="inquiry-progress">已收集 {round} 轮信息</span>
+              )}
+            </p>
+          </div>
 
-        <div className="profile-summary-list">
-          {profileMeta.map(({ key, title, icon: Icon, source }) => (
-            <section className={`profile-summary-row ${key === "suggestion" ? "suggested" : ""}`} key={key}>
-              <Icon size={23} />
-              <div className="profile-copy">
-                <div>
-                  <h2>{title}</h2>
-                  <span>来源：{source}</span>
-                </div>
-                {editing === key ? (
-                  <div className="inline-editor">
-                    <input
-                      autoFocus
-                      defaultValue={profile[key]}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter") {
-                          editValue(key, event.currentTarget.value);
-                        }
-                      }}
-                    />
-                    <button
-                      onClick={(event) => {
-                        const input = event.currentTarget.previousElementSibling as HTMLInputElement;
-                        editValue(key, input.value);
-                      }}
-                      type="button"
-                    >
-                      保存
-                    </button>
-                  </div>
-                ) : (
-                  <p>{profile[key]}</p>
-                )}
-              </div>
-              <button className="modify-button" onClick={() => setEditing(key)} type="button">
-                修改 <ChevronRight size={15} />
+          {loading && (
+            <div className="question-block">
+              <MentoraLoader message="AI 正在分析你的需求…" size={140} />
+            </div>
+          )}
+
+          {error && !loading && (
+            <div className="question-block">
+              <p className="error-text">{error}</p>
+              <button className="button secondary" onClick={() => { setError(""); fetchNext(); }} type="button">
+                重试
               </button>
+            </div>
+          )}
+
+          {ready && !loading && (
+            <div className="question-block">
+              <h2>信息已足够！</h2>
+              <p>AI 已收集到足够的信息，可以为你生成个性化的学习方案。</p>
+            </div>
+          )}
+
+          {answering && !loading && (
+            <div className="question-block">
+              <MentoraLoader message="AI 分析中…" size={100} />
+            </div>
+          )}
+
+          {current && !loading && !error && !answering && (
+            <section className="question-block">
+              <p className="question-index">当前问题</p>
+              <h2>{current.text}</h2>
+
+              {current.type === "multi_choice" && (
+                <MultiChoiceQ options={current.options} onAnswer={handleAnswer} disabled={answering} />
+              )}
+              {current.type === "single_choice" && (
+                <SingleChoiceQ options={current.options} onAnswer={handleAnswer} disabled={answering} />
+              )}
+              {current.type === "free_text" && (
+                <FreeTextQ onAnswer={handleAnswer} disabled={answering} />
+              )}
             </section>
-          ))}
+          )}
         </div>
-
-        <div className="profile-footer">
-          <button className="button secondary" onClick={() => navigate("/courses/new/sources")} type="button">
-            <ArrowLeft size={17} />
-            返回修改资料
-          </button>
-          <button className="button primary" onClick={generatePlan} type="button">
-            <Sparkles size={17} />
-            生成学习方案
-          </button>
-        </div>
-        <p className="privacy-note"><LockKeyhole size={13} /> 以上内容可随时修改，方案生成后也可以继续调整。</p>
       </div>
     </SetupShell>
   );
 }
+
+function MultiChoiceQ({
+  options,
+  onAnswer,
+  disabled = false,
+}: {
+  options: string[];
+  onAnswer: (v: string) => void;
+  disabled?: boolean;
+}) {
+  const [selected, setSelected] = useState<string[]>([]);
+  return (
+    <div>
+      <div className="choice-grid">
+        {options.map((opt) => (
+          <button
+            key={opt}
+            aria-pressed={selected.includes(opt)}
+            className={selected.includes(opt) ? "choice selected" : "choice"}
+            disabled={disabled}
+            onClick={() =>
+              setSelected((prev) =>
+                prev.includes(opt) ? prev.filter((o) => o !== opt) : [...prev, opt],
+              )
+            }
+            type="button"
+          >
+            {opt}
+          </button>
+        ))}
+      </div>
+      <button
+        className="button secondary"
+        disabled={selected.length === 0 || disabled}
+        onClick={() => onAnswer(selected.join("、"))}
+        style={{ marginTop: 16 }}
+        type="button"
+      >
+        确认
+      </button>
+    </div>
+  );
+}
+
+function SingleChoiceQ({
+  options,
+  onAnswer,
+  disabled = false,
+}: {
+  options: string[];
+  onAnswer: (v: string) => void;
+  disabled?: boolean;
+}) {
+  const [picked, setPicked] = useState("");
+  return (
+    <div>
+      <div className="choice-grid">
+        {options.map((opt) => (
+          <button
+            key={opt}
+            aria-pressed={picked === opt}
+            className={picked === opt ? "choice selected" : "choice"}
+            disabled={disabled}
+            onClick={() => {
+              setPicked(opt);
+              onAnswer(opt);
+            }}
+            type="button"
+          >
+            {opt}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function FreeTextQ({ onAnswer, disabled = false }: { onAnswer: (v: string) => void; disabled?: boolean }) {
+  const [text, setText] = useState("");
+  return (
+    <div className="free-text-block">
+      <textarea
+        autoFocus
+        className="free-text-input"
+        disabled={disabled}
+        maxLength={500}
+        onChange={(e) => setText(e.target.value)}
+        placeholder="请简要描述你的想法…"
+        value={text}
+      />
+      <button
+        className="button secondary"
+        disabled={text.trim().length < 1 || disabled}
+        onClick={() => onAnswer(text.trim())}
+        type="button"
+      >
+        确认
+      </button>
+    </div>
+  );
+}
+
+/* ── 步骤 5：确认方案（v5 真滚动 + scroll-snap + 箭头形阶段块）── */
 
 type Phase = {
   id: string;
@@ -424,156 +288,246 @@ type Phase = {
   tasks: string[];
 };
 
-const initialPhases: Phase[] = [
-  {
-    id: "foundation",
-    name: "基础梳理",
-    goal: "建立完整知识框架，理解核心概念与基本原理。",
-    share: 25,
-    tasks: ["理解计算机系统的层次结构", "掌握数据的表示与运算", "理解指令系统与寻址方式", "理解存储系统的基本组成"],
-  },
-  {
-    id: "focus",
-    name: "重点突破",
-    goal: "集中突破考试高频主题和当前薄弱环节。",
-    share: 35,
-    tasks: ["Cache 映射与替换策略", "CPU 数据通路", "指令流水线与相关冲突"],
-  },
-  {
-    id: "application",
-    name: "综合应用",
-    goal: "通过综合问题建立跨主题联系。",
-    share: 25,
-    tasks: ["综合计算题", "跨章节概念辨析", "典型题型迁移练习"],
-  },
-  {
-    id: "review",
-    name: "检验巩固",
-    goal: "检查掌握情况并安排针对性回顾。",
-    share: 15,
-    tasks: ["阶段检查", "错题回顾", "考前快速复盘"],
-  },
-];
+/** 计算 block 在给定 index 的 offsetLeft（含 margin-left: -4px 累积偏移） */
+function offsetOf(index: number, blockBasis: number) {
+  if (index <= 0) return 0;
+  return index * blockBasis - 4 * index;
+}
 
 export function ConfirmPlanPage() {
   const navigate = useNavigate();
-  const [phases, setPhases] = useState(initialPhases);
-  const [activePhaseId, setActivePhaseId] = useState(initialPhases[0].id);
-  const activePhase = useMemo(
-    () => phases.find((phase) => phase.id === activePhaseId) ?? phases[0],
-    [activePhaseId, phases],
-  );
+  const { items, addItem, sessionId } = useCourseCreation();
+  const [courseTitle, setCourseTitle] = useState("");
+  const [phases, setPhases] = useState<Phase[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [starting, setStarting] = useState(false);
 
-  function adjustActivePhase(direction: "simplify" | "deepen") {
-    setPhases((current) =>
-      current.map((phase) => {
-        if (phase.id !== activePhaseId) return phase;
-        if (direction === "simplify") {
-          return {
-            ...phase,
-            share: Math.max(10, phase.share - 5),
-            tasks: phase.tasks.length > 2 ? phase.tasks.slice(0, -1) : phase.tasks,
-          };
+  const [activeIndex, setActiveIndex] = useState(0);
+  const navRef = useRef<HTMLDivElement>(null);
+  const targetRef = useRef(0); // 当前滚动的目标 phase index
+  const planRef = useRef(false); // 防 StrictMode 多次生成
+  const N = phases.length;
+
+  const activePhase = useMemo(() => phases[activeIndex] ?? phases[0], [activeIndex, phases]);
+
+  useEffect(() => {
+    if (planRef.current) return;
+    planRef.current = true;
+    if (!sessionId) {
+      setError("未找到建课会话，请返回第一步重新开始。");
+      setLoading(false);
+      return;
+    }
+
+    async function loadPlan() {
+      try {
+        const resp = await generatePlan(sessionId!);
+        if (resp.title) {
+          setCourseTitle(resp.title);
+          addItem({ key: "title", title: "课程名称", value: resp.title, source: "AI 生成" });
         }
-        return {
-          ...phase,
-          share: Math.min(50, phase.share + 5),
-          tasks: phase.tasks.includes("补充迁移练习") ? phase.tasks : [...phase.tasks, "补充迁移练习"],
-        };
-      }),
-    );
-  }
+        const mapped: Phase[] = resp.phases.map((phase, index) => ({
+          id: `phase_${index}`,
+          name: phase.name,
+          goal: phase.goal,
+          share: phase.share,
+          tasks: phase.tasks,
+        }));
+        setPhases(mapped);
+        setActiveIndex(0);
+        targetRef.current = 0;
+        if (resp.revision_id) {
+          sessionStorage.setItem("mentora-revision-id", resp.revision_id);
+        }
+      } catch (err: unknown) {
+        setError(err instanceof Error ? err.message : "方案生成失败");
+      } finally {
+        setLoading(false);
+      }
+    }
 
-  function startCourse() {
-    sessionStorage.setItem("mentora-course-started", "true");
+    void loadPlan();
+  }, [addItem, sessionId]);
+
+  async function startCourse() {
+    if (!sessionId || starting) return;
+    setStarting(true);
+    try {
+      await startCourseSession(sessionId);
+    } catch {
+      // API 调用失败也允许进入学习（方案已在前端展示）
+    }
+    sessionStorage.setItem("mentora-course-started", sessionId);
     navigate("/courses");
   }
 
+  /* ── 统一滚动到 phase[index]，含「目标在第 3 可见位」规则 ── */
+  const scrollToPhase = useCallback(
+    (index: number) => {
+      const el = navRef.current;
+      if (!el) return;
+      targetRef.current = index;
+      setActiveIndex(index);
+      const basis = el.clientWidth / 4;
+      // 目标 block 落在左起第 3 位（index - 2 的 snap）；snapIndex 不能超过 N-4（保证始终 4 块可见）
+      const snapIndex = Math.max(0, Math.min(index - 2, N - 4));
+      el.scrollTo({ left: offsetOf(snapIndex, basis), behavior: "smooth" });
+    },
+    [N],
+  );
+
+  /* ── Wheel → 滚动一块并 snap ── */
+  const handleWheel = useCallback(
+    (e: React.WheelEvent) => {
+      e.preventDefault();
+      if (N <= 1) return;
+      const dir = e.deltaY > 0 ? 1 : -1;
+      const next = Math.max(0, Math.min(N - 1, targetRef.current + dir));
+      if (next === targetRef.current) return;
+      scrollToPhase(next);
+    },
+    [N, scrollToPhase],
+  );
+
+  /* ── Click → 滚动到目标块 ── */
+  const handleClick = useCallback(
+    (index: number) => {
+      if (index === targetRef.current) return;
+      scrollToPhase(index);
+    },
+    [scrollToPhase],
+  );
+
   return (
-    <SetupShell current={5}>
+    <SetupShell
+      current={5}
+      hideInfoBar
+      footer={
+        <div className="setup-footer">
+          <button className="button secondary" onClick={() => navigate("/courses/new/inquiry")} type="button">
+            返回修改需求
+          </button>
+          <button className="button primary" disabled={loading || starting} onClick={startCourse} type="button">
+            {starting ? "启动中…" : "开始学习"}
+          </button>
+        </div>
+      }
+    >
       <div className="plan-page">
         <div className="setup-heading compact-heading">
-          <h1>确认学习方案</h1>
-          <p>AI 已根据你的需求生成阶段方案，请确认并按需调整。</p>
+          {courseTitle && <h1 className="course-title-main">「{courseTitle}」</h1>}
+          <h2 className="course-title-sub">学习方案确认</h2>
+          <p>{loading ? "AI 正在生成方案…" : error ? "方案生成遇到问题" : "AI 已根据你的需求生成阶段方案，请确认并按需调整。"}</p>
         </div>
 
-        <section className="plan-goal">
-          <Target size={24} />
-          <div>
-            <strong>学习目标</strong>
-            <p>两周后完成计算机组成原理重点复习，掌握考试高频知识点。</p>
+        {loading && (
+          <div className="question-block">
+            <MentoraLoader message="AI 正在根据你的信息生成个性化学习方案…" size={160}>
+              <p style={{ margin: 0, fontSize: 13, color: "var(--quiet)", maxWidth: 320, textAlign: "center", lineHeight: 1.7 }}>
+                这将需要一点时间，请稍候。
+              </p>
+            </MentoraLoader>
           </div>
-          <button onClick={() => navigate("/courses/new/profile")} type="button">修改</button>
-        </section>
+        )}
 
-        <div className="phase-heading">
-          <h2>学习阶段 <span>（共 {phases.length} 个阶段）</span></h2>
-          <small>阶段是主要结构，完成节奏可根据实际情况调整。</small>
-        </div>
+        {error && (
+          <div className="question-block">
+            <p className="error-text">{error}</p>
+            <button className="button secondary" onClick={() => window.location.reload()} type="button">
+              重试
+            </button>
+          </div>
+        )}
 
-        <div className="phase-path">
-          {phases.map((phase, index) => (
-            <div className="phase-path-item" key={phase.id}>
-              <button
-                aria-pressed={phase.id === activePhaseId}
-                className={phase.id === activePhaseId ? "active" : ""}
-                onClick={() => setActivePhaseId(phase.id)}
-                type="button"
-              >
-                <span>{index + 1}</span>
-                {phase.name}
-              </button>
-              {index < phases.length - 1 ? <ArrowRight size={18} /> : null}
+        {!loading && !error && phases.length > 0 && (
+          <>
+            <div className="plan-info-section plan-expanded">
+              <h3 className="plan-info-heading">
+                <Sparkles size={16} /> 学习档案
+              </h3>
+              <dl className="info-bar-list plan-info-list">
+                {(() => {
+                  const titleItem = items.find((item) => item.key === "title");
+                  if (!titleItem) return null;
+                  return (
+                    <div className="info-bar-row" key={titleItem.key}>
+                      <dt data-tooltip={titleItem.title}><span className="info-bar-label">{titleItem.title}</span></dt>
+                      <dd data-tooltip={titleItem.value}>
+                        <span className="info-bar-value">{titleItem.value}</span>
+                      </dd>
+                    </div>
+                  );
+                })()}
+                {items.filter((item) => item.key !== "title").map((item) => {
+                  const isInquiry = item.key === "inquiry";
+                  return (
+                    <div className="info-bar-row" key={item.key}>
+                      <dt data-tooltip={item.title}><span className="info-bar-label">{item.title}</span></dt>
+                      <dd data-tooltip={isInquiry ? item.value.replace(/\n/g, " ") : item.value}>
+                        <span className={`info-bar-value${isInquiry ? " inquiry-value" : ""}`}>{item.value}</span>
+                      </dd>
+                    </div>
+                  );
+                })}
+              </dl>
             </div>
-          ))}
-        </div>
 
-        <section className="phase-detail">
-          <div className="phase-detail-row">
-            <span><Target size={18} /> 阶段目标</span>
-            <p>{activePhase.goal}</p>
-          </div>
-          <div className="phase-detail-row">
-            <span><ListTree size={18} /> 相对学习量</span>
-            <div className="share-display">
-              <strong>约占全部内容的 {activePhase.share}%</strong>
-              <div>
-                {[10, 20, 30, 40, 50, 60].map((threshold) => (
-                  <i className={activePhase.share >= threshold ? "filled" : ""} key={threshold} />
+            <div className="phase-heading">
+              <h2>学习计划 <span>（共 {phases.length} 个阶段）</span></h2>
+              <small>阶段是主要结构，完成节奏可根据实际情况调整。</small>
+            </div>
+
+            {/* ── 真滚动滑轨 ── */}
+            <div className="phase-track" ref={navRef} onWheel={handleWheel}>
+              <div className="phase-track-window">
+                {phases.map((phase, i) => (
+                  <div
+                    key={phase.id}
+                    className={`phase-block${i === activeIndex ? " active" : ""}`}
+                    onClick={() => handleClick(i)}
+                  >
+                    <span className="phase-block-num">{i + 1}</span>
+                    <span className="phase-block-name">{phase.name}</span>
+                  </div>
                 ))}
               </div>
             </div>
-          </div>
-          <div className="phase-detail-row task-detail">
-            <span><FileText size={18} /> 代表性任务</span>
-            <ul>
-              {activePhase.tasks.slice(0, 5).map((task) => <li key={task}>{task}</li>)}
-            </ul>
-          </div>
-          <div className="phase-operations">
-            <span>本阶段操作</span>
-            <button onClick={() => adjustActivePhase("simplify")} type="button">
-              <ArrowDown size={16} /> 简化阶段
-            </button>
-            <button onClick={() => adjustActivePhase("deepen")} type="button">
-              <ArrowUp size={16} /> 加强阶段
-            </button>
-            <button type="button">
-              <ListTree size={16} /> 查看全部任务
-            </button>
-          </div>
-        </section>
 
-        <div className="plan-footer">
-          <button className="button secondary" onClick={() => navigate("/courses/new/profile")} type="button">
-            返回修改学习需求
-          </button>
-          <button className="button primary" onClick={startCourse} type="button">
-            开始学习
-          </button>
-        </div>
-        <p className="privacy-note"><LockKeyhole size={13} /> 开始后仍可调整阶段顺序、内容重点和学习节奏。</p>
+            <section className="phase-detail">
+              <div className="phase-detail-row">
+                <span><Target size={18} /> 阶段目标</span>
+                <p>{activePhase?.goal || "请在上方选择一个阶段"}</p>
+              </div>
+              <div className="phase-detail-row">
+                <span><ListTree size={18} /> 相对学习量</span>
+                <div className="share-display">
+                  <strong>约占全部内容的 {activePhase?.share ?? 0}%</strong>
+                  <div>
+                    {[10, 20, 30, 40, 50, 60].map((threshold) => (
+                      <i className={(activePhase?.share ?? 0) >= threshold ? "filled" : ""} key={threshold} />
+                    ))}
+                  </div>
+                </div>
+              </div>
+              <div className="phase-detail-row task-detail">
+                <span><FileText size={18} /> 代表性任务</span>
+                <ul>
+                  {(activePhase?.tasks ?? []).slice(0, 5).map((task) => <li key={task}>{task}</li>)}
+                </ul>
+              </div>
+              <div className="phase-operations">
+                <span>本阶段操作</span>
+                <button type="button">
+                  <ListTree size={16} /> 查看全部任务
+                </button>
+              </div>
+            </section>
+            <p className="privacy-note"><LockKeyhole size={13} /> 开始后仍可调整阶段顺序、内容重点和学习节奏。</p>
+          </>
+        )}
+
       </div>
     </SetupShell>
-  );
+  )
 }

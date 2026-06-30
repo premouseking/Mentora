@@ -1,0 +1,135 @@
+# 解析增强开发记录
+
+- 日期：2026-06-16
+- 关联架构：`docs/architecture/technical-solution.md` §5
+- 前置：`docs/dev-log-2026-06-13-m2-m3.md`
+
+## P1：多列阅读顺序恢复（2026-06-16）
+
+### 做了什么
+
+修复 PyMuPDF 按物理 block 顺序提取导致多列 PDF 左右栏内容交错的问题。
+
+**核心算法：**
+
+1. 收集所有 ParsedElement 的 bbox.x0 值
+2. 若 x0 跨度 < 页宽 30% → 单栏，不重排
+3. 找 x0 值序列中的最大自然间隙（1D 聚类），间隙中点为分栏线
+4. 间隙 > 页宽 5% 才视为有效分栏，否则单栏
+5. 每栏内按 y0 降序排列（PDF 左下角原点，y 越大越靠上 → 从上到下阅读顺序）
+6. 检测 3+ 栏时向 ParsedBundle.warnings 追加警告
+
+**设计决策：**
+- 用最大间隙法而非中位数法：中位数在左右栏元素数不均时会被拉入多的那组，导致一侧为空
+- 3+ 栏不强行递归拆分——复杂排版的阅读顺序语义不确定，标记警告、尽力按左→右输出
+
+### 文件清单
+
+| 文件 | 说明 |
+|---|---|
+| `mentora/parsing/adapters/column_reorder.py`（新建） | `reorder_elements()` + `_find_split_point()` |
+| `mentora/parsing/adapters/pymupdf.py` | 修改：`_extract_elements` 改为返回 `tuple[list, list]`，末尾调用 `reorder_elements`；`parse()` 传递 `page_width` |
+| `apps/api/tests/test_column_reorder.py`（新建） | 9 个测试 |
+
+### 测试覆盖
+
+1. `test_similar_x0_preserves_order` — 单栏 x0 集中，保持原序
+2. `test_narrow_range_no_split` — x0 跨度不足 30% 页宽，不重排
+3. `test_left_then_right` — 双栏：左栏完整在前，右栏在后
+4. `test_small_gap_treated_as_single` — 栏间间隙不足 5% 页宽，视为单栏
+5. `test_three_columns_warns` — 三栏产生警告
+6. `test_empty_list` — 空列表
+7. `test_single_element` — 单元素
+8. `test_no_bbox_elements_at_end` — 无 bbox 元素保持末尾
+9. `test_y0_descending_within_column` — 栏内 y0 降序验证
+
+### 验证命令
+
+```bash
+cd apps/api
+.venv/bin/python -m pytest tests/test_column_reorder.py -v
+```
+
+## 待完成
+
+| 任务 | 说明 | 状态 |
+|---|---|---|
+| P3 | OCR 方案预研 | **暂缓**——已记录方案，待后续启动 |
+
+---
+
+## P3：OCR 方案预研（暂缓）
+
+### 目标
+
+评估 Tesseract vs PaddleOCR vs MinerU，为纯图片 PDF 的 OCR 选型。
+
+### 评估维度
+
+| 维度 | 说明 |
+|---|---|
+| 安装复杂度 | 依赖数量、是否需要 GPU、系统包依赖 |
+| 中文识别准确率 | 对中文学术/教材 PDF 的识别质量 |
+| 处理速度 | 单页 A4 图片 PDF 耗时 |
+| 维护成本 | 社区活跃度、更新频率 |
+
+### 候选方案
+
+| 方案 | 类型 | 优势 | 劣势 |
+|---|---|---|---|
+| **Tesseract** | 传统 OCR | apt 直接安装，轻量稳定 | 中文需额外下载语言包，复杂排版效果差 |
+| **PaddleOCR** | 深度学习 OCR | 中文识别 SOTA，支持表格/公式识别 | 需安装 paddlepaddle，重量级 |
+| **MinerU** | 端到端 PDF 解析 | PDF→Markdown 完整流程，自动处理表格/公式/阅读顺序 | 最重量级，GPU 依赖强 |
+
+### 待执行事项
+
+1. 在本机安装 3 个方案中最可行的一个
+2. 对纯图片 PDF（当前抛 `ImageOnlyPDFError`）生成 OCR 文本
+3. 写 `docs/ocr-presearch-report.md`：推荐方案 + 理由 + 性能数据
+
+**不纳入**完整 OCR 集成，仅技术验证。
+
+## P2：表格提取 POC（2026-06-16）
+
+### 做了什么
+
+集成 PyMuPDF `page.find_tables()` API，对含原生线条表格的 PDF 提取结构化 TABLE 元素。
+
+**实现方式：**
+
+1. 在 `_extract_elements` 中先提取文本元素，再调用 `_merge_tables()` 检测表格
+2. 对每个检测到的表格，将区域内文本元素替换为 `TABLE` 类型元素
+3. 表格 text 以 TSV 格式存储：首行 `TSV(行x列)`，后续为 `col1\tcol2\t...`
+4. `find_tables()` 不可用或无表格时保持原行为不变
+
+**调研结论：**
+- 可检测：Word/LaTeX 导出的原生线条表格（边框用 PDF 线条绘制）
+- 不可检测：HTML 嵌入表格、无线框表格、扫描版图片表格
+- 合并单元格处理可能有偏差
+- 安装 `pymupdf_layout` 可改善布局分析（未安装）
+
+详见 `docs/table-extraction-poc.md`。
+
+### 文件清单
+
+| 文件 | 说明 |
+|---|---|
+| `mentora/parsing/adapters/pymupdf.py` | 新增 `_merge_tables()`；`_extract_elements` 增加 `fitz_page` 参数，先合并表格再列重排 |
+| `apps/api/tests/test_table_extraction.py`（新建） | 6 个测试 |
+| `docs/table-extraction-poc.md`（新建） | 调研报告 |
+
+### 测试覆盖
+
+1. `test_no_table_in_normal_pdf` — 普通 PDF 不产生 TABLE 元素
+2. `test_table_detected` — 原生线条表格被检测
+3. `test_table_has_tsv_text` — 表格文本为 TSV 格式
+4. `test_table_has_bbox` — 表格元素有 bbox
+5. `test_parse_with_table_does_not_crash` — 含表格 PDF 解析不崩溃
+6. `test_table_does_not_duplicate_content` — 表格内容不在非 TABLE 元素中重复
+
+### 验证命令
+
+```bash
+cd apps/api
+.venv/bin/python -m pytest tests/test_table_extraction.py -v
+```

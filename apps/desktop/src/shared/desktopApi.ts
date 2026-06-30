@@ -25,6 +25,15 @@ export interface AuthStatus {
   displayName?: string;
 }
 
+export interface AuthCredentials {
+  email: string;
+  password: string;
+}
+
+export interface AuthRegisterRequest extends AuthCredentials {
+  displayName?: string;
+}
+
 /** 约束：仅相对 path；token 由 main 注入（§5.1） */
 export interface ApiRequest {
   path: string;
@@ -92,19 +101,14 @@ export interface NotificationRequest {
   route?: string;
 }
 
-export interface DeepLink {
-  domain: string;
-  path: string;
-  params: Record<string, string>;
-}
-
 export interface MentoraDesktopApi {
   app: {
     getInfo(): Promise<AppInfo>;
   };
   auth: {
     getStatus(): Promise<AuthStatus>;
-    login(): Promise<AuthStatus>;
+    login(credentials: AuthCredentials): Promise<AuthStatus>;
+    register(request: AuthRegisterRequest): Promise<AuthStatus>;
     logout(): Promise<void>;
     onChanged(listener: (status: AuthStatus) => void): Unsubscribe;
   };
@@ -141,7 +145,6 @@ export interface MentoraDesktopApi {
     minimize(): Promise<void>;
     toggleMaximize(): Promise<void>;
     close(): Promise<void>;
-    onDeepLink(listener: (link: DeepLink) => void): Unsubscribe;
   };
 }
 

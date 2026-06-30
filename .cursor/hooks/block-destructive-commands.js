@@ -1,0 +1,97 @@
+#!/usr/bin/env node
+/**
+ * Cursor beforeShellExecution hook：拦截破坏性 shell 命令。
+ *
+ * 约束：Git 写操作须经开发者确认；文件删除类命令继续拦截。
+ */
+
+let raw = "";
+process.stdin.setEncoding("utf8");
+process.stdin.on("data", (c) => (raw += c));
+process.stdin.on("end", () => {
+  let command = "";
+  try {
+    command = (JSON.parse(raw).command || "").toString();
+  } catch {
+    return allow();
+  }
+
+  const cmd = command.trim();
+
+  // ── Git 写操作（add / commit / push / pull / merge / rebase / stash 等）────────
+  if (
+    /\bgit\b[\s\S]*\b(add|commit|push|pull|merge|rebase|cherry-pick|stash)\b/.test(
+      cmd
+    )
+  ) {
+    return ask(
+      "Git 写操作需要确认",
+      "检测到 Git 写操作（add/commit/push/pull/merge/rebase/stash 等）。请确认当前命令、分支流向与文件范围是否符合预期。"
+    );
+  }
+
+  // ── git reset（含 --hard / --mixed 等）────────────────────────────────────────
+  if (/\bgit\b[\s\S]*\breset\b/.test(cmd)) {
+    return ask(
+      "git reset 需要单独确认",
+      "git reset 会改写暂存区或丢弃本地改动。请确认当前命令不会覆盖开发者需要保留的改动。"
+    );
+  }
+
+  // ── git checkout 还原文件或切换分支 ─────────────────────────────────────────────
+  if (/\bgit\b[\s\S]*\bcheckout\b/.test(cmd)) {
+    return ask(
+      "git checkout 需要确认",
+      "git checkout 可能丢弃本地改动或切换分支。请确认目标分支或文件路径正确。"
+    );
+  }
+
+  // ── git restore / git switch ───────────────────────────────────────────────────
+  if (/\bgit\b[\s\S]*\b(restore|switch)\b/.test(cmd)) {
+    return ask(
+      "git restore/switch 需要确认",
+      "git restore/switch 会改写工作区或切换分支。请确认不会覆盖需要保留的改动。"
+    );
+  }
+
+  // ── 文件删除（Unix / PowerShell）──────────────────────────────────────────────
+  if (/(^|[;&|`|\s])rm(\s|$|-)/.test(cmd)) {
+    return deny(
+      "⛔ rm 命令已被 Hook 拦截",
+      "rm 命令已被安全策略拦截。禁止通过 AI 直接删除文件，请使用 Delete 工具并在开发者明确要求时操作。"
+    );
+  }
+  if (/\b(Remove-Item|ri)\b/i.test(cmd) && /\b(-Recurse|-Force|-rf)\b/i.test(cmd)) {
+    return deny(
+      "⛔ Remove-Item 删除命令已被 Hook 拦截",
+      "PowerShell 递归/强制删除已被安全策略拦截。请让开发者手动决策或使用 Delete 工具。"
+    );
+  }
+  if (/\b(rmdir|rd)\b/i.test(cmd) && /\b(\/s|\/q|-Recurse)\b/i.test(cmd)) {
+    return deny(
+      "⛔ rmdir/rd 删除命令已被 Hook 拦截",
+      "目录删除命令已被安全策略拦截，请让开发者手动决策。"
+    );
+  }
+
+  return allow();
+});
+
+function allow() {
+  process.stdout.write(JSON.stringify({ permission: "allow" }));
+  process.exit(0);
+}
+
+function ask(user_message, agent_message) {
+  process.stdout.write(
+    JSON.stringify({ permission: "ask", user_message, agent_message })
+  );
+  process.exit(0);
+}
+
+function deny(user_message, agent_message) {
+  process.stdout.write(
+    JSON.stringify({ permission: "deny", user_message, agent_message })
+  );
+  process.exit(0);
+}

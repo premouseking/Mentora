@@ -1,14 +1,27 @@
 import { app } from "electron";
 import path from "node:path";
 
-export const APP_PROTOCOL = "mentora";
-
 export const DEV_SERVER_URL = process.env.MENTORA_DEV_SERVER_URL ?? null;
+export const OBJECT_STORAGE_ORIGIN = process.env.MENTORA_OBJECT_STORAGE_ORIGIN ?? null;
 
 export const isDev = !app.isPackaged;
 
-export const API_BASE_URL =
-  process.env.MENTORA_API_BASE_URL ?? "http://127.0.0.1:8000/api";
+/** 开发态默认跳过认证门禁；设 MENTORA_DEV_AUTH_BYPASS=0 可验证完整登录流程 */
+export function isDevAuthBypassEnabled(): boolean {
+  return isDev && process.env.MENTORA_DEV_AUTH_BYPASS !== "0";
+}
+
+export const DEV_AUTH_BYPASS_ACCOUNT_ID = "dev-bypass";
+
+function requiredEnv(name: string): string {
+  const value = process.env[name];
+  if (!value) {
+    throw new Error(`${name} is required`);
+  }
+  return value;
+}
+
+export const API_BASE_URL = requiredEnv("MENTORA_API_BASE_URL");
 
 /** 约束：桥接拒绝不在 allowlist 内的 path（§5.1） */
 export const API_PATH_ALLOWLIST: readonly string[] = [
@@ -16,6 +29,7 @@ export const API_PATH_ALLOWLIST: readonly string[] = [
   "/auth/",
   "/courses",
   "/sources",
+  "/library",
   "/uploads",
   "/events",
   "/assessments",
@@ -31,6 +45,13 @@ export const MAX_API_BODY_BYTES = 1024 * 1024;
 
 export function resolvePreloadPath(): string {
   return path.join(__dirname, "..", "preload", "index.cjs");
+}
+
+export function resolveWindowIconPath(): string | undefined {
+  if (!isDev) return undefined;
+  // 与 preload 一致：bundle 在 dist/main，build 资源在项目根 build/
+  const fileName = process.platform === "win32" ? "icon.ico" : "icon-dev.png";
+  return path.resolve(__dirname, "..", "..", "build", fileName);
 }
 
 export function resolveRendererTarget():
@@ -50,4 +71,15 @@ export function allowedNavigationOrigins(): string[] {
     return [new URL(DEV_SERVER_URL).origin];
   }
   return [];
+}
+
+export function allowedConnectSources(): string[] {
+  const sources = [API_BASE_URL];
+  if (isDev && DEV_SERVER_URL) {
+    sources.push(new URL(DEV_SERVER_URL).origin, DEV_SERVER_URL.replace(/^http/, "ws"));
+  }
+  if (OBJECT_STORAGE_ORIGIN) {
+    sources.push(OBJECT_STORAGE_ORIGIN);
+  }
+  return Array.from(new Set(sources.map((source) => new URL(source).origin)));
 }

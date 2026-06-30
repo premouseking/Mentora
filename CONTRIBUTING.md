@@ -1,16 +1,28 @@
 # Mentora 贡献指南
 
+Cursor Agent 自动读取 `.cursor/rules/`。本文件面向人类协作者。
+
+## AI 协作者（Cursor Agent）
+
+Git 写操作（`add`、`commit`、`push`、`merge` 等）默认由 AI 先说明计划并给出命令；开发者在当前对话明确授权后，AI 可代为执行。AI 在执行前应：
+
+1. 只读检查仓库（`status`、`diff`、`log` 等）
+2. 起草符合下方格式的 commit message
+3. 说明拟执行命令、分支流向、文件范围与风险
+
+若开发者未授权，AI 只给出可复制命令，由开发者在本地终端执行。高风险操作（强制推送、`reset --hard`、丢弃工作区改动等）必须单独确认。细则见 `.cursor/rules/git-rules.mdc`；Shell 确认与拦截见 `.cursor/rules/shell-file-safety.mdc` 与 `.cursor/hooks/`。
+
+**语言约定：** 仓库文档（`README.md`、`docs/`、`apps/*/README.md` 等）正文使用简体中文；代码标识符、命令、环境变量名、协议字段等专有名词可保留英文。
+
 ## 开始任务前
 
 1. 阅读 `README.md`。
 2. 阅读 `docs/architecture/` 下与任务有关的文档。
 3. 阅读 `docs/project-management/team-charter.md`。
 4. 使用 `docs/project-management/templates/task-template.md` 创建任务。
-5. 确认任务满足 Definition of Ready。
+5. 确认任务满足「就绪定义」（Definition of Ready）。
 
 ## 分支命名
-
-使用短生命周期分支：
 
 ```text
 feat/<task-id>-<description>
@@ -22,47 +34,33 @@ docs/<task-id>-<description>
 
 ## Commit
 
-优先提交小而可验证的变更，并保证每次提交后分支仍可测试。
-
-提交信息使用以下格式：
-
 ```text
 <type>: <简短中文说明>
 
 <一段具体的中文改动说明>
 ```
 
-标题与正文之间必须保留一个空行。标题说明本次提交的目的，正文具体说明修改了什么、
-影响哪些模块以及必要的行为变化。
+标题与正文之间必须空一行。
 
-常用类型：
-
-- `feat`：新增用户可见功能；
-- `fix`：修复缺陷；
-- `refactor`：不改变外部行为的代码重构；
-- `docs`：仅修改文档；
-- `test`：新增或调整测试；
-- `style`：不影响逻辑的格式或视觉样式调整；
-- `perf`：性能优化；
-- `chore`：构建、依赖或工程维护；
-- `ci`：持续集成配置；
-- `revert`：撤销已有提交。
+常用类型：`feat` `fix` `refactor` `docs` `test` `style` `perf` `chore` `ci` `revert`
 
 示例：
 
 ```text
-feat: 更新课程阶段总结
+feat: 实现阶段总结与方案调整页面
 
-新增阶段学习证据、方案调整确认和进入下一阶段的交互，并连接课程主页与学习任务入口。
-
-refactor: 拆分学习任务组件
-
-将原文预览和 AI 辅助面板拆为独立组件，保持现有页面行为不变并降低页面组件复杂度。
+新增 StageSummaryPage 及相关组件，串联课程工作台与学习任务入口。
 ```
+
+## 共享契约与安全
+
+修改 IPC、REST、Event、Schema 时须同 PR 更新文档、兼容性说明与契约测试。
+
+禁止提交或记录：Token、预签名 URL、私有资料正文、隐藏测评答案、本地绝对路径。
 
 ## 验证命令
 
-Renderer 变更：
+渲染层（`apps/web`）：
 
 ```powershell
 corepack pnpm typecheck:web
@@ -70,39 +68,23 @@ corepack pnpm test:web
 corepack pnpm build:web
 ```
 
-API 变更在 `apps/api` 下运行：
+桌面端（`apps/desktop`）：
+
+```powershell
+pnpm --dir apps/desktop typecheck
+pnpm --dir apps/desktop build:bundle
+pnpm dev:desktop   # Vite HMR + nodemon 重启 Electron（改 main/preload 时）
+```
+
+API（在 `apps/api` 目录下；首次须按 [apps/api/README.md](apps/api/README.md) 创建环境并 `pip install -e ".[dev]"`）：
 
 ```powershell
 pytest
 ruff check .
 ```
 
-所有变更还需要运行：
+所有变更：
 
 ```powershell
 git diff --check
 ```
-
-如果任务需要更具体的命令，应写入任务和 PR 描述。
-
-## 共享契约
-
-修改 IPC、REST、Runtime Event、Source/Evidence Schema、模型 Schema 或
-测评 Schema 时，必须同时提供：
-
-- 生产者和消费者评审；
-- 版本或兼容性决策；
-- 契约测试；
-- 同一 PR 中的文档更新。
-
-## 安全要求
-
-禁止提交或记录：
-
-- Access Token 或 Refresh Token；
-- 对象存储签名 URL；
-- 测试不需要的私有资料正文；
-- Renderer Payload 中的隐藏测评答案；
-- 用户机器上的本地绝对路径。
-
-仓库测试 Fixture 必须使用可安全分发的合成资料或公开资料。

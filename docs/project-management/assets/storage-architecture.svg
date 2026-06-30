@@ -1,0 +1,62 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 680 440" font-family="system-ui, -apple-system, sans-serif">
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6 Z" fill="#64748B"/></marker>
+    <linearGradient id="pgGrad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#2563EB"/><stop offset="100%" stop-color="#1D4ED8"/></linearGradient>
+    <linearGradient id="objGrad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#059669"/><stop offset="100%" stop-color="#047857"/></linearGradient>
+    <linearGradient id="redisGrad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#DC2626"/><stop offset="100%" stop-color="#B91C1C"/></linearGradient>
+  </defs>
+
+  <!-- title -->
+  <text x="340" y="28" text-anchor="middle" font-size="13" fill="#64748B" font-weight="600">Mentora 存储分层架构</text>
+
+  <!-- Layer 1: PostgreSQL -->
+  <rect x="40" y="48" width="600" height="110" rx="10" fill="#EFF6FF" stroke="#2563EB" stroke-width="2"/>
+  <rect x="40" y="48" width="140" height="34" rx="10" fill="url(#pgGrad)"/>
+  <text x="110" y="70" text-anchor="middle" font-size="13" fill="#FFF" font-weight="700">PostgreSQL 16+</text>
+
+  <text x="56" y="100" font-size="11" fill="#1E3A5F" font-weight="600">关系数据</text>
+  <text x="56" y="116" font-size="10" fill="#475569">用户 · 课程 · 计划 · 题目 · 会话 · SourceVersion（不可变）</text>
+
+  <text x="56" y="138" font-size="11" fill="#1E3A5F" font-weight="600">全文索引</text>
+  <text x="56" y="154" font-size="10" fill="#475569">GIN + jieba 分词 + pg_trgm（中文模糊匹配）</text>
+
+  <text x="360" y="100" font-size="11" fill="#1E3A5F" font-weight="600">向量检索</text>
+  <text x="360" y="116" font-size="10" fill="#475569">pgvector + HNSW 索引（语义相似度召回）</text>
+
+  <text x="360" y="138" font-size="11" fill="#1E3A5F" font-weight="600">事务保证</text>
+  <text x="360" y="154" font-size="10" fill="#475569">画像/计划/作用域激活在同一 DB 事务内完成</text>
+
+  <!-- Layer 2: MinIO / COS -->
+  <rect x="40" y="175" width="600" height="90" rx="10" fill="#ECFDF5" stroke="#059669" stroke-width="2"/>
+  <rect x="40" y="175" width="140" height="34" rx="10" fill="url(#objGrad)"/>
+  <text x="110" y="197" text-anchor="middle" font-size="13" fill="#FFF" font-weight="700">MinIO / COS</text>
+
+  <text x="56" y="227" font-size="11" fill="#064E3B" font-weight="600">二进制文件</text>
+  <text x="56" y="243" font-size="10" fill="#475569">原始 PDF/Word/视频 · 解析产物 · Embedding 缓存</text>
+
+  <text x="360" y="227" font-size="11" fill="#064E3B" font-weight="600">访问策略</text>
+  <text x="360" y="243" font-size="10" fill="#475569">私有 Bucket + 短期预签名 URL · 大字段仅存 DB 引用</text>
+
+  <!-- Layer 3: Redis -->
+  <rect x="40" y="282" width="600" height="90" rx="10" fill="#FEF2F2" stroke="#DC2626" stroke-width="2"/>
+  <rect x="40" y="282" width="140" height="34" rx="10" fill="url(#redisGrad)"/>
+  <text x="110" y="304" text-anchor="middle" font-size="13" fill="#FFF" font-weight="700">Redis</text>
+
+  <text x="56" y="334" font-size="11" fill="#7F1D1D" font-weight="600">缓存 / 队列</text>
+  <text x="56" y="350" font-size="10" fill="#475569">会话状态 · 热点查询 · Celery 任务分发</text>
+
+  <text x="360" y="334" font-size="11" fill="#7F1D1D" font-weight="600">自适应卷</text>
+  <text x="360" y="350" font-size="10" fill="#475569">逐题状态暂存 · 防止并发冲突</text>
+
+  <!-- Arrows between layers -->
+  <line x1="340" y1="158" x2="340" y2="175" stroke="#94A3B8" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <line x1="340" y1="265" x2="340" y2="282" stroke="#94A3B8" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <!-- bottom label -->
+  <text x="340" y="408" text-anchor="middle" font-size="11" fill="#94A3B8">结构化数据 → 大字段引用 → 热状态暂存 · 三层各司其职</text>
+
+  <!-- left annotations -->
+  <text x="20" y="107" text-anchor="middle" font-size="9" fill="#94A3B8" transform="rotate(-90,20,107)">持久层</text>
+  <text x="20" y="224" text-anchor="middle" font-size="9" fill="#94A3B8" transform="rotate(-90,20,224)">对象层</text>
+  <text x="20" y="331" text-anchor="middle" font-size="9" fill="#94A3B8" transform="rotate(-90,20,331)">缓存层</text>
+</svg>

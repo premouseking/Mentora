@@ -1,5 +1,7 @@
 # Mentora 团队工程手册
 
+文档总索引：[docs/README.md](../README.md)。
+
 本目录用于把四人团队的职责分工转化为可执行的工程管理体系。
 产品和技术架构仍以 `docs/architecture/` 为准，本目录负责定义人员职责、
 交付顺序、协作方式和验收标准。
@@ -20,8 +22,7 @@
 - [阶段交付路线图](delivery-roadmap.md)：六个研发阶段及其进入和退出标准。
 - [第一阶段任务清单](stage-01-backlog.md)：第一个可执行的端到端阶段。
 - [实现变更记录](implementation-log.md)：重要工程改动的摘要与验证方式。
-- [团队工程化执行计划](../superpowers/plans/2026-06-13-four-person-team-engineering.md)：
-  启动团队协作机制和第一阶段的执行步骤。
+- [立项材料](project-start/)：项目启动报告模板与 V1.0 交付物。
 - [任务模板](templates/task-template.md)：创建工程任务时必须填写的内容。
 - [决策记录模板](templates/decision-record-template.md)：尚不需要完整 ADR 的轻量决策。
 

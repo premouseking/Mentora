@@ -1,19 +1,32 @@
-import { type ReactNode, useEffect, useRef, useState } from "react";
+import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
+  AtSign,
+  Beaker,
   Bell,
   BookOpen,
-  Bot,
   Check,
   ChevronLeft,
+  File,
   FolderClosed,
   GripVertical,
   History,
+  MessageSquare,
+  PanelLeftClose,
+  PanelLeftOpen,
   Send,
   Settings,
   Sparkles,
   X,
 } from "lucide-react";
+import ReactMarkdown from "react-markdown";
 import { Link, NavLink } from "react-router-dom";
+import remarkGfm from "remark-gfm";
+
+import { DesktopTitleBar } from "./DesktopTitleBar";
+import { CourseInfoBar } from "./CourseInfoBar";
+import type { AiExplanation } from "../data/aiExplanations";
+import type { FileNode } from "../data/files";
+import type { MistakeItem } from "../data/mistakes";
 
 const navItems = [
   { to: "/courses", label: "课程", icon: BookOpen },
@@ -21,103 +34,89 @@ const navItems = [
   { to: "/history", label: "学习记录", icon: History },
   { to: "/notifications", label: "通知", icon: Bell },
   { to: "/settings", label: "设置", icon: Settings },
+  { to: "/lab/parsing", label: "解析实验室", icon: Beaker },
 ];
 
-const setupSteps = ["描述目标", "补充信息", "添加资料", "确认需求", "确认方案"];
-
-function MentoraMark() {
-  return (
-    <svg
-      aria-hidden="true"
-      className="mentora-mark"
-      fill="none"
-      viewBox="0 0 24 24"
-    >
-      <path
-        d="M5 18.5V5.5l7 5 7-5v13"
-        stroke="currentColor"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth="2"
-      />
-      <path
-        d="M12 10.5V20.5l2-1.45 2 1.45V8.65"
-        stroke="currentColor"
-        strokeLinejoin="round"
-        strokeWidth="1.55"
-      />
-      <path
-        d="M8 17.5h8"
-        stroke="currentColor"
-        strokeLinecap="round"
-        strokeWidth="1.8"
-      />
-    </svg>
-  );
-}
+const setupSteps = ["描述目标", "基础信息", "资料上传", "信息追问", "确认方案"];
 
 const MIN_SIDEBAR = 160;
 const MAX_SIDEBAR = 320;
 const MIN_PANEL = 260;
 const MAX_PANEL = 600;
 const SIDEBAR_DEFAULT = 196;
+const COLLAPSED_SIDEBAR = 68;
 const PANEL_DEFAULT = 360;
+const SIDEBAR_COLLAPSED_KEY = "mentora-sidebar-collapsed";
+const SIDEBAR_WIDTH_KEY = "mentora-sidebar-width";
 
-function Brand() {
-  return (
-    <Link className="brand" to="/courses" aria-label="Mentora 课程首页">
-      <span className="brand-mark">
-        <MentoraMark />
-      </span>
-      <span>Mentora</span>
-    </Link>
-  );
+function clampSidebarWidth(value: number) {
+  return Math.min(MAX_SIDEBAR, Math.max(MIN_SIDEBAR, value));
 }
 
-function WindowBar({
-  aiOpen,
-  onToggleAi,
+function readStoredSidebarWidth() {
+  const raw = localStorage.getItem(SIDEBAR_WIDTH_KEY);
+  if (!raw) return SIDEBAR_DEFAULT;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) ? clampSidebarWidth(parsed) : SIDEBAR_DEFAULT;
+}
+
+function readStoredCollapsed() {
+  return localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === "true";
+}
+
+function AppSidebar({
+  width,
+  collapsed,
+  labelsVisible,
+  animating,
+  resizing,
+  onToggleCollapsed,
+  onTransitionEnd,
 }: {
-  aiOpen?: boolean;
-  onToggleAi?: () => void;
+  width: number;
+  collapsed: boolean;
+  labelsVisible: boolean;
+  animating: boolean;
+  resizing: boolean;
+  onToggleCollapsed: () => void;
+  onTransitionEnd: (event: React.TransitionEvent<HTMLElement>) => void;
 }) {
-  return (
-    <div className="window-bar">
-      <Brand />
-      <div className="window-bar-right">
-        {onToggleAi && (
-          <button
-            className={`ai-toggle-button${aiOpen ? " active" : ""}`}
-            type="button"
-            onClick={onToggleAi}
-            aria-label={aiOpen ? "关闭 AI 对话" : "打开 AI 对话"}
-            title="AI 对话"
-          >
-            <Bot size={17} />
-          </button>
-        )}
-        <div className="window-controls" aria-hidden="true">
-          <span>−</span>
-          <span>□</span>
-          <span>×</span>
-        </div>
-      </div>
-    </div>
-  );
-}
+  const showLabels = labelsVisible && !collapsed;
 
-function AppSidebar({ width }: { width: number }) {
   return (
-    <aside className="sidebar" style={{ width }}>
+    <aside
+      className={[
+        "sidebar",
+        collapsed && "collapsed",
+        showLabels && "sidebar-labels-visible",
+        animating && "sidebar-animating",
+        resizing && "sidebar-resizing",
+      ]
+        .filter(Boolean)
+        .join(" ")}
+      onTransitionEnd={onTransitionEnd}
+      style={{ width: collapsed ? COLLAPSED_SIDEBAR : width }}
+    >
+      <button
+        aria-expanded={!collapsed}
+        aria-label={collapsed ? "展开侧边栏" : "折叠侧边栏"}
+        className="sidebar-toggle"
+        onClick={onToggleCollapsed}
+        title={collapsed ? "展开侧边栏" : "折叠侧边栏"}
+        type="button"
+      >
+        {collapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
+      </button>
       <nav className="primary-nav" aria-label="主导航">
         {navItems.map(({ to, label, icon: Icon }) => (
           <NavLink
             className={({ isActive }) => `nav-item${isActive ? " active" : ""}`}
             key={to}
+            title={!showLabels ? label : undefined}
             to={to}
           >
             <Icon size={19} strokeWidth={1.9} />
-            <span>{label}</span>
+            <span className="nav-item-label">{label}</span>
           </NavLink>
         ))}
       </nav>
@@ -129,16 +128,25 @@ function AppSidebar({ width }: { width: number }) {
 
 function ResizeHandle({
   onResize,
+  onResizeStart,
+  onResizeEnd,
 }: {
   onResize: (delta: number) => void;
+  onResizeStart?: () => void;
+  onResizeEnd?: () => void;
 }) {
   const activeRef = useRef(false);
+  const lastXRef = useRef(0);
   const onResizeRef = useRef(onResize);
+  const onResizeEndRef = useRef(onResizeEnd);
   onResizeRef.current = onResize;
+  onResizeEndRef.current = onResizeEnd;
 
   const onMove = (e: MouseEvent) => {
     if (!activeRef.current) return;
-    onResizeRef.current(e.movementX);
+    const delta = e.clientX - lastXRef.current;
+    lastXRef.current = e.clientX;
+    if (delta !== 0) onResizeRef.current(delta);
   };
 
   const onUp = () => {
@@ -148,12 +156,15 @@ function ResizeHandle({
     document.body.style.userSelect = "";
     document.removeEventListener("mousemove", onMove);
     document.removeEventListener("mouseup", onUp);
+    onResizeEndRef.current?.();
   };
 
-  function onDown() {
+  function onDown(e: React.MouseEvent) {
     activeRef.current = true;
+    lastXRef.current = e.clientX;
     document.body.style.cursor = "col-resize";
     document.body.style.userSelect = "none";
+    onResizeStart?.();
     document.addEventListener("mousemove", onMove);
     document.addEventListener("mouseup", onUp);
   }
@@ -186,14 +197,225 @@ function ResizeHandle({
 interface ChatMessage {
   role: "user" | "assistant";
   content: string;
+  statuses?: ChatStatus[];
+  citations?: ChatCitation[];
+}
+
+interface ChatStatus {
+  event: string;
+  message: string;
+  toolName?: string;
+  success?: boolean;
+}
+
+interface ChatCitation {
+  content_preview: string;
+  page_number?: number | null;
+  evidence_id?: string;
+  source_title?: string;
+}
+
+interface SelectedTextSnippet {
+  id: string;
+  text: string;
+  sourceMessageIndex: number;
+}
+
+interface SelectionMenuState {
+  text: string;
+  sourceMessageIndex: number;
+  top: number;
+  left: number;
+}
+
+type AiChatMentionType = "course_file" | "course_folder" | "ai_explanation" | "mistake";
+
+interface AiChatMention {
+  id: string;
+  type: AiChatMentionType;
+  label: string;
+  source: string;
+}
+
+interface AiChatContext {
+  files?: FileNode[];
+  aiItems?: AiExplanation[];
+  mistakeItems?: MistakeItem[];
+  selectedFileId?: string | null;
+  selectedAiId?: string | null;
+  selectedMistakeId?: string | null;
+}
+
+interface MentionMenuItem extends AiChatMention {
+  subtitle: string;
+  current?: boolean;
+}
+
+type ChatStreamEvent =
+  | { type: "chunk"; content: string }
+  | { type: "status"; event: string; message: string; tool_name?: string; success?: boolean }
+  | { type: "citations"; tool_name?: string; citations: ChatCitation[] }
+  | { type: "error"; message: string }
+  | { type: "done" };
+
+const MAX_SELECTED_TEXT_SNIPPETS = 8;
+const MAX_SELECTED_TEXT_LENGTH = 1000;
+const SELECTED_TEXT_PREVIEW_LENGTH = 80;
+const MAX_MENTION_MENU_ITEMS = 12;
+const AI_CHAT_INPUT_MIN_HEIGHT = 28;
+const AI_CHAT_INPUT_MAX_HEIGHT = 140;
+
+function normalizeSelectedText(text: string) {
+  return text.replace(/\s+/g, " ").trim();
+}
+
+function truncateText(text: string, maxLength: number) {
+  return text.length > maxLength ? `${text.slice(0, maxLength)}…` : text;
+}
+
+function buildSelectedTextMessage(text: string, snippets: SelectedTextSnippet[]) {
+  if (!snippets.length) return text;
+
+  const context = snippets
+    .map((snippet, index) => `${index + 1}. ${snippet.text}`)
+    .join("\n");
+
+  return [
+    "以下是用户从上一轮 AI 回复中选中的重点上下文，请优先围绕它回答：",
+    context,
+    "",
+    `用户问题：${text}`,
+  ].join("\n");
+}
+
+function flattenMentionFiles(nodes: FileNode[], parentNames: string[] = []): MentionMenuItem[] {
+  return nodes.flatMap((node) => {
+    const path = [...parentNames, node.name];
+    const item: MentionMenuItem = {
+      id: node.id,
+      type: node.type === "folder" ? "course_folder" : "course_file",
+      label: node.name,
+      source: path.join(" / "),
+      subtitle: node.type === "folder" ? "课程文件夹" : "课程文件",
+    };
+    return [item, ...(node.children ? flattenMentionFiles(node.children, path) : [])];
+  });
+}
+
+function buildMentionMenuItems(context?: AiChatContext, query = "") {
+  const files = flattenMentionFiles(context?.files ?? []);
+  const aiItems: MentionMenuItem[] = (context?.aiItems ?? []).map((item) => ({
+    id: item.id,
+    type: "ai_explanation",
+    label: item.title,
+    source: item.topic,
+    subtitle: "AI 讲解",
+  }));
+  const mistakes: MentionMenuItem[] = (context?.mistakeItems ?? []).map((item) => ({
+    id: item.id,
+    type: "mistake",
+    label: item.title,
+    source: item.topic,
+    subtitle: "错题集",
+  }));
+
+  const allItems = [...files, ...aiItems, ...mistakes].map((item) => ({
+    ...item,
+    current:
+      item.id === context?.selectedFileId ||
+      item.id === context?.selectedAiId ||
+      item.id === context?.selectedMistakeId,
+  }));
+  const normalizedQuery = query.trim().toLocaleLowerCase();
+  const filtered = normalizedQuery
+    ? allItems.filter((item) =>
+        `${item.label} ${item.source} ${item.subtitle}`.toLocaleLowerCase().includes(normalizedQuery),
+      )
+    : allItems;
+
+  return filtered
+    .sort((a, b) => Number(b.current) - Number(a.current))
+    .slice(0, MAX_MENTION_MENU_ITEMS);
+}
+
+function AiMarkdownMessage({ content }: { content: string }) {
+  return (
+    <div className="ai-chat-markdown">
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        components={{
+          a: ({ ...props }) => (
+            <a {...props} target="_blank" rel="noreferrer noopener" />
+          ),
+        }}
+      >
+        {content}
+      </ReactMarkdown>
+    </div>
+  );
+}
+
+function getMentionTrigger(input: string, caret: number) {
+  const beforeCaret = input.slice(0, caret);
+  const atIndex = beforeCaret.lastIndexOf("@");
+  if (atIndex < 0) return null;
+  const charBeforeAt = atIndex > 0 ? beforeCaret[atIndex - 1] : "";
+  if (charBeforeAt && !/\s/.test(charBeforeAt)) return null;
+  const query = beforeCaret.slice(atIndex + 1);
+  if (/\s/.test(query)) return null;
+  return { atIndex, query };
+}
+
+function AiChatMentionMenu({
+  items,
+  activeIndex,
+  onSelect,
+}: {
+  items: MentionMenuItem[];
+  activeIndex: number;
+  onSelect: (item: MentionMenuItem) => void;
+}) {
+  return (
+    <div className="ai-mention-menu" role="listbox" aria-label="引用课程上下文">
+      {items.length ? (
+        items.map((item, index) => (
+          <button
+            className={`ai-mention-item${index === activeIndex ? " active" : ""}`}
+            key={`${item.type}:${item.id}`}
+            type="button"
+            role="option"
+            aria-selected={index === activeIndex}
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={() => onSelect(item)}
+          >
+            <span className="ai-mention-icon">
+              {item.type === "course_folder" ? <FolderClosed size={14} /> : <File size={14} />}
+            </span>
+            <span className="ai-mention-main">
+              <strong>{item.label}</strong>
+              <small>{item.current ? "当前 · " : ""}{item.subtitle}{item.source ? ` · ${item.source}` : ""}</small>
+            </span>
+          </button>
+        ))
+      ) : (
+        <div className="ai-mention-empty">没有可引用的课程内容</div>
+      )}
+    </div>
+  );
+}
+
+function getMentionIcon(type: AiChatMentionType) {
+  return type === "course_folder" ? <FolderClosed size={14} /> : <File size={14} />;
 }
 
 function AiChatPanel({
   width,
   onClose,
+  context,
 }: {
   width: number;
   onClose: () => void;
+  context?: AiChatContext;
 }) {
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
@@ -203,33 +425,354 @@ function AiChatPanel({
     },
   ]);
   const [input, setInput] = useState("");
-  const inputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
 
-  function handleSend() {
+  const [sending, setSending] = useState(false);
+  const [selectedTextSnippets, setSelectedTextSnippets] = useState<SelectedTextSnippet[]>([]);
+  const [selectionMenu, setSelectionMenu] = useState<SelectionMenuState | null>(null);
+  const [mentions, setMentions] = useState<AiChatMention[]>([]);
+  const [mentionMenuOpen, setMentionMenuOpen] = useState(false);
+  const [mentionQuery, setMentionQuery] = useState("");
+  const [mentionActiveIndex, setMentionActiveIndex] = useState(0);
+
+  const mentionItems = buildMentionMenuItems(context, mentionQuery);
+
+  function updateLastAssistant(update: (message: ChatMessage) => ChatMessage) {
+    setMessages((prev) => {
+      const updated = [...prev];
+      const last = updated[updated.length - 1];
+      if (!last || last.role !== "assistant") return prev;
+      updated[updated.length - 1] = update(last);
+      return updated;
+    });
+  }
+
+  function closeSelectionMenu() {
+    setSelectionMenu(null);
+  }
+
+  function syncInputHeight() {
+    const el = inputRef.current;
+    if (!el) return;
+    if (!el.value) {
+      el.style.height = `${AI_CHAT_INPUT_MIN_HEIGHT}px`;
+      el.style.overflowY = "hidden";
+      return;
+    }
+    el.style.height = "auto";
+    const nextHeight = Math.max(
+      AI_CHAT_INPUT_MIN_HEIGHT,
+      Math.min(el.scrollHeight, AI_CHAT_INPUT_MAX_HEIGHT),
+    );
+    el.style.height = `${nextHeight}px`;
+    el.style.overflowY = el.scrollHeight > AI_CHAT_INPUT_MAX_HEIGHT ? "auto" : "hidden";
+  }
+
+  function inspectAssistantSelection() {
+    const selection = window.getSelection();
+    if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
+      closeSelectionMenu();
+      return;
+    }
+
+    const range = selection.getRangeAt(0);
+    const ancestor = range.commonAncestorContainer;
+    const element =
+      ancestor.nodeType === Node.ELEMENT_NODE
+        ? (ancestor as Element)
+        : ancestor.parentElement;
+    const assistantMessage = element?.closest(".ai-chat-message.assistant") as HTMLElement | null;
+
+    if (!assistantMessage || !panelRef.current?.contains(assistantMessage)) {
+      closeSelectionMenu();
+      return;
+    }
+
+    const text = normalizeSelectedText(selection.toString()).slice(0, MAX_SELECTED_TEXT_LENGTH);
+    if (!text) {
+      closeSelectionMenu();
+      return;
+    }
+
+    const rect = range.getBoundingClientRect();
+    const fallbackRect = range.getClientRects()[0];
+    const targetRect = rect.width || rect.height ? rect : fallbackRect;
+    if (!targetRect) {
+      closeSelectionMenu();
+      return;
+    }
+
+    const sourceMessageIndex = Number(assistantMessage.dataset.messageIndex ?? "-1");
+    const left = Math.min(window.innerWidth - 16, Math.max(16, targetRect.left + targetRect.width / 2));
+    const top = Math.max(12, targetRect.top - 12);
+
+    setSelectionMenu({ text, sourceMessageIndex, left, top });
+  }
+
+  function handleSelectionEnd() {
+    window.setTimeout(inspectAssistantSelection, 0);
+  }
+
+  function handleAddSelectionToChat() {
+    if (!selectionMenu) return;
+    const snippet: SelectedTextSnippet = {
+      id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+      text: selectionMenu.text,
+      sourceMessageIndex: selectionMenu.sourceMessageIndex,
+    };
+
+    setSelectedTextSnippets((prev) => {
+      if (prev.some((item) => item.text === snippet.text)) return prev;
+      return [...prev, snippet].slice(-MAX_SELECTED_TEXT_SNIPPETS);
+    });
+
+    window.getSelection()?.removeAllRanges();
+    closeSelectionMenu();
+    inputRef.current?.focus();
+  }
+
+  function syncMentionMenu(nextInput: string, caret: number | null) {
+    if (caret == null) {
+      setMentionMenuOpen(false);
+      return;
+    }
+    const trigger = getMentionTrigger(nextInput, caret);
+    if (!trigger) {
+      setMentionMenuOpen(false);
+      return;
+    }
+    setMentionQuery(trigger.query);
+    setMentionActiveIndex(0);
+    setMentionMenuOpen(true);
+  }
+
+  function handleInputChange(event: React.ChangeEvent<HTMLTextAreaElement>) {
+    const nextInput = event.target.value;
+    setInput(nextInput);
+    syncMentionMenu(nextInput, event.target.selectionStart);
+    window.setTimeout(syncInputHeight, 0);
+  }
+
+  function openMentionMenuFromButton() {
+    inputRef.current?.focus();
+    const caret = inputRef.current?.selectionStart ?? input.length;
+    const needsSpace = input.length > 0 && caret > 0 && !/\s/.test(input[caret - 1] ?? "");
+    const prefix = needsSpace ? " @" : "@";
+    const nextInput = `${input.slice(0, caret)}${prefix}${input.slice(caret)}`;
+    const nextCaret = caret + prefix.length;
+    setInput(nextInput);
+    setMentionQuery("");
+    setMentionActiveIndex(0);
+    setMentionMenuOpen(true);
+    window.setTimeout(() => {
+      inputRef.current?.setSelectionRange(nextCaret, nextCaret);
+      syncInputHeight();
+    }, 0);
+  }
+
+  function handleMentionSelect(item: MentionMenuItem) {
+    const caret = inputRef.current?.selectionStart ?? input.length;
+    const trigger = getMentionTrigger(input, caret);
+    if (!trigger) return;
+
+    const inserted = `@${item.label} `;
+    const nextInput = `${input.slice(0, trigger.atIndex)}${inserted}${input.slice(caret)}`;
+    const nextCaret = trigger.atIndex + inserted.length;
+    setInput(nextInput);
+    setMentions((prev) => {
+      if (prev.some((mention) => mention.id === item.id && mention.type === item.type)) return prev;
+      return [...prev, {
+        id: item.id,
+        type: item.type,
+        label: item.label,
+        source: item.source,
+      }];
+    });
+    setMentionMenuOpen(false);
+    window.setTimeout(() => {
+      inputRef.current?.focus();
+      inputRef.current?.setSelectionRange(nextCaret, nextCaret);
+      syncInputHeight();
+    }, 0);
+  }
+
+  function handleRemoveMention(mention: AiChatMention) {
+    setMentions((prev) => prev.filter((item) => !(item.id === mention.id && item.type === mention.type)));
+    setInput((prev) => prev.replace(`@${mention.label} `, "").replace(`@${mention.label}`, "").trimStart());
+    window.setTimeout(syncInputHeight, 0);
+  }
+
+  useLayoutEffect(() => {
+    syncInputHeight();
+  }, [input]);
+
+  useEffect(() => {
+    function handleDocumentMouseDown(event: MouseEvent) {
+      const target = event.target as Node | null;
+      if (target && panelRef.current?.contains(target)) {
+        if (!(target as Element).closest(".ai-chat-input-area")) {
+          setMentionMenuOpen(false);
+        }
+        return;
+      }
+      closeSelectionMenu();
+      setMentionMenuOpen(false);
+    }
+
+    function handleDocumentKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") closeSelectionMenu();
+    }
+
+    function handleDocumentKeyUp() {
+      handleSelectionEnd();
+    }
+
+    document.addEventListener("mousedown", handleDocumentMouseDown);
+    document.addEventListener("keydown", handleDocumentKeyDown);
+    document.addEventListener("keyup", handleDocumentKeyUp);
+    return () => {
+      document.removeEventListener("mousedown", handleDocumentMouseDown);
+      document.removeEventListener("keydown", handleDocumentKeyDown);
+      document.removeEventListener("keyup", handleDocumentKeyUp);
+    };
+  });
+
+  async function handleSend() {
     const text = input.trim();
     if (!text) return;
+    const snippetsForRequest = selectedTextSnippets;
+    const mentionsForRequest = mentions.filter((mention) => text.includes(`@${mention.label}`));
+    const requestMessage = buildSelectedTextMessage(text, snippetsForRequest);
     setMessages((prev) => [...prev, { role: "user", content: text }]);
     setInput("");
-    setTimeout(() => {
-      setMessages((prev) => [
-        ...prev,
-        {
-          role: "assistant",
-          content:
-            "这是一个示例回复。后续将接入真实的 AI 对话能力，为你提供个性化的学习建议和帮助。",
-        },
-      ]);
-      requestAnimationFrame(() => {
-        listRef.current?.scrollTo({
-          top: listRef.current.scrollHeight,
-          behavior: "smooth",
-        });
+    setSelectedTextSnippets([]);
+    setMentions([]);
+    setMentionMenuOpen(false);
+    closeSelectionMenu();
+    setSending(true);
+    window.setTimeout(syncInputHeight, 0);
+
+    // 先添加一条空的 assistant 消息，流式填充
+    setMessages((prev) => [...prev, { role: "assistant", content: "" }]);
+
+    try {
+      const resp = await fetch("/api/chat/stream/", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message: requestMessage,
+          history: messages.map((m) => ({ role: m.role, content: m.content })),
+          mentions: mentionsForRequest,
+        }),
       });
-    }, 800);
+
+      if (!resp.ok) {
+        // 非流式错误
+        const errorText = await resp.text();
+        throw new Error(errorText || `HTTP ${resp.status}`);
+      }
+
+      const reader = resp.body!.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        // 保留最后一个可能不完整的行
+        buffer = lines.pop() || "";
+
+        for (const line of lines) {
+          if (!line.startsWith("data: ")) continue;
+          try {
+            const data = JSON.parse(line.slice(6)) as ChatStreamEvent;
+            if (data.type === "chunk") {
+              updateLastAssistant((last) => ({
+                ...last,
+                content: last.content + data.content,
+              }));
+            } else if (data.type === "status") {
+              updateLastAssistant((last) => ({
+                ...last,
+                statuses: [
+                  ...(last.statuses ?? []),
+                  {
+                    event: data.event,
+                    message: data.message,
+                    toolName: data.tool_name,
+                    success: data.success,
+                  },
+                ],
+              }));
+            } else if (data.type === "citations") {
+              updateLastAssistant((last) => ({
+                ...last,
+                citations: [...(last.citations ?? []), ...data.citations],
+              }));
+            } else if (data.type === "error") {
+              setMessages((prev) => {
+                const updated = [...prev];
+                const last = updated[updated.length - 1];
+                updated[updated.length - 1] = {
+                  ...last,
+                  content: last.content || `错误: ${data.message}`,
+                };
+                return updated;
+              });
+            }
+          } catch {
+            // 跳过无法解析的行
+          }
+        }
+      }
+    } catch (err: any) {
+      setMessages((prev) => {
+        const updated = [...prev];
+        const last = updated[updated.length - 1];
+        const errorMsg = err?.message || "连接失败";
+        updated[updated.length - 1] = {
+          ...last,
+          content: last.content || `抱歉，AI 服务出错: ${errorMsg}`,
+        };
+        return updated;
+      });
+    } finally {
+      setSending(false);
+    }
   }
 
   function handleKeyDown(e: React.KeyboardEvent) {
+    if (mentionMenuOpen) {
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setMentionActiveIndex((index) => Math.min(index + 1, Math.max(mentionItems.length - 1, 0)));
+        return;
+      }
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setMentionActiveIndex((index) => Math.max(index - 1, 0));
+        return;
+      }
+      if (e.key === "Enter") {
+        const item = mentionItems[mentionActiveIndex];
+        if (item) {
+          e.preventDefault();
+          handleMentionSelect(item);
+          return;
+        }
+      }
+      if (e.key === "Escape") {
+        e.preventDefault();
+        setMentionMenuOpen(false);
+        return;
+      }
+    }
+
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       handleSend();
@@ -238,6 +781,7 @@ function AiChatPanel({
 
   return (
     <div
+      ref={panelRef}
       className="ai-chat-panel"
       style={{ width }}
       role="complementary"
@@ -260,68 +804,238 @@ function AiChatPanel({
         </button>
       </header>
 
-      <div className="ai-chat-messages" ref={listRef}>
+      <div
+        className="ai-chat-messages"
+        ref={listRef}
+        onMouseUp={handleSelectionEnd}
+        onScroll={closeSelectionMenu}
+      >
         {messages.map((msg, i) => (
-          <div className={`ai-chat-message ${msg.role}`} key={i}>
+          <div className={`ai-chat-message ${msg.role}`} data-message-index={i} key={i}>
             {msg.role === "assistant" && (
               <span className="ai-chat-avatar">
                 <Sparkles size={13} />
               </span>
             )}
-            <div className="ai-chat-bubble">{msg.content}</div>
+            <div className="ai-chat-bubble">
+              {msg.content && (
+                msg.role === "assistant" ? (
+                  <AiMarkdownMessage content={msg.content} />
+                ) : (
+                  <div className="ai-chat-content">{msg.content}</div>
+                )
+              )}
+              {msg.statuses?.length ? (
+                <div className="ai-chat-status-list">
+                  {msg.statuses.map((status, index) => (
+                    <div
+                      className={`ai-chat-status ${status.success === false ? "failed" : ""}`}
+                      key={`${status.event}-${index}`}
+                    >
+                      <span className="ai-chat-status-dot" />
+                      <span>{status.message}</span>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+              {msg.citations?.length ? (
+                <div className="ai-chat-citations" aria-label="引用来源">
+                  {msg.citations.map((citation, index) => (
+                    <div className="ai-chat-citation" key={`${citation.evidence_id ?? "source"}-${index}`}>
+                      <Check size={12} />
+                      <span>
+                        {citation.source_title ? `${citation.source_title}: ` : ""}
+                        {citation.content_preview}
+                        {citation.page_number ? ` · p.${citation.page_number}` : ""}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+            </div>
           </div>
         ))}
       </div>
 
       <div className="ai-chat-input-area">
+        {selectedTextSnippets.length > 0 && (
+          <div className="ai-selected-text-wrap">
+            <button
+              className="ai-selected-text-pill"
+              type="button"
+              aria-label={`已选择 ${selectedTextSnippets.length} 个文本片段`}
+            >
+              <MessageSquare size={14} />
+              <strong>{selectedTextSnippets.length}</strong>
+              <span>个已选文本片段</span>
+            </button>
+            <div className="ai-selected-text-preview" role="tooltip">
+              {selectedTextSnippets.map((snippet) => (
+                <div className="ai-selected-text-preview-item" key={snippet.id}>
+                  “{truncateText(snippet.text, SELECTED_TEXT_PREVIEW_LENGTH)}”
+                </div>
+              ))}
+            </div>
+            <button
+              className="ai-selected-text-clear"
+              type="button"
+              onClick={() => setSelectedTextSnippets([])}
+              aria-label="清除已选文本片段"
+            >
+              <X size={14} />
+            </button>
+          </div>
+        )}
+        {mentions.length > 0 && (
+          <div className="ai-mentioned-context-list" aria-label="已引用课程内容">
+            {mentions.map((mention) => (
+              <div className="ai-mentioned-context-pill" key={`${mention.type}:${mention.id}`}>
+                <span className="ai-mentioned-context-icon">
+                  {getMentionIcon(mention.type)}
+                </span>
+                <span className="ai-mentioned-context-label">{mention.label}</span>
+                <button
+                  type="button"
+                  onClick={() => handleRemoveMention(mention)}
+                  aria-label={`移除 ${mention.label}`}
+                >
+                  <X size={13} />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
         <div className="ai-chat-input-row">
-          <input
+          {mentionMenuOpen && (
+            <AiChatMentionMenu
+              items={mentionItems}
+              activeIndex={mentionActiveIndex}
+              onSelect={handleMentionSelect}
+            />
+          )}
+          <textarea
             ref={inputRef}
             className="ai-chat-input"
             placeholder="输入消息…"
             value={input}
-            onChange={(e) => setInput(e.target.value)}
+            onChange={handleInputChange}
             onKeyDown={handleKeyDown}
+            onClick={(event) => syncMentionMenu(input, event.currentTarget.selectionStart)}
+            rows={1}
           />
-          <button
-            className="ai-chat-send"
-            type="button"
-            onClick={handleSend}
-            disabled={!input.trim()}
-            aria-label="发送"
-          >
-            <Send size={16} />
-          </button>
+          <div className="ai-chat-input-actions">
+            <button
+              className="ai-chat-mention-button"
+              type="button"
+              onClick={openMentionMenuFromButton}
+              aria-label="引用课程内容"
+            >
+              <AtSign size={16} />
+            </button>
+            <button
+              className="ai-chat-send"
+              type="button"
+              onClick={handleSend}
+              disabled={!input.trim() || sending}
+              aria-label="发送"
+            >
+              <Send size={16} />
+            </button>
+          </div>
         </div>
       </div>
+      {selectionMenu && (
+        <div
+          className="ai-selection-menu"
+          style={{ top: selectionMenu.top, left: selectionMenu.left }}
+        >
+          <button type="button" onMouseDown={(event) => event.preventDefault()} onClick={handleAddSelectionToChat}>
+            <MessageSquare size={15} />
+            添加到对话
+          </button>
+        </div>
+      )}
     </div>
   );
 }
 
 /* ── App Shell ── */
 
-export function AppShell({ children }: { children: ReactNode }) {
+export function AppShell({
+  children,
+  aiChatContext,
+}: {
+  children: ReactNode;
+  aiChatContext?: AiChatContext;
+}) {
   const [aiPanelOpen, setAiPanelOpen] = useState(false);
-  const [sidebarWidth, setSidebarWidth] = useState(SIDEBAR_DEFAULT);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(readStoredCollapsed);
+  const [sidebarLabelsVisible, setSidebarLabelsVisible] = useState(
+    () => !readStoredCollapsed(),
+  );
+  const [sidebarAnimating, setSidebarAnimating] = useState(false);
+  const [sidebarResizing, setSidebarResizing] = useState(false);
+  const [sidebarWidth, setSidebarWidth] = useState(readStoredSidebarWidth);
   const [panelWidth, setPanelWidth] = useState(PANEL_DEFAULT);
+  const sidebarWidthRef = useRef(sidebarWidth);
+  const sidebarCollapsedRef = useRef(sidebarCollapsed);
+  sidebarWidthRef.current = sidebarWidth;
+  sidebarCollapsedRef.current = sidebarCollapsed;
 
   function clamp(val: number, min: number, max: number) {
     return Math.min(max, Math.max(min, val));
   }
 
+  function toggleSidebarCollapsed() {
+    setSidebarAnimating(true);
+    setSidebarCollapsed((prev) => {
+      const next = !prev;
+      setSidebarLabelsVisible(!next);
+      localStorage.setItem(SIDEBAR_COLLAPSED_KEY, String(next));
+      return next;
+    });
+  }
+
+  function handleSidebarTransitionEnd(event: React.TransitionEvent<HTMLElement>) {
+    if (event.target !== event.currentTarget || event.propertyName !== "width") return;
+    setSidebarAnimating(false);
+    if (!sidebarCollapsedRef.current) {
+      setSidebarLabelsVisible(true);
+    }
+  }
+
+  function handleSidebarResize(delta: number) {
+    setSidebarWidth((w) => clampSidebarWidth(w + delta));
+  }
+
+  function handleSidebarResizeEnd() {
+    setSidebarResizing(false);
+    localStorage.setItem(SIDEBAR_WIDTH_KEY, String(sidebarWidthRef.current));
+  }
+
   return (
     <div className={`desktop-app${aiPanelOpen ? " ai-panel-open" : ""}`}>
-      <WindowBar
+      <DesktopTitleBar
         aiOpen={aiPanelOpen}
         onToggleAi={() => setAiPanelOpen((v) => !v)}
       />
       <div className="app-body">
-        <AppSidebar width={sidebarWidth} />
-        <ResizeHandle
-          onResize={(d) =>
-            setSidebarWidth((w) => clamp(w + d, MIN_SIDEBAR, MAX_SIDEBAR))
-          }
+        <AppSidebar
+          animating={sidebarAnimating}
+          collapsed={sidebarCollapsed}
+          labelsVisible={sidebarLabelsVisible}
+          onToggleCollapsed={toggleSidebarCollapsed}
+          onTransitionEnd={handleSidebarTransitionEnd}
+          resizing={sidebarResizing}
+          width={sidebarWidth}
         />
+        {!sidebarCollapsed && (
+          <ResizeHandle
+            onResize={handleSidebarResize}
+            onResizeEnd={handleSidebarResizeEnd}
+            onResizeStart={() => setSidebarResizing(true)}
+          />
+        )}
         <section className="page-surface">{children}</section>
         {aiPanelOpen && (
           <>
@@ -332,6 +1046,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             />
             <AiChatPanel
               width={panelWidth}
+              context={aiChatContext}
               onClose={() => setAiPanelOpen(false)}
             />
           </>
@@ -361,14 +1076,22 @@ function SetupProgress({ current }: { current: number }) {
 
 export function SetupShell({
   current,
+  hideInfoBar = false,
+  footer,
+  leftAside,
   children,
 }: {
   current: number;
+  hideInfoBar?: boolean;
+  footer?: ReactNode;
+  leftAside?: ReactNode;
   children: ReactNode;
 }) {
+  const [infoBarExpanded, setInfoBarExpanded] = useState(false);
+
   return (
-    <div className="desktop-app setup-app">
-      <WindowBar />
+    <div className={`desktop-app setup-app${hideInfoBar ? " no-info-bar" : ""}`}>
+      <DesktopTitleBar />
       <header className="setup-header">
         <Link className="back-link" to="/courses">
           <ChevronLeft size={18} />
@@ -379,7 +1102,17 @@ export function SetupShell({
           取消
         </Link>
       </header>
-      <main className="setup-main">{children}</main>
+      <main className="setup-main">
+        {leftAside && <div className="setup-left-aside">{leftAside}</div>}
+        <div className="setup-content-box">{children}</div>
+        {footer && <div className="setup-nav-area">{footer}</div>}
+      </main>
+      {!hideInfoBar && (
+        <CourseInfoBar
+          mode={infoBarExpanded ? "expanded" : "collapsed"}
+          onToggle={() => setInfoBarExpanded((v) => !v)}
+        />
+      )}
     </div>
   );
 }

@@ -61,7 +61,18 @@ export const NotificationRequestSchema = z.object({
   route: z.string().max(512).optional(),
 });
 
+export const AuthCredentialsSchema = z.object({
+  email: z.string().email().max(256),
+  password: z.string().min(8).max(128),
+});
+
+export const AuthRegisterSchema = AuthCredentialsSchema.extend({
+  displayName: z.string().min(1).max(64).optional(),
+});
+
 export type ApiRequestInput = z.infer<typeof ApiRequestSchema>;
 export type EventStreamOptionsInput = z.infer<typeof EventStreamOptionsSchema>;
 export type UploadStartRequestInput = z.infer<typeof UploadStartRequestSchema>;
 export type NotificationRequestInput = z.infer<typeof NotificationRequestSchema>;
+export type AuthCredentialsInput = z.infer<typeof AuthCredentialsSchema>;
+export type AuthRegisterInput = z.infer<typeof AuthRegisterSchema>;

@@ -1,0 +1,17 @@
+---
+description: Electron Desktop IPC 与 Preload 约束
+globs: apps/desktop/**/*
+alwaysApply: false
+---
+
+# Desktop IPC
+
+架构背景：`docs/architecture/desktop-client-architecture.md` §3。
+
+- Channel：`mentora:<domain>:<action>`（小写）；**唯一注册表** `src/shared/channels.ts`
+- 新增顺序：`channels.ts` → `schemas.ts` → `main/ipc/` → `preload` → `desktopApi.ts`
+- Preload 仅暴露 `window.mentoraDesktop`；禁止 `ipcRenderer`、Node 模块、环境变量
+- invoke 两侧校验；main 侧权威 Schema 在 `schemas.ts`；事件订阅须返回 `unsubscribe`
+- `main/ipc/` 按能力域注册；禁止万能 channel 或任意 URL 代理
+
+契约变更须同 PR 更新文档与契约测试（见 `coding-constraints` 共享契约节）。

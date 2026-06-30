@@ -1,0 +1,4 @@
+interface:
+  display_name: "Mentora Runtime Boundary Review"
+  short_description: "审查 mock、硬编码默认值和环境边界。"
+  default_prompt: "Use $mentora-runtime-boundary-review to audit Mentora for mock data, hardcoded runtime branches, and unsafe production fallbacks."

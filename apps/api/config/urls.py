@@ -1,5 +1,35 @@
 from django.http import JsonResponse
 from django.urls import path
+from drf_spectacular.views import (
+    SpectacularAPIView,
+    SpectacularSwaggerView,
+)
+
+from mentora.assessment.views import (
+    complete_quiz_session,
+    generate_quiz_session,
+    quiz_session_detail,
+    submit_quiz_attempt,
+)
+from mentora.agent_runtime.views import chat_api, chat_stream
+from mentora.courses.views import (
+    course_activate,
+    course_confirm,
+    course_detail,
+    course_list,
+    course_profile_revise,
+    course_scope_extend,
+    course_scope_suggest,
+    inquiry_next,
+    plan_handler,
+    session_detail,
+    session_list_or_create,
+    session_start,
+    session_update,
+)
+from mentora.knowledge.views import folder_create, folder_delete, folder_list, folder_rename, list_sources, list_tags, source_archive, source_delete, source_detail, source_move, source_reparse, source_unarchive, source_update_tags, upload_complete, upload_create
+from mentora.parsing.views import get_benchmark, preview_parse
+from mentora.retrieval.views import locate_view, search_view
 
 
 def health(_: object) -> JsonResponse:
@@ -7,6 +37,50 @@ def health(_: object) -> JsonResponse:
 
 
 urlpatterns = [
+    # Swagger / OpenAPI
+    path("api/schema/", SpectacularAPIView.as_view(), name="schema"),
+    path("api/docs/", SpectacularSwaggerView.as_view(url_name="schema"), name="swagger-ui"),
     path("api/health/", health, name="health"),
+    # 聊天
+    path("api/chat/", chat_api, name="chat"),
+    path("api/chat/stream/", chat_stream, name="chat-stream"),
+    path("api/assessment/sessions/generate/", generate_quiz_session, name="assessment-generate"),
+    path("api/assessment/sessions/<uuid:session_id>/", quiz_session_detail, name="assessment-session-detail"),
+    path("api/assessment/sessions/<uuid:session_id>/attempts/", submit_quiz_attempt, name="assessment-submit-attempt"),
+    path("api/assessment/sessions/<uuid:session_id>/complete/", complete_quiz_session, name="assessment-complete"),
+    # 建课会话
+    path("api/courses/sessions/", session_list_or_create, name="session-list-create"),
+    path("api/courses/sessions/<uuid:session_id>/", session_detail, name="session-detail"),
+    path("api/courses/sessions/<uuid:session_id>/update/", session_update, name="session-update"),
+    path("api/courses/sessions/<uuid:session_id>/inquiry/", inquiry_next, name="inquiry-next"),
+    path("api/courses/sessions/<uuid:session_id>/plan/", plan_handler, name="plan-handler"),
+    # 课程管理
+    path("api/courses/", course_list, name="course-list"),
+    path("api/courses/confirm/", course_confirm, name="course-confirm"),
+    path("api/courses/<uuid:course_id>/", course_detail, name="course-detail"),
+    path("api/courses/<uuid:course_id>/profile/", course_profile_revise, name="course-profile-revise"),
+    path("api/courses/<uuid:course_id>/scope/", course_scope_extend, name="course-scope-extend"),
+    path("api/courses/<uuid:course_id>/scope-suggest/", course_scope_suggest, name="course-scope-suggest"),
+    path("api/courses/<uuid:course_id>/activate/", course_activate, name="course-activate"),
+    # 上传
+    path("api/uploads/", upload_create, name="upload-create"),
+    path("api/uploads/complete/", upload_complete, name="upload-complete"),
+    path("api/library/sources/", list_sources, name="library-sources"),
+    path("api/library/sources/<uuid:source_version_id>/", source_detail, name="library-source-detail"),
+    path("api/library/sources/<uuid:source_id>/delete/", source_delete, name="library-source-delete"),
+    path("api/library/sources/<uuid:source_id>/reparse/", source_reparse, name="library-source-reparse"),
+    path("api/library/sources/<uuid:source_id>/tags/", source_update_tags, name="library-source-tags"),
+    path("api/library/sources/<uuid:source_id>/archive/", source_archive, name="library-source-archive"),
+    path("api/library/sources/<uuid:source_id>/unarchive/", source_unarchive, name="library-source-unarchive"),
+    path("api/library/tags/", list_tags, name="library-tags"),
+    path("api/library/sources/<uuid:source_id>/move/", source_move, name="library-source-move"),
+    path("api/library/folders/", folder_list, name="library-folder-list"),
+    path("api/library/folders/create/", folder_create, name="library-folder-create"),
+    path("api/library/folders/<uuid:folder_id>/", folder_rename, name="library-folder-rename"),
+    path("api/library/folders/<uuid:folder_id>/delete/", folder_delete, name="library-folder-delete"),
+    # 解析
+    path("api/parsing/preview", preview_parse, name="parsing-preview"),
+    path("api/parsing/benchmark", get_benchmark, name="parsing-benchmark"),
+    path("api/retrieval/search", search_view, name="retrieval-search"),
+    path("api/retrieval/evidence/<uuid:evidence_id>/location", locate_view, name="retrieval-locate"),
 ]
-

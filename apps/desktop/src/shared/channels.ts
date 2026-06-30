@@ -46,6 +46,7 @@ export const Channels = {
   auth: {
     status: ipcChannel("auth", "status"),
     login: ipcChannel("auth", "login"),
+    register: ipcChannel("auth", "register"),
     logout: ipcChannel("auth", "logout"),
     changed: ipcChannel("auth", "changed"),
   },
@@ -82,7 +83,6 @@ export const Channels = {
     minimize: ipcChannel("window", "minimize"),
     toggleMaximize: ipcChannel("window", "toggle-maximize"),
     close: ipcChannel("window", "close"),
-    deepLink: ipcChannel("window", "deep-link"),
   },
 } as const;
 

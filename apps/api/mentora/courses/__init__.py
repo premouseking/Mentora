@@ -1,2 +1,2 @@
-"""Course workspace, source selection, and learning intent ownership."""
+"""Course workspace, creation session, inquiry/plan APIs, and learning intent ownership."""
 

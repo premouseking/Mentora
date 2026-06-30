@@ -13,6 +13,8 @@ import { Channels } from "../../shared/channels";
 import type { AppInfo, AuthStatus, PickedFile } from "../../shared/desktopApi";
 import {
   ApiRequestSchema,
+  AuthCredentialsSchema,
+  AuthRegisterSchema,
   EventStreamOptionsSchema,
   ExternalUrlSchema,
   FileTokenSchema,
@@ -68,7 +70,14 @@ export function registerIpc(services: Services): void {
   }));
 
   ipcMain.handle(Channels.auth.status, (): AuthStatus => services.auth.getStatus());
-  ipcMain.handle(Channels.auth.login, () => services.auth.login());
+  ipcMain.handle(Channels.auth.login, (_event, raw) => {
+    const credentials = AuthCredentialsSchema.parse(raw);
+    return services.auth.login(credentials);
+  });
+  ipcMain.handle(Channels.auth.register, (_event, raw) => {
+    const request = AuthRegisterSchema.parse(raw);
+    return services.auth.register(request);
+  });
   ipcMain.handle(Channels.auth.logout, () => services.auth.logout());
 
   ipcMain.handle(Channels.api.request, (_event, raw) => {

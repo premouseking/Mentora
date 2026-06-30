@@ -5,6 +5,7 @@
 .env.local
 .venv/
 __pycache__/
+*.egg-info/
 *.py[cod]
 .pytest_cache/
 .mypy_cache/
@@ -18,3 +19,8 @@ staticfiles/
 docs/research/
 .superpowers/
 .codebuddy/
+.git-credentials
+
+# 测试文件与测试资料不提交
+apps/api/tests/
+apps/desktop/scripts/*.test.mjs

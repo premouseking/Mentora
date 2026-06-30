@@ -1,0 +1,101 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 780 690" font-family="system-ui, -apple-system, sans-serif">
+  <defs>
+    <marker id="a" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6 Z" fill="#64748B"/></marker>
+    <marker id="aG" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6 Z" fill="#16A34A"/></marker>
+    <linearGradient id="g1" x1="0%" y1="0%" x2="100%" y2="0%"><stop offset="0%" stop-color="#EA580C"/><stop offset="100%" stop-color="#C2410C"/></linearGradient>
+    <linearGradient id="g2" x1="0%" y1="0%" x2="100%" y2="0%"><stop offset="0%" stop-color="#2563EB"/><stop offset="100%" stop-color="#1D4ED8"/></linearGradient>
+    <linearGradient id="g3" x1="0%" y1="0%" x2="100%" y2="0%"><stop offset="0%" stop-color="#7C3AED"/><stop offset="100%" stop-color="#6D28D9"/></linearGradient>
+    <linearGradient id="g4" x1="0%" y1="0%" x2="100%" y2="0%"><stop offset="0%" stop-color="#059669"/><stop offset="100%" stop-color="#047857"/></linearGradient>
+    <linearGradient id="g5" x1="0%" y1="0%" x2="100%" y2="0%"><stop offset="0%" stop-color="#0284C7"/><stop offset="100%" stop-color="#0369A1"/></linearGradient>
+  </defs>
+
+  <!-- title -->
+  <text x="390" y="22" text-anchor="middle" font-size="14" fill="#1E293B" font-weight="700">PDF 解析流程 — 三路径策略</text>
+
+  <!-- START node -->
+  <rect x="290" y="40" width="200" height="40" rx="20" fill="#F1F5F9" stroke="#94A3B8" stroke-width="1.5"/>
+  <text x="390" y="65" text-anchor="middle" font-size="13" fill="#475569" font-weight="600">📄 用户选择 PDF 文件</text>
+
+  <line x1="390" y1="80" x2="390" y2="98" stroke="#64748B" stroke-width="1.5" marker-end="url(#a)"/>
+
+  <!-- Upload & Security -->
+  <rect x="70" y="100" width="640" height="70" rx="10" fill="#FFF7ED" stroke="#EA580C" stroke-width="1.5"/>
+  <rect x="70" y="100" width="180" height="30" rx="10" fill="url(#g1)"/>
+  <text x="160" y="120" text-anchor="middle" font-size="12" fill="#FFF" font-weight="700">上传与安全校验</text>
+  <text x="270" y="118" font-size="10" fill="#475569">扩展名+MIME+魔数三重校验  ·  ClamAV 病毒扫描  ·  创建 SourceVersion  ·  对象存储保存  ·  Celery 任务投递（幂等键）</text>
+  <text x="270" y="142" font-size="10" fill="#94A3B8">上传关卡：5 步完成后进入预检，SourceVersion 一旦创建不可变</text>
+
+  <line x1="390" y1="170" x2="390" y2="188" stroke="#64748B" stroke-width="1.5" marker-end="url(#a)"/>
+
+  <!-- Pre-check -->
+  <rect x="70" y="190" width="640" height="72" rx="10" fill="#EFF6FF" stroke="#2563EB" stroke-width="1.5"/>
+  <rect x="70" y="190" width="180" height="30" rx="10" fill="url(#g2)"/>
+  <text x="160" y="210" text-anchor="middle" font-size="12" fill="#FFF" font-weight="700">📐 解析预检</text>
+  <text x="260" y="210" font-size="10" fill="#475569">自动评估 6 项指标，决定路由到哪个解析路径</text>
+  <text x="260" y="228" font-size="9" fill="#64748B">有效文本页比例 · 乱码比例 · 字符密度 · 图像覆盖率 · 公式/表格密度 · 坐标可定位率</text>
+  <text x="260" y="246" font-size="9" fill="#94A3B8">>80% 有效文本 → 快速路径  |  >20% 乱码 → OCR  |  高度公式/表格 → MinerU  |  低坐标可定位率 → 高质量路径</text>
+
+  <!-- Y split lines -->
+  <line x1="280" y1="262" x2="280" y2="285" stroke="#16A34A" stroke-width="1.5" marker-end="url(#aG)"/>
+  <line x1="390" y1="262" x2="390" y2="285" stroke="#7C3AED" stroke-width="1.5" marker-end="url(#aG)"/>
+  <line x1="500" y1="262" x2="500" y2="285" stroke="#DC2626" stroke-width="1.5" marker-end="url(#aG)"/>
+
+  <!-- Path 1: Fast -->
+  <rect x="48" y="287" width="232" height="132" rx="10" fill="#F0FDF4" stroke="#16A34A" stroke-width="2"/>
+  <rect x="48" y="287" width="232" height="30" rx="10" fill="url(#g4)"/>
+  <text x="164" y="307" text-anchor="middle" font-size="12" fill="#FFF" font-weight="700">⚡ 快速路径</text>
+  <text x="164" y="328" text-anchor="middle" font-size="10" fill="#166534" font-weight="600">文本层完整、布局简单的 PDF</text>
+  <text x="60" y="348" font-size="9" fill="#475569">• PyMuPDF 提取文本块+字体+坐标+书签</text>
+  <text x="60" y="364" font-size="9" fill="#475569">• pdfplumber 辅助表格和几何校验</text>
+  <text x="60" y="380" font-size="9" fill="#475569">• 字体/字号/位置/书签 → 重建标题层级</text>
+  <text x="60" y="396" font-size="9" fill="#475569">• ParsedElement[]{类型/坐标/层级}</text>
+  <text x="164" y="412" text-anchor="middle" font-size="9" fill="#94A3B8">▲ 最快路径，覆盖大部分现代 PDF</text>
+
+  <!-- Path 2: High Quality -->
+  <rect x="290" y="287" width="200" height="132" rx="10" fill="#F5F3FF" stroke="#7C3AED" stroke-width="2"/>
+  <rect x="290" y="287" width="200" height="30" rx="10" fill="url(#g3)"/>
+  <text x="390" y="307" text-anchor="middle" font-size="12" fill="#FFF" font-weight="700">🔬 高质量路径</text>
+  <text x="390" y="328" text-anchor="middle" font-size="10" fill="#5B21B6" font-weight="600">多栏/公式/复杂表格/论文</text>
+  <text x="302" y="348" font-size="9" fill="#475569">• MinerU 输出 Markdown+JSON+公式</text>
+  <text x="302" y="364" font-size="9" fill="#475569">• 表格+图片完整保留</text>
+  <text x="302" y="380" font-size="9" fill="#475569">• 转换为内部 ParsedBundle</text>
+  <text x="302" y="396" font-size="9" fill="#475569">• 保留原始产物，便于重新适配</text>
+  <text x="390" y="412" text-anchor="middle" font-size="9" fill="#94A3B8">▲ 处理复杂排版的默认选择</text>
+
+  <!-- Path 3: OCR -->
+  <rect x="500" y="287" width="232" height="132" rx="10" fill="#FEF2F2" stroke="#DC2626" stroke-width="2"/>
+  <rect x="500" y="287" width="232" height="30" rx="10" fill="#DC2626"/>
+  <text x="616" y="307" text-anchor="middle" font-size="12" fill="#FFF" font-weight="700">🔍 OCR 路径</text>
+  <text x="616" y="328" text-anchor="middle" font-size="10" fill="#991B1B" font-weight="600">扫描件/文本层质量差</text>
+  <text x="512" y="348" font-size="9" fill="#475569">• PyMuPDF 页面渲染为图像</text>
+  <text x="512" y="364" font-size="9" fill="#475569">• PaddleOCR 提取文字+坐标</text>
+  <text x="512" y="380" font-size="9" fill="#475569">• 公式/表格密集页优先 MinerU</text>
+  <text x="512" y="396" font-size="9" fill="#475569">• 低置信页面标记"需人工确认"</text>
+  <text x="616" y="412" text-anchor="middle" font-size="9" fill="#94A3B8">▲ 兜底路径，扫描件专属</text>
+
+  <!-- Merge lines -->
+  <line x1="164" y1="419" x2="164" y2="442" stroke="#64748B" stroke-width="1.5"/>
+  <line x1="390" y1="419" x2="390" y2="442" stroke="#64748B" stroke-width="1.5"/>
+  <line x1="616" y1="419" x2="616" y2="442" stroke="#64748B" stroke-width="1.5"/>
+  <line x1="164" y1="442" x2="616" y2="442" stroke="#64748B" stroke-width="1.5"/>
+  <line x1="390" y1="442" x2="390" y2="460" stroke="#64748B" stroke-width="1.5" marker-end="url(#a)"/>
+
+  <!-- ParsedBundle -->
+  <rect x="70" y="462" width="640" height="84" rx="10" fill="#F0F9FF" stroke="#0284C7" stroke-width="1.5"/>
+  <rect x="70" y="462" width="200" height="30" rx="10" fill="url(#g5)"/>
+  <text x="170" y="482" text-anchor="middle" font-size="12" fill="#FFF" font-weight="700">📦 统一输出 ParsedBundle</text>
+  <text x="280" y="480" font-size="9" fill="#475569">document_metadata（作者/标题/页数/语言） · pages[] · hierarchy[] · assets[] · warnings[] · quality_metrics · parser_name+version</text>
+  <text x="280" y="498" font-size="9" fill="#475569"><tspan font-weight="700">elements[]: </tspan>type · norm_text（检索用）· raw_text（展示用）· page_number · rect（坐标定位）· heading_path（章节层级）· read_order · confidence</text>
+  <text x="280" y="516" font-size="9" fill="#475569"><tspan font-weight="700">ParsedBundle 是三种路径的统一归口</tspan>，无论上层解析器如何，下游检索/引用/AI 只认这一层抽象</text>
+
+  <line x1="390" y1="546" x2="390" y2="564" stroke="#64748B" stroke-width="1.5" marker-end="url(#a)"/>
+
+  <!-- Derived Steps -->
+  <rect x="70" y="566" width="640" height="70" rx="10" fill="#F8FAFC" stroke="#94A3B8" stroke-width="1.5" stroke-dasharray="4,3"/>
+  <text x="390" y="586" text-anchor="middle" font-size="11" fill="#475569" font-weight="600">后续派生</text>
+  <text x="100" y="606" font-size="9" fill="#64748B">① 建 EvidenceUnit（最小引用单元，带坐标）  →  ② 建 RetrievalChunk（检索用文本块）  →  ③ GIN + jieba 全文索引（tsvector）</text>
+  <text x="100" y="622" font-size="9" fill="#64748B">④ 向量嵌入（按资料版本批量生成，可延迟）  →  ⑤ 课程入驻时：Topic 对齐 + Claim 提取 + 冲突检查</text>
+
+  <!-- bottom note -->
+  <text x="390" y="670" text-anchor="middle" font-size="10" fill="#94A3B8">预检算法根据 6 项指标自动选择最优路径，必要时支持混合路径（如扫描件中公式页走 MinerU）</text>
+</svg>
