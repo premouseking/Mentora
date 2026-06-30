@@ -11,15 +11,17 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   Settings,
+  Sparkles,
 } from "lucide-react";
 import { Link, NavLink } from "react-router-dom";
 
 import { DesktopTitleBar } from "./DesktopTitleBar";
 import { CourseInfoBar } from "./CourseInfoBar";
-import { AssistantPanel } from "../features/assistant/AssistantPanel";
+import { AiChatPanel, type AiChatContext } from "../features/assistant/AiChatPanel";
 
 const navItems = [
   { to: "/courses", label: "课程", icon: BookOpen },
+  { to: "/assistant", label: "AI 助手", icon: Sparkles },
   { to: "/library", label: "资源库", icon: FolderClosed },
   { to: "/history", label: "学习记录", icon: History },
   { to: "/notifications", label: "通知", icon: Bell },
@@ -184,7 +186,13 @@ function ResizeHandle({
 
 /* ── App Shell ── */
 
-export function AppShell({ children }: { children: ReactNode }) {
+export function AppShell({
+  children,
+  aiChatContext,
+}: {
+  children: ReactNode;
+  aiChatContext?: AiChatContext;
+}) {
   const [aiPanelOpen, setAiPanelOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(readStoredCollapsed);
   const [sidebarLabelsVisible, setSidebarLabelsVisible] = useState(
@@ -261,8 +269,9 @@ export function AppShell({ children }: { children: ReactNode }) {
                 setPanelWidth((w) => clamp(w - d, MIN_PANEL, MAX_PANEL))
               }
             />
-            <AssistantPanel
+            <AiChatPanel
               width={panelWidth}
+              context={aiChatContext}
               onClose={() => setAiPanelOpen(false)}
             />
           </>
