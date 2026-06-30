@@ -49,6 +49,19 @@ class ObjectStorageService:
             )
         return self._client
 
+    def _client_for_endpoint(self, endpoint_url: str):
+        import boto3
+        from botocore.config import Config
+
+        return boto3.client(
+            "s3",
+            endpoint_url=endpoint_url,
+            aws_access_key_id=settings.OBJECT_STORAGE_ACCESS_KEY,
+            aws_secret_access_key=settings.OBJECT_STORAGE_SECRET_KEY,
+            region_name=settings.OBJECT_STORAGE_REGION,
+            config=Config(signature_version="s3v4"),
+        )
+
     def ensure_bucket(self) -> None:
         """确保 bucket 存在（开发/测试环境自动创建）。"""
         if self.backend == "filesystem":
@@ -100,7 +113,12 @@ class ObjectStorageService:
             # 文件系统后端无 HTTP PUT；开发 smoke 直接 put_object
             return f"filesystem://{self.bucket}/{key}"
 
-        return self.client.generate_presigned_url(
+        client = (
+            self.client
+            if settings.OBJECT_STORAGE_PUBLIC_ENDPOINT == settings.OBJECT_STORAGE_ENDPOINT
+            else self._client_for_endpoint(settings.OBJECT_STORAGE_PUBLIC_ENDPOINT)
+        )
+        return client.generate_presigned_url(
             "put_object",
             Params={"Bucket": self.bucket, "Key": key},
             ExpiresIn=expires,
