@@ -12,6 +12,7 @@ import { ParsingLabPage } from "./pages/ParsingLabPage";
 import { StageSummaryPage } from "./pages/StageSummaryPage";
 import { ConfirmPlanPage } from "./pages/SetupContinuationPages";
 import { BuildProfilePage } from "./pages/SetupPages";
+import { AssistantPage } from "./pages/AssistantPage";
 import { CourseCreationProvider } from "./components/CourseCreationContext";
 
 function PlaceholderPage({ title }: { title: string }) {
@@ -32,6 +33,7 @@ export function App() {
       <Route element={<AuthGate />}>
         <Route path="/" element={<Navigate replace to="/courses" />} />
         <Route path="/courses" element={<CoursesPage />} />
+        <Route path="/assistant" element={<AssistantPage />} />
         <Route path="/courses/:courseId" element={<CourseWorkspacePage />} />
         <Route path="/courses/:courseId/tasks/:taskId" element={<LearningTaskPage />} />
         <Route

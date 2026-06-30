@@ -4390,6 +4390,14 @@ p {
   animation: ai-panel-open 200ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
+/* 独立页面模式：撑满父容器，去掉侧边栏边框 */
+.ai-chat-panel--page {
+  flex: 1;
+  border-left: none;
+  background: #fbfcfb;
+  animation: none;
+}
+
 @keyframes ai-panel-open {
   from {
     max-width: 0;
