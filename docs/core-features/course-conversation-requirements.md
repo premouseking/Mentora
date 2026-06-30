@@ -69,7 +69,7 @@ Mentora 不是通用聊天机器人（参见 `docs/architecture/end-to-end-imple
 ### 2.3 对话管理
 
 - **一个课程可以有多个会话**：例如"第三章课后疑问"和"考前集中答疑"是不同的会话。
-- **会话可命名、可归档、可删除**。
+- **会话可命名、可删除**。
 - **当前激活会话**：同一时间只能有一个活跃对话流，但用户可切换查看历史会话。
 
 ---
@@ -224,7 +224,6 @@ DELETE /api/sessions/{session_id}/               # 删除会话
 | `id` | UUID | 主键 |
 | `course_id` | FK → Course | 所属课程 |
 | `name` | varchar(200) | 会话名称（默认"新对话"） |
-| `status` | varchar(16) | active / archived |
 | `message_count` | int | 消息数量（反范式） |
 | `created_at` | datetime | 创建时间 |
 | `updated_at` | datetime | 最后活跃时间 |
