@@ -67,6 +67,7 @@ urlpatterns = [
     path("api/learning/explanations/", explanation_list, name="learning-explanations"),
     # Agent 聊天
     path("api/", include("mentora.agent_runtime.urls")),
+    path("api/", include("mentora.model_gateway.urls")),
     # Workflow 异步任务
     path("api/", include("mentora.workflow_runtime.urls")),
     path("api/assessment/sessions/generate/", generate_quiz_session, name="assessment-generate"),
