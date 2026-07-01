@@ -5,9 +5,26 @@
  * - 资料列表按 DEV_OWNER_ID 过滤
  * - 详情接口返回 ParsedBundle 正文供文档阅读页渲染
  */
+import {
+  normalizeParsedBundle,
+  type BoundingBox,
+  type BundleRaw,
+  type PageRaw,
+  type ParsedElementRaw,
+  type ParsedBundle,
+} from "./parsedBundleContract";
+
 const API = "/api";
 
 /* ── shared types ──────────────────────────────────── */
+
+export type {
+  BoundingBox,
+  BundleRaw,
+  PageRaw,
+  ParsedBundle,
+  ParsedElementRaw,
+};
 
 export interface SourceItem {
   id: string;
@@ -20,25 +37,6 @@ export interface SourceItem {
     byteSize: number;
     originalFilename: string;
   } | null;
-}
-
-export interface BoundingBox {
-  x0: number; y0: number; x1: number; y1: number;
-}
-
-export interface ParsedElementRaw {
-  type: string; text: string; bbox: BoundingBox | null; heading_level: number | null;
-}
-
-export interface PageRaw {
-  page_number: number; elements: ParsedElementRaw[]; warnings: string[];
-}
-
-export interface BundleRaw {
-  id: string; page_count: number; element_count: number;
-  content_hash: string; quality: { score: number | null };
-  pages: PageRaw[]; warnings: string[];
-  parser: { name: string; version: string };
 }
 
 export interface SourceDetail {
@@ -71,10 +69,19 @@ export async function fetchSources(courseId?: string): Promise<SourceItem[]> {
   return data.items ?? [];
 }
 
+export function buildLibraryAssetUrl(sourceVersionId: string, artifactRef: string): string {
+  const params = new URLSearchParams({ key: artifactRef });
+  return `${API}/library/sources/${sourceVersionId}/assets/?${params}`;
+}
+
 export async function fetchSourceDetail(sourceVersionId: string): Promise<SourceDetail> {
   const res = await fetch(`${API}/library/sources/${sourceVersionId}/`);
   if (!res.ok) throw new Error(`获取资料详情失败: ${res.status}`);
-  return res.json();
+  const data = await res.json();
+  return {
+    ...data,
+    bundle: data.bundle ? normalizeParsedBundle(data.bundle) : null,
+  };
 }
 
 /* ── helpers ───────────────────────────────────────── */

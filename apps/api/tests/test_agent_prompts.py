@@ -65,3 +65,22 @@ def test_prompt_manager_render_tutor():
     })
     assert "生物学" in result
     assert "{{" not in result
+
+
+def test_prompt_manager_render_planner():
+    pm = PromptManager()
+    result = pm.render("planner", {
+        "school": "某大学",
+        "goal": "备考计算机组成原理",
+        "level": "学过一遍",
+        "pace": "稳定节奏",
+        "inquiry_history": "无",
+        "profile_supplement": "{}",
+        "source_scope_summary": "用户已选择以下资料作为唯一规划范围：\n- 教材",
+        "source_evidence_context": "1. evidence_id=e1 source=教材 page=1\n存储系统",
+        "allow_partial_plan": "false",
+    })
+    assert "阶段 → 单元/章节 → 任务" in result
+    assert "资料范围约束" in result
+    assert '"source_evidence_ids"' in result
+    assert "{{" not in result

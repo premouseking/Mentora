@@ -48,11 +48,32 @@ export const tokenStore = {
 
 export class ApiError extends Error {
   status: number;
-  constructor(status: number, message: string) {
+  code?: string;
+  coverageGaps?: CoverageGap[];
+  details?: Record<string, unknown>;
+
+  constructor(
+    status: number,
+    message: string,
+    extras?: {
+      code?: string;
+      coverage_gaps?: CoverageGap[];
+      details?: Record<string, unknown>;
+    },
+  ) {
     super(message);
     this.name = "ApiError";
     this.status = status;
+    this.code = extras?.code;
+    this.coverageGaps = extras?.coverage_gaps;
+    this.details = extras?.details;
   }
+}
+
+export interface CoverageGap {
+  topic: string;
+  reason: string;
+  suggested_action?: string;
 }
 
 /* ── 内部工具 ── */
@@ -153,7 +174,22 @@ async function request<T>(
   const handleResponse = async (resp: Response): Promise<T> => {
     const data = await resp.json().catch(() => ({}));
     if (!resp.ok) {
-      throw new ApiError(resp.status, data.error ?? data.detail ?? `请求失败 (${resp.status})`);
+      const payload = data as {
+        error?: string;
+        detail?: string;
+        code?: string;
+        coverage_gaps?: CoverageGap[];
+        [key: string]: unknown;
+      };
+      throw new ApiError(
+        resp.status,
+        payload.error ?? payload.detail ?? `请求失败 (${resp.status})`,
+        {
+          code: payload.code,
+          coverage_gaps: payload.coverage_gaps,
+          details: payload,
+        },
+      );
     }
     return data as T;
   };

@@ -14,6 +14,7 @@ from mentora.knowledge.services.upload import (
     complete_upload,
     create_upload_session,
 )
+from mentora.parsing.contract import serialize_parsed_bundle
 
 
 def _parse_json_body(request) -> dict:
@@ -259,7 +260,7 @@ def source_detail(request, source_version_id):
             storage = ObjectStorageService()
             raw = storage.get_object_bytes(version.artifact_ref)
             bundle_data = json.loads(raw.decode("utf-8"))
-        except (ObjectStorageError, json.JSONDecodeError):
+        except (ObjectStorageError, json.JSONDecodeError, OSError):
             pass
 
     return Response({
@@ -280,8 +281,60 @@ def source_detail(request, source_version_id):
             "errorCode": version.error_code,
             "errorMessage": version.error_message,
         },
-        "bundle": bundle_data,
+        "bundle": serialize_parsed_bundle(bundle_data),
     })
+
+
+_IMAGE_CONTENT_TYPES = {
+    "png": "image/png",
+    "jpeg": "image/jpeg",
+    "jpg": "image/jpeg",
+    "webp": "image/webp",
+    "gif": "image/gif",
+}
+
+
+@extend_schema(
+    summary="获取资料版本内嵌图片",
+    description="按对象存储键流式返回 PDF 解析提取的图片资源。",
+    parameters=[
+        OpenApiParameter(name="key", type=str, description="对象存储键", required=True),
+    ],
+    responses={
+        200: {"description": "图片二进制流"},
+        400: {"description": "key 无效或缺失"},
+        404: {"description": "资料版本或对象不存在"},
+    },
+)
+@api_view(["GET"])
+def source_asset(request, source_version_id):
+    from django.http import HttpResponse
+
+    from mentora.common.storage import ObjectStorageError, ObjectStorageService
+    from mentora.knowledge.models import SourceVersion
+
+    try:
+        SourceVersion.objects.get(id=source_version_id)
+    except SourceVersion.DoesNotExist:
+        return Response({"error": "资料版本不存在"}, status=404)
+
+    key = (request.GET.get("key") or "").strip()
+    if not key:
+        return Response({"error": "缺少 key 参数"}, status=400)
+
+    prefix = f"images/{source_version_id}/"
+    if not key.startswith(prefix) or ".." in key or key.startswith("/") or "\\" in key:
+        return Response({"error": "无效的对象键"}, status=400)
+
+    ext = key.rsplit(".", 1)[-1].lower() if "." in key else ""
+    content_type = _IMAGE_CONTENT_TYPES.get(ext, "application/octet-stream")
+
+    try:
+        data = ObjectStorageService().get_object_bytes(key)
+    except ObjectStorageError:
+        return Response({"error": "对象不存在"}, status=404)
+
+    return HttpResponse(data, content_type=content_type)
 
 
 @extend_schema(

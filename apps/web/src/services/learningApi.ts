@@ -70,6 +70,7 @@ export interface QuizBlock {
 
 export interface TaskSource {
   evidence_id: string;
+  source_version_id: string;
   title: string;
   page_number: number;
   snippet_preview: string;
@@ -79,6 +80,7 @@ export interface TaskSource {
 
 export interface LearningTaskDetail {
   task_id: string;
+  template_id?: string;
   title: string;
   task_type: string;
   unit_title: string;
@@ -107,6 +109,13 @@ export interface HistoryEvent {
 
 export async function fetchTask(taskId: string): Promise<LearningTaskDetail> {
   return apiClient.get<LearningTaskDetail>(`/api/learning/tasks/${encodeURIComponent(taskId)}/`);
+}
+
+export async function completeLearningTask(taskId: string): Promise<{ task_id: string; status: string }> {
+  return apiClient.post<{ task_id: string; status: string }>(
+    `/api/learning/tasks/${encodeURIComponent(taskId)}/complete/`,
+    {},
+  );
 }
 
 export async function fetchHistory(limit = 50): Promise<{ items: HistoryEvent[] }> {

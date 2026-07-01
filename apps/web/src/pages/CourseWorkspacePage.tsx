@@ -13,7 +13,7 @@ import {
   X,
   XCircle,
 } from "lucide-react";
-import { useParams } from "react-router-dom";
+import { useParams, useSearchParams } from "react-router-dom";
 import { AppShell } from "../components/AppShell";
 import {
   FileExplorer,
@@ -39,13 +39,16 @@ import {
   type TreeNode,
   type CoursePhasesResponse,
 } from "../services/documentApi";
-import { getActivePlan, updateCourseSession, type ActivePlan } from "../services/courseApi";
+import { getActivePlan, getCourseDetail, updateCourseSession, type ActivePlan } from "../services/courseApi";
 import {
   fetchExplanations,
   fetchMistakes,
   type ExplanationItem,
   type MistakeItem,
 } from "../services/learningApi";
+import { fetchEvidenceLocation } from "../services/retrievalApi";
+import { DocumentReaderShell } from "../components/document-reader/DocumentReaderShell";
+import type { EvidenceHighlight } from "../components/document-reader/types";
 
 const MIN_EXPLORER = 170;
 const MAX_EXPLORER = 360;
@@ -130,39 +133,6 @@ function getTabIcon(kind: WorkspaceTabKind) {
   if (kind === "file") return <FileText size={14} />;
   if (kind === "ai") return <BrainCircuit size={14} />;
   return <AlertTriangle size={14} />;
-}
-
-function DocumentRenderer({ bundle }: { bundle: BundleRaw }) {
-  return (
-    <div className="document-reader">
-      {bundle.pages.map((page) => (
-        <div key={page.page_number} className="doc-page">
-          <div className="doc-page-number">第 {page.page_number} 页</div>
-          {page.elements.map((el, index) => {
-            if (el.type === "heading") {
-              const level = Math.min(el.heading_level ?? 1, 3);
-              const sizes = [22, 18, 16];
-              return (
-                <div key={index} className="doc-heading" style={{ fontSize: sizes[level - 1], fontWeight: 700 }}>
-                  {el.text}
-                </div>
-              );
-            }
-            if (el.type === "paragraph") {
-              return <p key={index} className="doc-paragraph">{el.text}</p>;
-            }
-            if (el.type === "list_item") {
-              return <div key={index} className="doc-list-item">• {el.text}</div>;
-            }
-            if (el.type === "image") {
-              return <div key={index} className="doc-image-placeholder">[图片]</div>;
-            }
-            return <p key={index} className="doc-paragraph">{el.text || `[${el.type}]`}</p>;
-          })}
-        </div>
-      ))}
-    </div>
-  );
 }
 
 function DetachedSidePanel({
@@ -435,6 +405,8 @@ function ContentBody({
   onStartQuiz,
   aiItems,
   mistakeItems,
+  evidenceHighlight,
+  onClearEvidenceHighlight,
 }: {
   tab: WorkspaceTab;
   fileState?: FileBundleState;
@@ -443,6 +415,8 @@ function ContentBody({
   onStartQuiz: (sourceId: string | null) => void;
   aiItems: ExplanationItem[];
   mistakeItems: MistakeItem[];
+  evidenceHighlight?: EvidenceHighlight | null;
+  onClearEvidenceHighlight?: () => void;
 }) {
   const selectedAi = tab.kind === "ai" ? aiItems.find((item) => item.id === tab.itemId) : null;
   const selectedMistake = tab.kind === "mistake" ? mistakeItems.find((item) => item.item_id === tab.itemId) ?? null : null;
@@ -457,6 +431,10 @@ function ContentBody({
   }
 
   if (tab.kind === "file") {
+    const activeEvidence = evidenceHighlight && tab.itemId === evidenceHighlight.sourceVersionId
+      ? evidenceHighlight
+      : null;
+
     return (
       <>
         <div className="cw-content-toolbar">
@@ -465,12 +443,15 @@ function ContentBody({
             <span>刷题</span>
           </button>
         </div>
-        {fileState?.loading && <p className="cw-preview-text">加载中...</p>}
-        {!fileState?.loading && fileState?.bundle && <DocumentRenderer bundle={fileState.bundle} />}
-        {!fileState?.loading && fileState?.error && <p className="cw-preview-text">{fileState.error}</p>}
-        {!fileState?.loading && !fileState?.bundle && !fileState?.error && (
-          <p className="cw-preview-text">无法加载文档内容。</p>
-        )}
+        <DocumentReaderShell
+          title={fileState?.title ?? tab.title}
+          bundle={fileState?.bundle ?? null}
+          loading={Boolean(fileState?.loading)}
+          error={fileState?.error ?? ""}
+          evidenceHighlight={activeEvidence}
+          onClearEvidenceHighlight={onClearEvidenceHighlight}
+          sourceVersionId={tab.itemId}
+        />
       </>
     );
   }
@@ -545,6 +526,8 @@ export function CourseWorkspacePage() {
   const [aiItems, setAiItems] = useState<ExplanationItem[]>([]);
   const [mistakeItems, setMistakeItems] = useState<MistakeItem[]>([]);
   const [phases, setPhases] = useState<CoursePhasesResponse | null>(null);
+  const [evidenceHighlight, setEvidenceHighlight] = useState<EvidenceHighlight | null>(null);
+  const [searchParams, setSearchParams] = useSearchParams();
 
   const { courseId } = useParams<{ courseId: string }>();
   const activeTab = useMemo(
@@ -557,15 +540,28 @@ export function CourseWorkspacePage() {
   /* ── Fetch plan + update last_studied_at on mount ── */
   useEffect(() => {
     if (!courseId) return;
+    let cancelled = false;
     setPlanLoading(true);
-    getActivePlan(courseId)
-      .then((plan) => setActivePlan(plan))
-      .catch(() => setActivePlan(null))
-      .finally(() => setPlanLoading(false));
-    // 更新最近学习时间
-    updateCourseSession(courseId, {
-      last_studied_at: new Date().toISOString(),
-    }).catch(() => {});
+    getCourseDetail(courseId)
+      .catch(() => null)
+      .then((course) => {
+        const planSessionId = course?.session_id || courseId;
+        return getActivePlan(planSessionId)
+          .then((plan) => {
+            if (!cancelled) setActivePlan(plan);
+          })
+          .catch(() => {
+            if (!cancelled) setActivePlan(null);
+          })
+          .finally(() => {
+            updateCourseSession(planSessionId, {
+              last_studied_at: new Date().toISOString(),
+            }).catch(() => {});
+          });
+      })
+      .finally(() => {
+        if (!cancelled) setPlanLoading(false);
+      });
 
     // 加载讲解、错题、阶段数据
     Promise.all([
@@ -573,6 +569,8 @@ export function CourseWorkspacePage() {
       fetchMistakes(courseId).then((d) => setMistakeItems(d.items)).catch(() => {}),
       fetchCoursePhases(courseId).then(setPhases).catch(() => {}),
     ]);
+
+    return () => { cancelled = true; };
   }, [courseId]);
 
   /* ── Fetch sources on mount (filtered by course) ── */
@@ -670,6 +668,38 @@ export function CourseWorkspacePage() {
   const handleSelectFile = useCallback((id: string) => openItem("file", id, "replace"), [openItem]);
   const handleSelectAi = useCallback((id: string) => openItem("ai", id, "replace"), [openItem]);
   const handleSelectMistake = useCallback((id: string) => openItem("mistake", id, "replace"), [openItem]);
+
+  useEffect(() => {
+    const sourceVersionId = searchParams.get("sourceVersionId")?.trim();
+    const evidenceId = searchParams.get("evidenceId")?.trim();
+    if (!sourceVersionId) return;
+
+    openItem("file", sourceVersionId, "new");
+
+    if (evidenceId) {
+      fetchEvidenceLocation(evidenceId)
+        .then((location) => {
+          setEvidenceHighlight({
+            evidenceId,
+            sourceVersionId,
+            pageNumber: location.page_number,
+            content: location.content,
+          });
+        })
+        .catch(() => {
+          setEvidenceHighlight({
+            evidenceId,
+            sourceVersionId,
+            pageNumber: 1,
+            content: "",
+          });
+        });
+    } else {
+      setEvidenceHighlight(null);
+    }
+
+    setSearchParams({}, { replace: true });
+  }, [openItem, searchParams, setSearchParams]);
 
   function closeTab(tabId: string) {
     setOpenTabs((prev) => {
@@ -838,6 +868,8 @@ export function CourseWorkspacePage() {
                       onStartQuiz={startQuiz}
                       aiItems={aiItems}
                       mistakeItems={mistakeItems}
+                      evidenceHighlight={evidenceHighlight}
+                      onClearEvidenceHighlight={() => setEvidenceHighlight(null)}
                     />
                   )}
                 </main>
@@ -874,7 +906,7 @@ export function CourseWorkspacePage() {
             className={`phase-summary-overlay${phaseSummaryOpen ? " open" : ""}`}
           >
             {phaseSummaryOpen && (
-              <PhaseSummary onClose={() => setPhaseSummaryOpen(false)} />
+              <PhaseSummary onClose={() => setPhaseSummaryOpen(false)} activePlan={activePlan} phases={phases} courseId={courseId!} />
             )}
           </div>
 

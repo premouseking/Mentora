@@ -47,16 +47,23 @@ class OpenAIProvider(BaseProvider):
         api_key: str,
         base_url: str | None = None,
         model: str | None = None,
+        *,
+        request_timeout: int = 60,
+        stream_timeout: int = 120,
     ):
         """
         参数：
         - api_key: API Key
         - base_url: API 基础 URL（默认 https://api.openai.com/v1）
         - model: 覆盖 default_model
+        - request_timeout: 非流式请求超时（秒）
+        - stream_timeout: 流式请求超时（秒）
         """
         self._api_key = api_key
         self._base_url = (base_url or "https://api.openai.com/v1").rstrip("/")
         self._model = model or self.default_model
+        self._request_timeout = request_timeout
+        self._stream_timeout = stream_timeout
 
     # ── 非流式 ──
 
@@ -65,6 +72,8 @@ class OpenAIProvider(BaseProvider):
         messages: list[Message],
         tools: list[dict] | None = None,
         model: str | None = None,
+        *,
+        timeout: int | None = None,
     ) -> ProviderResponse:
         """非流式聊天完成请求。"""
         url = f"{self._base_url}/chat/completions"
@@ -72,6 +81,7 @@ class OpenAIProvider(BaseProvider):
             url=url,
             payload=self._build_payload(messages, tools, model, stream=False),
             headers=self._build_headers(),
+            timeout=timeout or self._request_timeout,
         )
         return self._parse_response(resp_json, model or self._model)
 
@@ -82,6 +92,8 @@ class OpenAIProvider(BaseProvider):
         messages: list[Message],
         tools: list[dict] | None = None,
         model: str | None = None,
+        *,
+        timeout: int | None = None,
     ) -> AsyncGenerator[ProviderResponse, None]:
         """流式聊天完成请求（SSE）。"""
         url = f"{self._base_url}/chat/completions"
@@ -91,6 +103,7 @@ class OpenAIProvider(BaseProvider):
             url=url,
             payload=self._build_payload(messages, tools, model, stream=True),
             headers=self._build_headers(),
+            timeout=timeout or self._stream_timeout,
         ):
             yield self._parse_stream_chunk(chunk_json, model or self._model, tool_call_deltas)
 

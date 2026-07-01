@@ -15,6 +15,8 @@
   },
   "scripts": {
     "dev:web": "pnpm --dir apps/web dev",
+    "dev:api": "bash -lc 'cd apps/api && source .venv/bin/activate && set -a && source ../../.env && set +a && python manage.py migrate --noinput && python manage.py runserver 127.0.0.1:8000'",
+    "dev": "concurrently -k -n api,web \"pnpm dev:api\" \"pnpm dev:web\"",
     "build:web": "pnpm --dir apps/web build",
     "typecheck:web": "pnpm --dir apps/web typecheck",
     "test:web": "pnpm --dir apps/web test",
@@ -28,9 +30,8 @@
     "infra:down": "docker compose -f infra/docker/docker-compose.dev.yml down",
     "api:docker:build": "docker compose -f infra/docker/docker-compose.dev.yml --profile app build api",
     "api:docker:up": "docker compose -f infra/docker/docker-compose.dev.yml --profile app up -d api",
-    "api:migrate": "cd apps/api && python manage.py migrate",
+    "api:migrate": "bash -lc 'cd apps/api && source .venv/bin/activate && set -a && source ../../.env && set +a && python manage.py migrate --noinput'",
     "api:seed": "cd apps/api && python manage.py seed_dev",
-    "api:smoke:upload": "cd apps/api && python manage.py smoke_upload_resource --fixture normal.pdf",
-    "dev:api": "cd apps/api && python manage.py runserver"
+    "api:smoke:upload": "cd apps/api && python manage.py smoke_upload_resource --fixture normal.pdf"
   }
 }

@@ -58,20 +58,58 @@ class ClarifierResponse(BaseModel):
     )
 
 
-class PlanPhase(BaseModel):
-    """学习方案中的阶段卡。
+class PlanTaskItem(BaseModel):
+    """学习任务。
 
     字段约定：
-    - name：阶段名称（如「基础梳理」）
-    - goal：阶段目标描述
-    - share：占全部内容的百分比（整数 10-50）
-    - tasks：代表性任务列表（3-6 项）
+    - title：任务标题，前端直接展示
+    - task_type：lecture / exercise / project / review
+    - delivery_mode：text / interactive / video
+    - estimated_minutes：建议时长
+    - required：是否必修
+    - source_evidence_ids：支撑该任务的 EvidenceUnit ID（资料范围约束时必填）
     """
+
+    title: str = Field(description="任务标题")
+    task_type: Literal["lecture", "exercise", "project", "review"] = Field(
+        description="任务类型"
+    )
+    delivery_mode: Literal["text", "interactive", "video"] = Field(
+        default="text",
+        description="任务交付方式",
+    )
+    estimated_minutes: int = Field(default=30, ge=5, le=240, description="任务预估时长")
+    required: bool = Field(default=True, description="是否必修")
+    source_evidence_ids: list[str] = Field(
+        default_factory=list,
+        description="支撑该任务的 EvidenceUnit ID 列表",
+    )
+
+
+class PlanUnitItem(BaseModel):
+    """学习单元/章节。"""
+
+    title: str = Field(description="单元或章节标题")
+    goal: str = Field(default="", description="本单元目标")
+    target_depth: Literal["basic", "reinforce", "review", "skip"] = Field(
+        default="basic",
+        description="目标深度",
+    )
+    estimated_minutes: int = Field(default=60, ge=10, le=600, description="单元预估时长")
+    source_evidence_ids: list[str] = Field(
+        default_factory=list,
+        description="支撑本单元的 EvidenceUnit ID 列表",
+    )
+    tasks: list[PlanTaskItem] = Field(description="单元下的细分任务")
+
+
+class PlanPhase(BaseModel):
+    """学习方案中的阶段卡。"""
 
     name: str = Field(description="阶段名称")
     goal: str = Field(description="阶段目标描述")
-    share: int = Field(description="占比百分比", ge=10, le=50)
-    tasks: list[str] = Field(description="代表性任务列表")
+    share: int = Field(description="占比百分比", ge=5, le=50)
+    units: list[PlanUnitItem] = Field(description="阶段下的细分章节/单元")
 
 
 class TopicItem(BaseModel):
@@ -83,11 +121,23 @@ class TopicItem(BaseModel):
     )
 
 
+class CoverageGapItem(BaseModel):
+    """资料范围未能覆盖的学习目标片段。"""
+
+    topic: str = Field(description="未能覆盖的主题或能力点")
+    reason: str = Field(description="为何当前资料无法覆盖")
+    suggested_action: str = Field(
+        default="",
+        description="建议用户采取的行动",
+    )
+
+
 class PlanResponse(BaseModel):
     """PlannerAgent 方案输出。
 
     title 字段由 LLM 根据用户目标生成简洁课程标题（≤15 字）。
     topics 由 LLM 根据资料内容自动标注主题-证据关联。
+    coverage_gaps 仅在资料范围不足时列出缺口，不得把缺口生成为学习章节。
     """
 
     title: str = Field(description="课程标题，≤15字")
@@ -96,3 +146,45 @@ class PlanResponse(BaseModel):
         default_factory=list,
         description="主题与证据映射，LLM 自动标注",
     )
+    coverage_gaps: list[CoverageGapItem] = Field(
+        default_factory=list,
+        description="资料范围未能覆盖的目标说明",
+    )
+
+
+class ContentBlockSchema(BaseModel):
+    """ContentAgent 生成的单个内容块——字段按 type 区分。"""
+
+    type: str = Field(description="heading / paragraph / citation / quiz / callout")
+    id: str = Field(description="唯一标识，如 h-1 / p-1 / q-1")
+
+    # heading
+    label: str | None = Field(default=None, description="节标题文本")
+    level: int | None = Field(default=None, description="标题级别 2 或 3")
+
+    # paragraph
+    text: str | None = Field(default=None, description="段落文本")
+    modes: dict | None = Field(default=None, description="多模式 {simple, example, standard}")
+
+    # citation
+    evidence_id: str | None = Field(default=None, description="引用的 EvidenceUnit UUID")
+    source_title: str | None = Field(default=None, description="资料名称")
+    chapter: str | None = Field(default=None, description="章节")
+    page_number: int | None = Field(default=None, description="页码")
+
+    # quiz
+    question: str | None = Field(default=None, description="题干")
+    options: list[str] | None = Field(default=None, description="选项列表")
+    correct_index: int | None = Field(default=None, description="正确选项索引 0-based")
+    explanation: str | None = Field(default=None, description="答案解析")
+
+    # callout
+    variant: str | None = Field(default=None, description="tip / warning / info")
+    # callout 复用 text 字段
+
+
+class TaskContentOutput(BaseModel):
+    """ContentAgent 生成的任务内容输出。"""
+
+    content_blocks: list[ContentBlockSchema] = Field(description="按序渲染的内容块")
+    source_evidence_ids: list[str] = Field(default_factory=list, description="引用的证据 ID 列表")

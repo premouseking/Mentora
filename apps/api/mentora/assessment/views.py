@@ -59,8 +59,18 @@ def _get_source_titles(source_version_ids: list[str]) -> dict[str, str]:
     return titles
 
 
-def _get_scoped_evidence(source_version_ids: list[str]):
+def _get_scoped_evidence(source_version_ids: list[str], *, evidence_ids: list[str] | None = None):
     from mentora.retrieval.models import EvidenceUnit
+
+    if evidence_ids:
+        units = list(
+            EvidenceUnit.objects.filter(id__in=evidence_ids)
+            .order_by("source_version_id", "page_number", "created_at")
+        )
+        if source_version_ids:
+            allowed = set(source_version_ids)
+            units = [unit for unit in units if unit.source_version_id in allowed]
+        return units[:MAX_CONTEXT_EVIDENCE]
 
     return list(
         EvidenceUnit.objects.filter(source_version_id__in=source_version_ids)
@@ -194,6 +204,8 @@ def _serialize_session(session_id: str) -> dict | None:
     request={"application/json": {"type": "object", "properties": {
         "course_session_id": {"type": "string"},
         "source_version_ids": {"type": "array", "items": {"type": "string"}},
+        "source_evidence_ids": {"type": "array", "items": {"type": "string"}},
+        "task_id": {"type": "string"},
         "count": {"type": "integer", "default": 5},
         "difficulty": {"type": "string", "default": "综合"},
     }}},
@@ -211,8 +223,13 @@ def generate_quiz_session(request):
         return _json_error(str(exc), 400)
 
     source_version_ids = [str(s).strip() for s in body.get("source_version_ids", []) if str(s).strip()]
-    if not source_version_ids:
-        return _json_error("请至少选择一个课程文件", 400)
+    source_evidence_ids = [
+        str(eid).strip() for eid in body.get("source_evidence_ids", []) if str(eid).strip()
+    ]
+    task_id = str(body.get("task_id") or "").strip()
+
+    if not source_version_ids and not source_evidence_ids:
+        return _json_error("请至少选择一个课程文件或指定任务证据", 400)
 
     count = body.get("count", 10)
     try:
@@ -224,7 +241,17 @@ def generate_quiz_session(request):
     if error_response is not None:
         return error_response
 
-    evidence_units = _get_scoped_evidence(source_version_ids)
+    evidence_units = _get_scoped_evidence(
+        source_version_ids,
+        evidence_ids=source_evidence_ids or None,
+    )
+    if source_evidence_ids:
+        found_ids = {str(unit.id) for unit in evidence_units}
+        missing = [eid for eid in source_evidence_ids if eid not in found_ids]
+        if missing:
+            return _json_error("部分任务证据不存在或不在所选资料范围内", 400)
+        if not source_version_ids:
+            source_version_ids = sorted({str(unit.source_version_id) for unit in evidence_units})
     if not evidence_units:
         return _json_error("所选资料还没有可用于出题的解析证据，请先完成文件解析", 400)
 
@@ -319,6 +346,25 @@ def submit_quiz_attempt(request, session_id):
         )
     except Exception as exc:
         return _json_error(f"提交答案失败: {str(exc)}", 400)
+
+    # 写入学习历史
+    try:
+        from mentora.assessment.models import AssessmentSession
+        from mentora.learning.services import write_history_event
+
+        sess = AssessmentSession.objects.only("course_session_id").get(id=session_id)
+        write_history_event(
+            course_id=str(sess.course_session_id),
+            course_title="",
+            event_type="quiz_attempted",
+            title="测验作答",
+            detail=f"题目 {item_id}",
+            result="correct" if result.get("is_correct") else "incorrect",
+            task_id=item_id,
+        )
+    except Exception:
+        pass
+
     return Response(result)
 
 

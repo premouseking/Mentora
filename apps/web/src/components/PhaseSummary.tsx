@@ -1,6 +1,18 @@
 import { Check, GripVertical, Pencil, Plus, Undo2, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { MentoraLoader } from "./MentoraLoader";
+import type { ActivePlan, PlanPhase, PlanUnit } from "../services/courseApi";
+import type { CoursePhasesResponse } from "../services/documentApi";
+import {
+  buildTaskDetailSummary,
+  getTaskCardLabelForUnit,
+  getTaskDeliveryLabel,
+  getTaskDetailTitle,
+  getTaskTypeDetailLabel,
+  resolveTaskStartPath,
+  summarizeUnitTasks,
+} from "../pages/courseFlowHelpers";
 
 /* ── Mock 数据（v6：全部 mock，不连后端）── */
 
@@ -276,14 +288,7 @@ const TIME_OPTIONS = [
   "不固定，根据进度灵活安排",
 ];
 
-/* ── 任务类型标签 ── */
-
-const TASK_TYPE_LABEL: Record<string, string> = {
-  lecture: "讲解",
-  exercise: "练习",
-  project: "项目",
-  review: "复习",
-};
+/* ── 任务类型标签（详情区沿用统一 helper）── */
 
 function formatMinutes(m: number): string {
   if (m >= 60) return `${Math.round(m / 60 * 10) / 10} 小时`;
@@ -388,8 +393,8 @@ const CANVAS = {
   W: 600,
   chW: 150,
   chH: 42,
-  tkW: 116,
-  tkH: 34,
+  tkW: 88,
+  tkH: 32,
   tkGap: 10,
   chGap: 48,
   branch: 104, // 章节中心到任务群竖线的水平距离
@@ -427,7 +432,7 @@ type Layout = {
 };
 
 /** 计算当前阶段所有章节与任务的绝对坐标 */
-function computeLayout(units: typeof MOCK_PLAN.phases[0]["units"]): Layout {
+function computeLayout(units: PlanUnit[]): Layout {
   const cx = CANVAS.W / 2;
   let y = CANVAS.pad;
   const chapters: ChapterNode[] = units.map((unit, i) => {
@@ -441,9 +446,7 @@ function computeLayout(units: typeof MOCK_PLAN.phases[0]["units"]): Layout {
     const taskStartY = y + (blockH - tasksH) / 2;
     const taskNodes: TaskNode[] = tasks.map((t, j) => ({
       id: t.id,
-      label: t.task_type === "lecture" || t.task_type === "project"
-        ? (t.knowledge_point ?? `${TASK_TYPE_LABEL[t.task_type] ?? t.task_type} ${j + 1}`)
-        : `${TASK_TYPE_LABEL[t.task_type] ?? t.task_type} ${j + 1}`,
+      label: getTaskCardLabelForUnit(tasks, t, j),
       taskType: t.task_type,
       minutes: t.estimated_minutes,
       x: side === 1 ? stemX + 14 : stemX - 14 - CANVAS.tkW,
@@ -482,7 +485,7 @@ function PhaseCanvas({
   completedTasks,
   onSelect,
 }: {
-  units: typeof MOCK_PLAN.phases[0]["units"];
+  units: PlanUnit[];
   selected: Selection;
   completedTasks: Set<string>;
   onSelect: (s: Selection) => void;
@@ -635,7 +638,7 @@ type OverviewUnitNode = {
   h: number;
 };
 
-function computeOverviewLayout(units: typeof MOCK_PLAN.phases[0]["units"]) {
+function computeOverviewLayout(units: PlanUnit[]) {
   const N = units.length;
   const contentW = 2 * OV_CANVAS.PAD_H + N * OV_CANVAS.UNIT_W + Math.max(0, N - 1) * OV_CANVAS.ARROW_W;
   const contentH = 2 * OV_CANVAS.PAD_V + OV_CANVAS.UNIT_H;
@@ -656,7 +659,7 @@ function PlanOverviewCanvas({
   selectedUnitId,
   onSelectUnit,
 }: {
-  units: typeof MOCK_PLAN.phases[0]["units"];
+  units: PlanUnit[];
   selectedUnitId: string | null;
   onSelectUnit: (unitId: string | null) => void;
 }) {
@@ -739,12 +742,6 @@ function PlanOverviewCanvas({
 
 /* ── 右栏：详情 ── */
 
-const DELIVERY_LABEL: Record<string, string> = {
-  self_paced: "自学",
-  live: "直播",
-  hybrid: "混合",
-};
-
 const DEPTH_LABEL: Record<string, string> = {
   understand: "理解",
   apply: "应用",
@@ -776,9 +773,10 @@ function PhaseDetail({
   onRequestComplete,
   onCancelConfirm,
   onConfirmComplete,
+  courseId,
 }: {
-  phase: typeof MOCK_PLAN.phases[0];
-  units: typeof MOCK_PLAN.phases[0]["units"];
+  phase: PlanPhase;
+  units: PlanUnit[];
   selected: Selection;
   completedTasks: Set<string>;
   confirmTaskId: string | null;
@@ -787,7 +785,9 @@ function PhaseDetail({
   onRequestComplete: (taskId: string) => void;
   onCancelConfirm: () => void;
   onConfirmComplete: () => void;
+  courseId: string;
 }) {
+  const navigate = useNavigate();
   const info = useMemo<DetailInfo | null>(() => {
     if (!selected) return null;
     if (selected.kind === "phase") {
@@ -819,7 +819,7 @@ function PhaseDetail({
           { label: "目标深度", value: DEPTH_LABEL[u.target_depth] ?? u.target_depth },
           { label: "预估时长", value: formatMinutes(u.estimated_minutes) },
         ],
-        summary: `本章节包含 ${u.tasks.length} 个学习任务，涵盖${u.tasks.map((t) => TASK_TYPE_LABEL[t.task_type] ?? t.task_type).join("、")}等类型，预计用时 ${formatMinutes(u.estimated_minutes)}。`,
+        summary: summarizeUnitTasks(u.tasks, u.estimated_minutes),
         materials: [],
         showStartButton: false,
         isKnowledgeTask: false,
@@ -828,19 +828,12 @@ function PhaseDetail({
     for (const u of units) {
       const t = u.tasks.find((t) => t.id === selected.id);
       if (t) {
-        const typeLabel = TASK_TYPE_LABEL[t.task_type] ?? t.task_type;
-        const isExercise = t.task_type === "exercise";
-        // 讲解任务的任务类型显示为「知识点」
-        const typeDisplay = t.task_type === "lecture" ? "知识点" : typeLabel;
-        // 标题：讲解/项目用知识点名，练习用「练习 N」
         const taskIdx = u.tasks.indexOf(t);
-        const title = (t.task_type === "lecture" || t.task_type === "project")
-          ? (t.knowledge_point ?? `${typeLabel} ${taskIdx + 1}`)
-          : `${typeLabel} ${taskIdx + 1}`;
-        // 交付方式：讲解→自主确认，练习→完成练习，其他沿用 delivery_mode 映射
-        const delivery = isExercise ? "完成练习"
-          : t.task_type === "lecture" ? "自主确认"
-          : (DELIVERY_LABEL[t.delivery_mode] ?? t.delivery_mode);
+        const title = getTaskDetailTitle(t, taskIdx);
+        const knowledgePoint = t.knowledge_point?.trim();
+        const isExercise = t.task_type === "exercise";
+        const typeDisplay = getTaskTypeDetailLabel(t.task_type);
+        const delivery = getTaskDeliveryLabel(t.task_type, t.delivery_mode);
         return {
           type: "task",
           title,
@@ -850,11 +843,12 @@ function PhaseDetail({
             { label: "预估时长", value: formatMinutes(t.estimated_minutes) },
             { label: "是否必修", value: t.required ? "必修" : "选修" },
           ],
-          summary: isExercise
-            ? `通过完成练习巩固「${u.title || "本章节"}」的知识点，预计用时 ${formatMinutes(t.estimated_minutes)}。`
-            : t.task_type === "lecture"
-            ? `学习知识点「${t.knowledge_point ?? title}」，理解其在「${u.title || "本章节"}」中的应用，预计用时 ${formatMinutes(t.estimated_minutes)}。`
-            : `通过项目实践巩固「${t.knowledge_point ?? title}」，预计用时 ${formatMinutes(t.estimated_minutes)}。`,
+          summary: buildTaskDetailSummary(
+            t,
+            u.title || `单元 ${u.position + 1}`,
+            taskIdx,
+            t.estimated_minutes,
+          ),
           materials: t.materials ?? [],
           showStartButton: isExercise,
           isKnowledgeTask: !isExercise,
@@ -925,19 +919,23 @@ function PhaseDetail({
         <>
           {completedTasks.has(selected.id) ? (
             <div className="ps-detail-done-badge">✓ 已完成</div>
-          ) : info.showStartButton ? (
-            <button type="button" className="ps-detail-start-btn" onClick={onClose}>
-              开始练习
-            </button>
           ) : (
             <button
               type="button"
-              className="ps-detail-complete-btn"
-              onClick={(e) => { e.stopPropagation(); onRequestComplete(selected.id); }}
+              className="ps-detail-start-btn"
+              onClick={() => navigate(resolveTaskStartPath(courseId, selected.id))}
             >
-              确认完成
+              开始学习
             </button>
           )}
+          <button
+            type="button"
+            className="ps-detail-complete-btn"
+            onClick={(e) => { e.stopPropagation(); onRequestComplete(selected.id); }}
+            style={{ marginTop: 8 }}
+          >
+            确认完成
+          </button>
         </>
       )}
 
@@ -973,15 +971,21 @@ function phaseTrackOffsetOf(index: number, blockBasis: number) {
 
 export function PhaseSummary({
   onClose,
+  activePlan,
+  phases: phasesData,
+  courseId,
 }: {
   onClose: () => void;
+  activePlan: ActivePlan | null;
+  phases: CoursePhasesResponse | null;
+  courseId: string;
 }) {
-  const plan = MOCK_PLAN;
+  const navigate = useNavigate();
+  const plan = activePlan?.phases?.length ? activePlan : { phases: [] };
+  const firstPhaseId = plan.phases[0]?.id ?? "";
   const [activePhase, setActivePhase] = useState(0);
-  const [selected, setSelected] = useState<Selection>({ kind: "phase", id: plan.phases[0].id });
-  const [completedTasks, setCompletedTasks] = useState<Set<string>>(
-    () => new Set(COMPLETED_TASKS_INIT),
-  );
+  const [selected, setSelected] = useState<Selection>({ kind: "phase", id: firstPhaseId });
+  const [completedTasks, setCompletedTasks] = useState<Set<string>>(new Set());
   const [confirmTaskId, setConfirmTaskId] = useState<string | null>(null);
   const [adjustMode, setAdjustMode] = useState(false);
   // 调整面板状态
@@ -999,11 +1003,11 @@ export function PhaseSummary({
   const [planChanged, setPlanChanged] = useState(false);
   const [planGenerated, setPlanGenerated] = useState(false);
   // 阶段编辑表格状态
-  const [editPhases, setEditPhases] = useState<typeof MOCK_PLAN.phases>([]);
+  const [editPhases, setEditPhases] = useState<{ id: string; title: string; objective: string }[]>([]);
   const [showAddPhase, setShowAddPhase] = useState(false);
   const [dragIndex, setDragIndex] = useState<number | null>(null);
 
-  const phase = plan.phases[activePhase];
+  const phase = plan.phases[activePhase] ?? null;
 
   // 已完成的阶段索引
   const completedPhaseIndices = useMemo(() => {
@@ -1119,7 +1123,7 @@ export function PhaseSummary({
     } else {
       setPlanEditing(true);
       // 进入编辑时拷贝原始阶段列表
-      setEditPhases(MOCK_PLAN.phases.map((p) => ({ ...p, units: p.units.map((u) => ({ ...u, tasks: u.tasks.map((t) => ({ ...t, materials: t.materials.map((m) => ({ ...m })) })) })) })));
+      setEditPhases(plan.phases.map((p) => ({ id: p.id, title: p.title, objective: p.objective })));
     }
   }, [planEditing, planChanged]);
 
@@ -1191,6 +1195,7 @@ export function PhaseSummary({
 
   const [trackPhaseIndex, setTrackPhaseIndex] = useState(0);
   const [overviewSelectedUnitId, setOverviewSelectedUnitId] = useState<string | null>(null);
+  const [overviewSelectedTaskId, setOverviewSelectedTaskId] = useState<string | null>(null);
   const trackTargetRef = useRef(0);
   const trackNavRef = useRef<HTMLDivElement>(null);
   const trackN = plan.phases.length;
@@ -1528,6 +1533,8 @@ export function PhaseSummary({
               </div>
             ) : (
               <>
+                {plan.phases[trackPhaseIndex] ? (
+                  <>
                 <div className="phase-track" ref={trackNavRef}>
                   <div className="phase-track-window">
                     {plan.phases.map((p, i) => (
@@ -1546,7 +1553,10 @@ export function PhaseSummary({
                 <PlanOverviewCanvas
                   units={plan.phases[trackPhaseIndex].units}
                   selectedUnitId={overviewSelectedUnitId}
-                  onSelectUnit={(id) => setOverviewSelectedUnitId(id)}
+                  onSelectUnit={(id) => {
+                    setOverviewSelectedUnitId(id);
+                    setOverviewSelectedTaskId(null);
+                  }}
                 />
 
                 <div className="ps-adjust-plan-detail">
@@ -1557,13 +1567,65 @@ export function PhaseSummary({
                       : null;
 
                     if (selUnit) {
+                      const selectedTask = overviewSelectedTaskId
+                        ? selUnit.tasks.find((t) => t.id === overviewSelectedTaskId) ?? null
+                        : null;
+
+                      if (selectedTask) {
+                        const taskIdx = selUnit.tasks.findIndex((t) => t.id === selectedTask.id);
+                        return (
+                          <>
+                            <div className="ps-adjust-plan-detail-head">
+                              <span className="ps-adjust-plan-detail-badge">任务</span>
+                              <span className="ps-adjust-plan-detail-title">
+                                {getTaskDetailTitle(selectedTask, taskIdx)}
+                              </span>
+                            </div>
+                            <div className="ps-detail-section">
+                              <div className="ps-detail-section-head">基础信息</div>
+                              <dl className="ps-detail-basics">
+                                <div className="ps-detail-basic-row">
+                                  <dt>任务类型</dt>
+                                  <dd>{getTaskTypeDetailLabel(selectedTask.task_type)}</dd>
+                                </div>
+                                <div className="ps-detail-basic-row">
+                                  <dt>交付方式</dt>
+                                  <dd>{getTaskDeliveryLabel(selectedTask.task_type, selectedTask.delivery_mode)}</dd>
+                                </div>
+                                <div className="ps-detail-basic-row">
+                                  <dt>预估时长</dt>
+                                  <dd>{formatMinutes(selectedTask.estimated_minutes)}</dd>
+                                </div>
+                              </dl>
+                            </div>
+                            <div className="ps-detail-section">
+                              <div className="ps-detail-section-head">概述</div>
+                              <p className="ps-detail-summary">
+                                {buildTaskDetailSummary(
+                                  selectedTask,
+                                  selUnit.title || `第 ${selUnit.position + 1} 章`,
+                                  taskIdx,
+                                  selectedTask.estimated_minutes,
+                                )}
+                              </p>
+                            </div>
+                            <button
+                              className="ps-task-card-back"
+                              type="button"
+                              onClick={() => setOverviewSelectedTaskId(null)}
+                            >
+                              返回章节任务列表
+                            </button>
+                          </>
+                        );
+                      }
+
                       const taskCount = selUnit.tasks.length;
                       const allMaterials: { id: string; title: string }[] = [];
                       for (const t of selUnit.tasks) {
                         if (t.materials) allMaterials.push(...t.materials);
                       }
-                      const typeSet = new Set(selUnit.tasks.map((t) => TASK_TYPE_LABEL[t.task_type] ?? t.task_type));
-                      const summary = `本章节包含 ${taskCount} 个学习任务，涵盖${[...typeSet].join("、")}等类型，预计用时 ${formatMinutes(selUnit.estimated_minutes)}。`;
+                      const summary = summarizeUnitTasks(selUnit.tasks, selUnit.estimated_minutes);
 
                       return (
                         <>
@@ -1583,6 +1645,21 @@ export function PhaseSummary({
                           <div className="ps-detail-section">
                             <div className="ps-detail-section-head">概述</div>
                             <p className="ps-detail-summary">{summary}</p>
+                          </div>
+                          <div className="ps-detail-section">
+                            <div className="ps-detail-section-head">学习任务</div>
+                            <div className="ps-task-type-card-list">
+                              {selUnit.tasks.map((task, taskIdx) => (
+                                <button
+                                  className="ps-task-type-card"
+                                  key={task.id}
+                                  type="button"
+                                  onClick={() => setOverviewSelectedTaskId(task.id)}
+                                >
+                                  {getTaskCardLabelForUnit(selUnit.tasks, task, taskIdx)}
+                                </button>
+                              ))}
+                            </div>
                           </div>
                           {allMaterials.length > 0 && (
                             <div className="ps-detail-section">
@@ -1624,6 +1701,12 @@ export function PhaseSummary({
                     );
                   })()}
                 </div>
+                  </>
+                ) : (
+                  <div className="ps-detail">
+                    <p className="ps-detail-empty">学习计划暂时不可用</p>
+                  </div>
+                )}
               </>
             )}
           </div>
@@ -1642,25 +1725,34 @@ export function PhaseSummary({
       ) : (
         <>
           {/* 三栏主体 */}
-          <div className="ps-layout">
-            {/* 左栏：纵向阶段导航 */}
-            <PhaseNav phases={plan.phases} activeIndex={activePhase} completedIndices={completedPhaseIndices} onSelect={handleSelectPhase} />
-            {/* 中栏：主干 + 分支画板 */}
-            <PhaseCanvas units={phase.units} selected={selected} completedTasks={completedTasks} onSelect={setSelected} />
-            {/* 右栏：详情 */}
-            <PhaseDetail
-              phase={phase}
-              units={phase.units}
-              selected={selected}
-              completedTasks={completedTasks}
-              confirmTaskId={confirmTaskId}
-              onOpenMaterial={handleOpenMaterial}
-              onClose={onClose}
-              onRequestComplete={handleRequestComplete}
-              onCancelConfirm={handleCancelConfirm}
-              onConfirmComplete={handleConfirmComplete}
-            />
-          </div>
+          {phase ? (
+            <div className="ps-layout">
+              {/* 左栏：纵向阶段导航 */}
+              <PhaseNav phases={plan.phases} activeIndex={activePhase} completedIndices={completedPhaseIndices} onSelect={handleSelectPhase} />
+              {/* 中栏：主干 + 分支画板 */}
+              <PhaseCanvas units={phase.units} selected={selected} completedTasks={completedTasks} onSelect={setSelected} />
+              {/* 右栏：详情 */}
+              <PhaseDetail
+                phase={phase}
+                units={phase.units}
+                selected={selected}
+                completedTasks={completedTasks}
+                confirmTaskId={confirmTaskId}
+                onOpenMaterial={handleOpenMaterial}
+                onClose={onClose}
+                onRequestComplete={handleRequestComplete}
+                onCancelConfirm={handleCancelConfirm}
+                onConfirmComplete={handleConfirmComplete}
+                courseId={courseId}
+              />
+            </div>
+          ) : (
+            <div className="ps-layout">
+              <div className="ps-detail">
+                <p className="ps-detail-empty">当前课程还没有可展示的学习计划</p>
+              </div>
+            </div>
+          )}
 
           {/* 底部按钮 */}
           <div className="ps-layout-actions">

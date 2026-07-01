@@ -36,6 +36,8 @@ class FakeProvider(BaseProvider):
         messages: list[Message],
         tools: list[dict] | None = None,
         model: str | None = None,
+        *,
+        timeout: int | None = None,
     ) -> ProviderResponse:
         self._round += 1
         if self._inject_error_round == self._round:

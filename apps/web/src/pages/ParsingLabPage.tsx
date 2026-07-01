@@ -22,35 +22,13 @@ import {
 } from "lucide-react";
 
 import { AppShell } from "../components/AppShell";
+import {
+  normalizeParsingPreviewResult,
+  type BoundingBox,
+  type ParsingPreviewResult,
+} from "../services/parsedBundleContract";
 
 /* ── types ─────────────────────────────────────────── */
-
-interface BoundingBox {
-  x0: number; y0: number; x1: number; y1: number;
-}
-
-interface ParsedElementRaw {
-  type: string; text: string; bbox: BoundingBox | null; heading_level: number | null;
-}
-
-interface PageRaw {
-  page_number: number; elements: ParsedElementRaw[]; warnings: string[];
-}
-
-interface BundleRaw {
-  id: string; page_count: number; element_count: number;
-  content_hash: string; quality: { score: number | null };
-  pages: PageRaw[]; warnings: string[];
-  parser: { name: string; version: string };
-}
-
-interface EvidenceRaw {
-  id: string; content: string; page_number: number; element_indices: number[];
-}
-
-interface PreviewResult {
-  bundle: BundleRaw; evidence_units: EvidenceRaw[]; elapsed_ms: number;
-}
 
 interface BenchmarkFixture {
   name: string; status: string; page_count: number; element_count: number;
@@ -89,7 +67,7 @@ export function ParsingLabPage() {
   /* preview state */
   const [file, setFile] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState<PreviewResult | null>(null);
+  const [result, setResult] = useState<ParsingPreviewResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
   const [expandedPages, setExpandedPages] = useState<Set<number>>(new Set([0]));
@@ -127,8 +105,10 @@ export function ParsingLabPage() {
         const err = await res.json();
         throw new Error(err.message ?? err.error ?? `HTTP ${res.status}`);
       }
-      const data: PreviewResult = await res.json();
-      setResult(data);
+      const data = await res.json();
+      const preview = normalizeParsingPreviewResult(data);
+      if (!preview) throw new Error("解析结果格式无效");
+      setResult(preview);
     } catch (err) {
       setError(err instanceof Error ? err.message : "解析服务不可用，请启动 API 后重试。");
       setResult(null);

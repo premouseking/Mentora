@@ -151,12 +151,13 @@ function CourseList({ courses, onDelete }: { courses: CourseSessionListItem[]; o
         const isCompleted = course.status === "completed";
 
         const name = courseDisplayName(course.title, course.goal);
+        const routeId = course.course_id || course.id;
 
         return (
           <div className="course-card-wrapper" key={course.id}>
             <Link
               className={`course-card ${colorClasses[color] ?? ""}`}
-              to={`/courses/${course.id}`}
+              to={`/courses/${routeId}`}
             >
               <span className={`course-card-icon ${color}`}>
                 {name.charAt(0)}

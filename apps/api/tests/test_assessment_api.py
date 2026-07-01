@@ -52,6 +52,7 @@ def test_generate_requires_source_ids():
     )
 
     assert response.status_code == 400
+    assert "课程文件" in response.json()["error"] or "任务证据" in response.json()["error"]
 
 
 @pytest.mark.django_db

@@ -13,7 +13,7 @@ from mentora.assessment.views import (
 )
 from django.urls import include
 from mentora.users.views import change_password, login, logout, profile, refresh, register, update_profile
-from mentora.learning.views import explanation_list, history_list, mistake_list
+from mentora.learning.views import explanation_list, history_list, mistake_list, task_complete, task_detail
 from mentora.courses.views import (
     course_activate,
     course_confirm,
@@ -31,8 +31,10 @@ from mentora.courses.views import (
     session_list_or_create,
     session_start,
     session_update,
+    course_sources_manage,
+    session_source_coverage_preview,
 )
-from mentora.knowledge.views import course_sources, folder_create, folder_delete, folder_list, folder_rename, list_sources, list_tags, source_archive, source_delete, source_detail, source_move, source_reparse, source_unarchive, source_update_tags, upload_complete, upload_create
+from mentora.knowledge.views import folder_create, folder_delete, folder_list, folder_rename, list_sources, list_tags, source_archive, source_asset, source_delete, source_detail, source_move, source_reparse, source_unarchive, source_update_tags, upload_complete, upload_create
 from mentora.parsing.views import get_benchmark, preview_parse
 from mentora.topics.views import (
     topic_add_edge,
@@ -65,6 +67,8 @@ urlpatterns = [
     path("api/history/", history_list, name="history-list"),
     path("api/learning/mistakes/", mistake_list, name="learning-mistakes"),
     path("api/learning/explanations/", explanation_list, name="learning-explanations"),
+    path("api/learning/tasks/<uuid:task_id>/", task_detail, name="learning-task-detail"),
+    path("api/learning/tasks/<uuid:task_id>/complete/", task_complete, name="learning-task-complete"),
     # Agent 聊天
     path("api/", include("mentora.agent_runtime.urls")),
     # Workflow 异步任务
@@ -92,11 +96,17 @@ urlpatterns = [
     path("api/courses/<uuid:course_id>/files/", course_files, name="course-files"),
     path("api/courses/<uuid:course_id>/activate/", course_activate, name="course-activate"),
     # 课程资料关联
-    path("api/courses/sessions/<uuid:session_id>/sources/", course_sources, name="course-sources"),
+    path(
+        "api/courses/sessions/<uuid:session_id>/sources/coverage-preview/",
+        session_source_coverage_preview,
+        name="course-sources-coverage-preview",
+    ),
+    path("api/courses/sessions/<uuid:session_id>/sources/", course_sources_manage, name="course-sources"),
     # 上传
     path("api/uploads/", upload_create, name="upload-create"),
     path("api/uploads/complete/", upload_complete, name="upload-complete"),
     path("api/library/sources/", list_sources, name="library-sources"),
+    path("api/library/sources/<uuid:source_version_id>/assets/", source_asset, name="library-source-asset"),
     path("api/library/sources/<uuid:source_version_id>/", source_detail, name="library-source-detail"),
     path("api/library/sources/<uuid:source_id>/delete/", source_delete, name="library-source-delete"),
     path("api/library/sources/<uuid:source_id>/reparse/", source_reparse, name="library-source-reparse"),

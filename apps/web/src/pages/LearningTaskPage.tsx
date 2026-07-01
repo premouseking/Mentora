@@ -3,10 +3,16 @@ import {
   ArrowLeft, BookOpen, Bot, Check, ChevronRight, Clock3,
   ExternalLink, Lightbulb, RefreshCw, Sparkles, X,
 } from "lucide-react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 
 import { DesktopTitleBar } from "../components/DesktopTitleBar";
+import { QuizPracticeView } from "../components/QuizPracticeView";
+import { ReferenceEvidenceBlock } from "../components/ReferenceEvidenceBlock";
+import { resolveTaskLearningMode } from "./courseFlowHelpers";
+import { getCourseDetail } from "../services/courseApi";
+import { fetchSources, sourcesToFileNodes } from "../services/documentApi";
 import {
+  completeLearningTask,
   fetchTask,
   type CalloutBlock,
   type CitationBlock,
@@ -17,6 +23,7 @@ import {
   type ParagraphBlock,
   type QuizBlock,
 } from "../services/learningApi";
+import type { FileNode } from "../data/files";
 
 /* ── 辅助面板 ── */
 
@@ -124,10 +131,13 @@ function BlockQuiz({ block }: { block: QuizBlock }) {
 
 export function LearningTaskPage() {
   const { courseId, taskId } = useParams<{ courseId: string; taskId: string }>();
+  const navigate = useNavigate();
 
   const [task, setTask] = useState<LearningTaskDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [courseSessionId, setCourseSessionId] = useState<string | undefined>();
+  const [fileNodes, setFileNodes] = useState<FileNode[]>([]);
 
   /* 切换段落解释模式 */
   const [paraMode, setParaMode] = useState<"standard" | "simple" | "example">("standard");
@@ -152,6 +162,32 @@ export function LearningTaskPage() {
 
     return () => { cancelled = true; };
   }, [taskId]);
+
+  useEffect(() => {
+    if (!courseId) return;
+    let cancelled = false;
+    getCourseDetail(courseId)
+      .then((course) => {
+        if (!cancelled) setCourseSessionId(course?.session_id || courseId);
+      })
+      .catch(() => {
+        if (!cancelled) setCourseSessionId(courseId);
+      });
+    fetchSources(courseId)
+      .then((items) => { if (!cancelled) setFileNodes(sourcesToFileNodes(items)); })
+      .catch(() => { if (!cancelled) setFileNodes([]); });
+    return () => { cancelled = true; };
+  }, [courseId]);
+
+  const learningMode = task ? resolveTaskLearningMode(task.task_type) : "content";
+  const taskSourceVersionIds = useMemo(
+    () => [...new Set(task?.sources.map((source) => source.source_version_id) ?? [])],
+    [task],
+  );
+  const taskEvidenceIds = useMemo(
+    () => task?.sources.map((source) => source.evidence_id) ?? [],
+    [task],
+  );
 
   /* 提取标题块作为侧栏导航 */
   const headings = useMemo<HeadingBlock[]>(() => {
@@ -209,6 +245,30 @@ export function LearningTaskPage() {
     );
   }
 
+  if (learningMode === "exercise" && courseId) {
+    return (
+      <div className="learning-shell learning-shell-quiz">
+        <DesktopTitleBar />
+        <QuizPracticeView
+          files={fileNodes}
+          defaultSourceId={taskSourceVersionIds[0] ?? null}
+          onBack={() => navigate(`/courses/${courseId}`)}
+          onOpenSource={(id) => navigate(`/courses/${courseId}?sourceVersionId=${encodeURIComponent(id)}`)}
+          taskMode={{
+            taskId: task.task_id,
+            taskTitle: task.title,
+            sourceEvidenceIds: taskEvidenceIds,
+            sourceVersionIds: taskSourceVersionIds,
+            courseSessionId,
+            onCompleted: () => {
+              void completeLearningTask(task.task_id).catch(() => {});
+            },
+          }}
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="learning-shell">
       <DesktopTitleBar />
@@ -249,6 +309,10 @@ export function LearningTaskPage() {
 
         <main className="lesson-content">
           <article className="lesson-article">
+            {courseId && <ReferenceEvidenceBlock courseId={courseId} sources={task.sources} />}
+            {task.content_blocks.length === 0 && task.sources.length > 0 && (
+              <p className="task-content-placeholder">本任务以参考资料为主，请阅读上方依据后开始学习。</p>
+            )}
             {task.content_blocks.map(renderBlock)}
           </article>
         </main>

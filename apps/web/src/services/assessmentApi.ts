@@ -41,13 +41,17 @@ export interface QuizSession {
 }
 
 export async function generateQuizSession(input: {
-  sourceVersionIds: string[];
+  sourceVersionIds?: string[];
+  sourceEvidenceIds?: string[];
+  taskId?: string;
   count?: number;
   difficulty?: string;
   courseSessionId?: string;
 }): Promise<QuizSession> {
   return apiClient.post<QuizSession>(`${API}/generate/`, {
-    source_version_ids: input.sourceVersionIds,
+    source_version_ids: input.sourceVersionIds ?? [],
+    source_evidence_ids: input.sourceEvidenceIds ?? [],
+    task_id: input.taskId,
     count: input.count ?? 10,
     difficulty: input.difficulty ?? "综合",
     course_session_id: input.courseSessionId,

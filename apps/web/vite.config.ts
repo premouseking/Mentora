@@ -18,7 +18,24 @@ export default defineConfig(({ mode }) => {
       strictPort: true,
       proxy: apiProxyTarget
         ? {
-            "/api": apiProxyTarget,
+            "/api": {
+              target: apiProxyTarget,
+              changeOrigin: true,
+              // 学习方案生成等 LLM 结构化输出可能超过 2 分钟
+              timeout: 300_000,
+              proxyTimeout: 300_000,
+              configure(proxy) {
+                proxy.on("error", (_err, _req, res) => {
+                  if (res.headersSent) return;
+                  res.writeHead(503, { "Content-Type": "application/json" });
+                  res.end(
+                    JSON.stringify({
+                      error: "后端 API 未启动，请在项目根目录运行 pnpm dev:api",
+                    }),
+                  );
+                });
+              },
+            },
           }
         : undefined,
     },

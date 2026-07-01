@@ -66,7 +66,21 @@ class ModelGateway:
                 attempt_number += 1
                 started = time.perf_counter()
                 try:
-                    provider_resp = await provider.chat(messages=messages, tools=tools, model=model)
+                    from django.conf import settings as django_settings
+
+                    request_timeout = None
+                    if structured_output_schema is not None:
+                        request_timeout = getattr(
+                            django_settings,
+                            "LLM_STRUCTURED_TIMEOUT",
+                            django_settings.LLM_REQUEST_TIMEOUT,
+                        )
+                    provider_resp = await provider.chat(
+                        messages=messages,
+                        tools=tools,
+                        model=model,
+                        timeout=request_timeout,
+                    )
                     chat_resp = self._build_chat_response(provider, provider_resp)
 
                     if structured_output_schema is not None:

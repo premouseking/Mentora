@@ -8,7 +8,7 @@ from rest_framework.response import Response
 from rest_framework.decorators import api_view
 from drf_spectacular.utils import extend_schema, OpenApiParameter
 
-from mentora.learning.services import get_history
+from mentora.learning.services import complete_task, get_history, get_task_detail
 from mentora.learning.services.mistakes import get_explanations, get_mistake_items
 
 
@@ -24,14 +24,14 @@ from mentora.learning.services.mistakes import get_explanations, get_mistake_ite
 @api_view(["GET"])
 def history_list(request):
     course_id = request.GET.get("courseId", "").strip()
-    if not course_id:
-        return Response({"error": "缺少 courseId 参数"}, status=400)
 
     try:
         limit = int(request.GET.get("limit", 50))
     except ValueError:
         limit = 50
 
+    if not course_id:
+        return Response({"items": [], "total": 0})
     return Response(get_history(course_id, limit=limit))
 
 
@@ -77,3 +77,41 @@ def explanation_list(request):
 
     items = get_explanations(course_id)
     return Response({"items": items})
+
+
+@extend_schema(
+    summary="学习任务详情",
+    description="返回学习任务的完整内容，包含按序渲染的内容块（标题/段落/引用/图解/提示/测验）和来源资料。",
+    tags=["学习记录"],
+    responses={
+        200: {"description": "任务详情"},
+        404: {"description": "任务不存在"},
+    },
+)
+@api_view(["GET"])
+def task_detail(request, task_id):
+    """GET /api/learning/tasks/<task_id>/"""
+    detail = get_task_detail(task_id)
+    if detail is None:
+        return Response({"error": "任务不存在"}, status=404)
+    return Response(detail)
+
+
+@extend_schema(
+    summary="标记学习任务完成",
+    tags=["学习记录"],
+    responses={
+        200: {"description": "任务已标记完成"},
+        404: {"description": "任务不存在"},
+    },
+)
+@api_view(["POST"])
+def task_complete(request, task_id):
+    """POST /api/learning/tasks/<task_id>/complete/"""
+    from mentora.learning.services.task_sources import resolve_learning_task
+
+    task = resolve_learning_task(str(task_id))
+    if task is None:
+        return Response({"error": "任务不存在"}, status=404)
+    result = complete_task(str(task.id))
+    return Response(result)

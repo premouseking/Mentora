@@ -64,6 +64,7 @@ services:
       OBJECT_STORAGE_SECRET_KEY: ${OBJECT_STORAGE_SECRET_KEY:-mentora-secret}
       OBJECT_STORAGE_REGION: ${OBJECT_STORAGE_REGION:-us-east-1}
       DEV_OWNER_ID: ${DEV_OWNER_ID:-dev-user}
+      MENTORA_DEV_AUTH_BYPASS: ${MENTORA_DEV_AUTH_BYPASS:-1}
     ports:
       - "${API_PORT:-8000}:8000"
     depends_on:

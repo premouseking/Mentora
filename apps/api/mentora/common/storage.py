@@ -83,8 +83,11 @@ class ObjectStorageService:
                 raise ObjectStorageError(f"对象不存在: {key}")
             return path.read_bytes()
 
-        response = self.client.get_object(Bucket=self.bucket, Key=key)
-        return response["Body"].read()
+        try:
+            response = self.client.get_object(Bucket=self.bucket, Key=key)
+            return response["Body"].read()
+        except Exception as exc:
+            raise ObjectStorageError(f"读取对象失败 ({key}): {exc}") from exc
 
     def head_object(self, key: str) -> dict:
         if self.backend == "filesystem":

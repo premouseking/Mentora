@@ -1,15 +1,29 @@
-import { useRef, useState, type DragEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type DragEvent } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { Check, Circle, FileWarning, FolderOpen, Folders, Globe, Loader, Plus, Upload, X } from "lucide-react";
 
 import { SetupShell } from "../components/AppShell";
 import { useCourseCreation } from "../components/CourseCreationContext";
-import { createCourseSession } from "../services/courseApi";
+import { InquiryStage, ProfileQaList, type QaDisplayItem } from "../components/ProfileQaDisplay";
+import {
+  bindSessionSources,
+  createCourseSession,
+  generatePlan,
+  inquiryNext,
+  previewSourceCoverage,
+  updateCourseSession,
+  type CoveragePreview,
+  type InquiryEntry,
+  type InquiryQuestion,
+} from "../services/courseApi";
+import { fetchSources, type SourceItem } from "../services/documentApi";
 import { uploadFile, type UploadProgress } from "../services/uploadService";
+import { buildAdjustmentSupplement } from "./courseFlowHelpers";
 
 /* ── 子步骤定义 ── */
 
-type SubStepType = "input" | "choice" | "materials";
+type SubStepType = "input" | "materials";
+type SetupPhase = "profile" | "inquiry" | "trialConfirm";
 
 interface SubStep {
   type: SubStepType;
@@ -19,8 +33,6 @@ interface SubStep {
   question: string;
   /** type === "input" 时的 placeholder */
   placeholder?: string;
-  /** type === "choice" 时的选项列表 */
-  options?: string[];
 }
 
 const SUB_STEPS: SubStep[] = [
@@ -33,31 +45,8 @@ const SUB_STEPS: SubStep[] = [
   {
     type: "materials",
     subtitle: "学习资料",
-    question: "选择你想使用的学习资料",
+    question: "选择你想使用的学习资料（至少 1 份已解析资料）",
   },
-  {
-    type: "choice",
-    subtitle: "学习方式",
-    question: "你更喜欢哪种学习方式？",
-    options: ["视频课程", "阅读教材", "练习题", "动手实践", "小组讨论", "一对一辅导"],
-  },
-  {
-    type: "choice",
-    subtitle: "时间安排",
-    question: "你的学习时间安排大致是怎样的？",
-    options: ["每天 30 分钟", "每天 1 小时", "每天 2 小时", "工作日晚上", "周末集中", "灵活安排"],
-  },
-];
-
-/* ── Mock 资料 ── */
-
-const MOCK_MATERIALS = [
-  { id: "m1", name: "人教版高中数学必修一.pdf", size: "12.4 MB" },
-  { id: "m2", name: "人教版高中数学必修二.pdf", size: "11.8 MB" },
-  { id: "m3", name: "五年高考三年模拟·数学.pdf", size: "45.2 MB" },
-  { id: "m4", name: "高中数学公式大全.pdf", size: "3.1 MB" },
-  { id: "m5", name: "数学错题集·上学期.docx", size: "2.3 MB" },
-  { id: "m6", name: "高考数学真题汇编 2019-2025.pdf", size: "28.7 MB" },
 ];
 
 /* ── 步骤 1：建立学习档案 ── */
@@ -68,10 +57,13 @@ export function BuildProfilePage() {
   const { addItem, setSessionId, sessionId } = useCourseCreation();
 
   const isAdjust = searchParams.get("adjust") === "true";
+  const [phase, setPhase] = useState<SetupPhase>("profile");
   const [stepIndex, setStepIndex] = useState(0);
   const [inputValue, setInputValue] = useState("");
-  const [selectedChoices, setSelectedChoices] = useState<Record<number, Set<string>>>({});
   const [selectedMaterials, setSelectedMaterials] = useState<Set<string>>(() => new Set());
+  const [coveragePreview, setCoveragePreview] = useState<CoveragePreview | null>(null);
+  const [coverageLoading, setCoverageLoading] = useState(false);
+  const [actionLoading, setActionLoading] = useState(false);
 
   /* ── 上传弹窗 ── */
   const [showUpload, setShowUpload] = useState(false);
@@ -79,53 +71,227 @@ export function BuildProfilePage() {
   const [uploadProgress, setUploadProgress] = useState<UploadProgress | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  /* ── 追问状态 ── */
+  const [inquiryActive, setInquiryActive] = useState(false);
+  const [inquiryLoading, setInquiryLoading] = useState(false);
+  const [inquiryQuestions, setInquiryQuestions] = useState<InquiryQuestion[] | null>(null);
+  const [inquiryHistory, setInquiryHistory] = useState<InquiryEntry[]>([]);
+  const [inquiryAnswer, setInquiryAnswer] = useState("");
+  const [inquirySummary, setInquirySummary] = useState<string | null>(null);
+  const [inquirySessionId, setInquirySessionId] = useState<string | null>(null);
+
+  /* ── 资料库数据 ── */
+  const [librarySources, setLibrarySources] = useState<SourceItem[]>([]);
+  const [uploadedVersionIds, setUploadedVersionIds] = useState<string[]>([]);
+  const [sourcesLoading, setSourcesLoading] = useState(true);
+
+  const loadLibrarySources = useCallback(async () => {
+    try {
+      const sources = await fetchSources();
+      setLibrarySources(sources);
+    } catch {
+      // 静默降级
+    } finally {
+      setSourcesLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { loadLibrarySources(); }, [loadLibrarySources]);
+
   const step = SUB_STEPS[stepIndex];
-  const isLastStep = stepIndex === SUB_STEPS.length - 1;
+  const isGoalStep = stepIndex === 0;
+  const isMaterialsStep = stepIndex === 1;
 
-  /* ── 按钮可用性 ── */
-  const isStep1 = stepIndex === 0;
+  function getSourceVersionId(source: SourceItem): string {
+    return source.latestVersion?.id ?? source.id;
+  }
 
-  /** 右侧"继续完善档案"按钮是否可用 */
+  function isSourceCompleted(source: SourceItem): boolean {
+    return source.latestVersion?.processingStatus === "completed";
+  }
+
+  function getSelectedSourceIds(): string[] {
+    return [...new Set([...selectedMaterials, ...uploadedVersionIds])];
+  }
+
+  /** 右侧主按钮是否可用 */
   const canProceed = (() => {
+    if (phase !== "profile") return false;
     switch (step.type) {
       case "input":
         return inputValue.trim().length > 0;
-      case "choice":
-        return (selectedChoices[stepIndex]?.size ?? 0) > 0;
-      case "materials":
-        return true; // 资料可什么都不选
+      case "materials": {
+        const ids = getSelectedSourceIds();
+        if (ids.length === 0) return false;
+        return ids.every((id) => {
+          const match = librarySources.find((s) => getSourceVersionId(s) === id);
+          return match ? isSourceCompleted(match) : false;
+        });
+      }
     }
   })();
 
-  /** 左侧"生成学习方案"按钮是否可用 — 第 1 步始终不可用，调整模式除外 */
-  const canGenerate = isAdjust ? canProceed : (isStep1 ? false : canProceed);
-
-  /* ── 创建会话并跳转方案页 ── */
+  /* ── 调整模式：重新生成方案 ── */
   async function goToPlan() {
-    if (!sessionId) {
-      try {
-        const goal = inputValue.trim() || sessionStorage.getItem("mentora-course-goal") || "待完善的学习目标";
-        const session = await createCourseSession(goal);
-        sessionStorage.setItem("mentora-session-id", session.id);
-        setSessionId(session.id);
-        addItem({ key: "goal", title: "学习目标", value: goal, source: "AI 对话" });
-      } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : "创建会话失败";
-        alert(msg);
-        return;
-      }
+    const storedSessionId = sessionId || sessionStorage.getItem("mentora-session-id");
+    if (!storedSessionId) {
+      navigate("/courses/new");
+      return;
     }
+    setActionLoading(true);
+    try {
+      const supplement = buildAdjustmentSupplement(inputValue, "");
+      if (Object.keys(supplement).length > 0) {
+        await updateCourseSession(storedSessionId, { profile_supplement: supplement });
+      }
+      await generatePlan(storedSessionId);
+      navigate("/courses/new/plan");
+    } catch (err: unknown) {
+      alert(err instanceof Error ? err.message : "重新生成学习方案失败");
+    } finally {
+      setActionLoading(false);
+    }
+  }
+
+  async function ensureSessionForGoal(): Promise<string> {
+    const goal = inputValue.trim();
+    let sid = sessionId || sessionStorage.getItem("mentora-session-id");
+    if (!sid) {
+      const session = await createCourseSession(goal);
+      sid = session.id;
+      sessionStorage.setItem("mentora-session-id", sid);
+      setSessionId(sid);
+    } else {
+      await updateCourseSession(sid, { goal });
+    }
+    sessionStorage.setItem("mentora-course-goal", goal);
+    addItem({ key: "goal", title: "你想学习什么？", value: goal, source: "你的输入" });
+    return sid;
+  }
+
+  async function handleContinueFromGoal() {
+    if (!canProceed) return;
+    setActionLoading(true);
+    try {
+      await ensureSessionForGoal();
+      setStepIndex(1);
+    } catch (err: unknown) {
+      alert(err instanceof Error ? err.message : "保存学习目标失败");
+    } finally {
+      setActionLoading(false);
+    }
+  }
+
+  async function refreshCoveragePreview(sid: string, sourceIds: string[]) {
+    setCoverageLoading(true);
+    try {
+      const preview = await previewSourceCoverage(sid, sourceIds);
+      setCoveragePreview(preview);
+    } catch {
+      setCoveragePreview(null);
+    } finally {
+      setCoverageLoading(false);
+    }
+  }
+
+  async function handleStartInquiry() {
+    const sourceIds = getSelectedSourceIds();
+    if (sourceIds.length === 0) {
+      alert("请至少选择 1 份已解析资料");
+      return;
+    }
+
+    setActionLoading(true);
+    try {
+      const sid = await ensureSessionForGoal();
+      await bindSessionSources(sid, sourceIds);
+      await refreshCoveragePreview(sid, sourceIds);
+
+      setInquiryActive(true);
+      setPhase("inquiry");
+      setInquirySessionId(sid);
+      setInquiryLoading(true);
+      try {
+        const resp = await inquiryNext(sid);
+        if (resp.ready) {
+          setInquirySummary(resp.summary ?? "已收集足够信息。");
+          setInquiryQuestions(null);
+        } else if (resp.questions?.length) {
+          setInquiryQuestions(resp.questions);
+        }
+      } catch {
+        setInquirySummary("AI 追问暂时不可用。你可以稍后重试，或跳过追问进入试生成确认。");
+      } finally {
+        setInquiryLoading(false);
+      }
+    } catch (err: unknown) {
+      alert(err instanceof Error ? err.message : "绑定资料或启动追问失败");
+    } finally {
+      setActionLoading(false);
+    }
+  }
+
+  /* ── 回答追问 ── */
+  async function handleInquirySubmit(answerOverride?: string) {
+    const answer = (answerOverride ?? inquiryAnswer).trim();
+    if (!inquirySessionId || !answer || !inquiryQuestions?.[0]) return;
+
+    const currentQuestion = inquiryQuestions[0].text;
+    const historyIndex = inquiryHistory.length;
+
+    setInquiryLoading(true);
+    try {
+      const resp = await inquiryNext(inquirySessionId, answer);
+      setInquiryAnswer("");
+      setInquiryHistory((prev) => [...prev, { question: currentQuestion, answer }]);
+      addItem({
+        key: `inquiry_${historyIndex}`,
+        title: currentQuestion,
+        value: answer,
+        source: "你的回答",
+      });
+
+      if (resp.ready) {
+        setInquirySummary(resp.summary ?? "已收集足够信息。");
+        setInquiryQuestions(null);
+      } else if (resp.questions?.length) {
+        setInquiryQuestions(resp.questions);
+      }
+    } catch {
+      setInquirySummary("AI 追问暂时不可用。你可以稍后重试，或跳过追问进入试生成确认。");
+    } finally {
+      setInquiryLoading(false);
+    }
+  }
+
+  function handleInquiryComplete() {
+    setInquiryActive(false);
+    setPhase("trialConfirm");
+  }
+
+  function handleSkipInquiry() {
+    setInquiryActive(false);
+    setPhase("trialConfirm");
+  }
+
+  function handleTrialConfirm() {
     navigate("/courses/new/plan");
   }
 
-  /* ── 继续完善档案 → 进入下一步或跳转方案 ── */
-  function handleContinue() {
-    if (isLastStep) {
-      goToPlan();
-    } else {
-      setStepIndex((i) => i + 1);
-    }
-  }
+  const trialQaItems: QaDisplayItem[] = [
+    {
+      key: "goal",
+      title: "你想学习什么？",
+      value: inputValue.trim(),
+      source: "你的输入",
+    },
+    ...inquiryHistory.map((entry, index) => ({
+      key: `inquiry_${index}`,
+      title: entry.question,
+      value: entry.answer,
+      source: "你的回答",
+    })),
+  ];
 
   /* ── 资料选择 toggle ── */
   function toggleMaterial(id: string) {
@@ -135,6 +301,7 @@ export function BuildProfilePage() {
       else next.add(id);
       return next;
     });
+    setCoveragePreview(null);
   }
 
   /* ── 上传资料 ── */
@@ -145,7 +312,11 @@ export function BuildProfilePage() {
   async function handleUploadFile(file: File) {
     setUploadProgress({ step: "create", message: "正在创建上传会话…" });
     try {
-      await uploadFile(file, (p) => setUploadProgress(p));
+      const result = await uploadFile(file, (p) => setUploadProgress(p));
+      // 记录上传的 sourceVersionId，后续绑定到课程
+      setUploadedVersionIds((prev) => [...prev, result.sourceVersionId]);
+      // 刷新资料列表
+      loadLibrarySources();
       setUploadProgress({ step: "done", message: "上传完成，解析中…" });
       setTimeout(() => {
         setShowUpload(false);
@@ -172,22 +343,36 @@ export function BuildProfilePage() {
     if (f) handleUploadFile(f);
   }
 
-  /* ── 选项 toggle ── */
-  function toggleChoice(option: string) {
-    setSelectedChoices((prev) => {
-      const existing = prev[stepIndex] ?? new Set<string>();
-      const next = new Set(existing);
-      if (next.has(option)) next.delete(option);
-      else next.add(option);
-      return { ...prev, [stepIndex]: next };
-    });
-  }
-
-  function isChoiceSelected(option: string) {
-    return selectedChoices[stepIndex]?.has(option) ?? false;
-  }
-
   /* ── 渲染内容区 ── */
+  function renderCoveragePanel() {
+    if (!isMaterialsStep || getSelectedSourceIds().length === 0) return null;
+    if (coverageLoading) {
+      return (
+        <div className="bp-coverage-panel">
+          <Loader size={16} className="spin" />
+          <span>正在检查资料是否覆盖学习目标…</span>
+        </div>
+      );
+    }
+    if (!coveragePreview) return null;
+    return (
+      <div className={`bp-coverage-panel${coveragePreview.sufficient ? " bp-coverage-panel--ok" : " bp-coverage-panel--warn"}`}>
+        <strong>{coveragePreview.sufficient ? "资料覆盖度良好" : "资料覆盖可能不足"}</strong>
+        {!coveragePreview.sufficient && coveragePreview.gaps.length > 0 && (
+          <ul className="bp-coverage-gaps">
+            {coveragePreview.gaps.map((gap) => (
+              <li key={`${gap.topic}-${gap.reason}`}>
+                <span>{gap.topic}</span>
+                <em>{gap.reason}</em>
+              </li>
+            ))}
+          </ul>
+        )}
+        <p className="bp-coverage-note">已选 {coveragePreview.sources.length} 份资料将作为本课程唯一规划范围。</p>
+      </div>
+    );
+  }
+
   function renderContent() {
     switch (step.type) {
       case "input":
@@ -203,25 +388,6 @@ export function BuildProfilePage() {
           </div>
         );
 
-      case "choice":
-        return (
-          <div className="bp-choice-grid">
-            {step.options!.map((opt) => {
-              const sel = isChoiceSelected(opt);
-              return (
-                <button
-                  key={opt}
-                  className={`bp-choice-chip${sel ? " selected" : ""}`}
-                  onClick={() => toggleChoice(opt)}
-                  type="button"
-                >
-                  {opt}
-                </button>
-              );
-            })}
-          </div>
-        );
-
       case "materials":
         return (
           <div className="material-list">
@@ -234,88 +400,164 @@ export function BuildProfilePage() {
                 <Plus size={15} />上传资料
               </button>
             </div>
-            {MOCK_MATERIALS.map((m) => {
-              const checked = selectedMaterials.has(m.id);
-              return (
-                <button
-                  key={m.id}
-                  className={`material-row${checked ? " selected" : ""}`}
-                  onClick={() => toggleMaterial(m.id)}
-                  type="button"
-                >
-                  <div className="material-row-left">
-                    <FolderOpen size={16} />
-                    <span className="material-name">{m.name}</span>
-                    <span className="bp-material-size">{m.size}</span>
-                  </div>
+            {sourcesLoading ? (
+              <div className="material-empty"><Loader size={20} className="spin" /><span>加载资料库…</span></div>
+            ) : librarySources.length === 0 ? (
+              <div className="material-empty"><span>资料库为空，请上传资料</span></div>
+            ) : (
+              librarySources.map((s) => {
+                const vid = getSourceVersionId(s);
+                const checked = selectedMaterials.has(vid);
+                const completed = isSourceCompleted(s);
+                const name = s.displayTitle || s.latestVersion?.originalFilename || "未命名";
+                const size = s.latestVersion?.byteSize
+                  ? s.latestVersion.byteSize > 1024 * 1024
+                    ? `${(s.latestVersion.byteSize / (1024 * 1024)).toFixed(1)} MB`
+                    : `${Math.round(s.latestVersion.byteSize / 1024)} KB`
+                  : "";
+                return (
+                  <button
+                    key={vid}
+                    className={`material-row${checked ? " selected" : ""}${completed ? "" : " material-row--disabled"}`}
+                    disabled={!completed}
+                    onClick={() => completed && toggleMaterial(vid)}
+                    type="button"
+                  >
+                    <div className="material-row-left">
+                      <FolderOpen size={16} />
+                      <span className="material-name">{name}</span>
+                      {size && <span className="bp-material-size">{size}</span>}
+                      {!completed && <span className="bp-material-status">解析中</span>}
+                    </div>
                   <div className={`material-check${checked ? " selected" : ""}`}>
                     {checked ? <Check size={14} /> : <Circle size={18} />}
                   </div>
                 </button>
               );
-            })}
+            }))}
+            {renderCoveragePanel()}
           </div>
         );
     }
   }
 
+  function renderTrialConfirm() {
+    return (
+      <div className="trial-confirm-stage">
+        <header className="trial-confirm-header">
+          <h2>确认试生成上下文</h2>
+          <p>请确认学习目标、资料范围与追问补充信息，确认后将进入试生成学习方案。</p>
+        </header>
+        <ProfileQaList items={trialQaItems} />
+        {coveragePreview && (
+          <div className={`bp-coverage-panel${coveragePreview.sufficient ? " bp-coverage-panel--ok" : " bp-coverage-panel--warn"}`}>
+            <strong>{coveragePreview.sufficient ? "资料覆盖度良好" : "资料覆盖可能不足"}</strong>
+            {!coveragePreview.sufficient && coveragePreview.gaps.length > 0 && (
+              <ul className="bp-coverage-gaps">
+                {coveragePreview.gaps.map((gap) => (
+                  <li key={`${gap.topic}-${gap.reason}`}>
+                    <span>{gap.topic}</span>
+                    <em>{gap.reason}</em>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
+        <div className="trial-confirm-sources">
+          <h3>已选资料（课程作用域）</h3>
+          <ul>
+            {(coveragePreview?.sources ?? []).map((source) => (
+              <li key={source.sourceVersionId}>{source.displayTitle}</li>
+            ))}
+          </ul>
+        </div>
+      </div>
+    );
+  }
+
+  useEffect(() => {
+    if (phase !== "profile" || !isMaterialsStep) return;
+    const sourceIds = getSelectedSourceIds();
+    const sid = sessionId || sessionStorage.getItem("mentora-session-id");
+    if (!sid || sourceIds.length === 0) {
+      setCoveragePreview(null);
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      void refreshCoveragePreview(sid, sourceIds);
+    }, 400);
+    return () => window.clearTimeout(timer);
+  }, [phase, isMaterialsStep, selectedMaterials, uploadedVersionIds, sessionId, inputValue]);
+
   return (
     <SetupShell
       current={1}
       footer={
-        isAdjust ? (
-          /* 调整模式：始终双按钮 */
+        inquiryActive || phase === "inquiry" ? null :
+        phase === "trialConfirm" ? (
+          <div className="build-profile-actions">
+            <button className="button secondary" onClick={() => { setPhase("profile"); setStepIndex(1); }} type="button">
+              返回修改
+            </button>
+            <button className="button primary" onClick={handleTrialConfirm} type="button">
+              确认试生成学习方案
+            </button>
+          </div>
+        ) : isAdjust ? (
           <div className="build-profile-actions">
             <button
               className="button primary"
-              disabled={!canProceed}
+              disabled={!canProceed || actionLoading}
               onClick={goToPlan}
               type="button"
             >
               确认并生成学习方案
             </button>
-            <button
-              className="button secondary"
-              disabled={!canProceed}
-              onClick={handleContinue}
-              type="button"
-            >
-              确认并继续完善档案
+            <button className="button secondary" onClick={() => navigate("/courses/new/plan")} type="button">
+              返回确认方案
             </button>
           </div>
-        ) : isLastStep ? (
+        ) : isGoalStep ? (
           <div className="build-profile-actions build-profile-actions--single">
             <button
               className="button primary"
-              disabled={!canProceed}
-              onClick={goToPlan}
+              disabled={!canProceed || actionLoading}
+              onClick={handleContinueFromGoal}
               type="button"
             >
-              确认并生成学习方案
+              继续选择资料
             </button>
           </div>
         ) : (
-          <div className="build-profile-actions">
+          <div className="build-profile-actions build-profile-actions--single">
             <button
               className="button primary"
-              disabled={!canGenerate}
-              onClick={goToPlan}
+              disabled={!canProceed || actionLoading || coverageLoading}
+              onClick={handleStartInquiry}
               type="button"
             >
-              确认并生成学习方案
-            </button>
-            <button
-              className="button secondary"
-              disabled={!canProceed}
-              onClick={handleContinue}
-              type="button"
-            >
-              确认并继续完善档案
+              开始追问补充信息
             </button>
           </div>
         )
       }
     >
+      {inquiryActive ? (
+        <InquiryStage
+          answer={inquiryAnswer}
+          currentQuestion={inquiryQuestions?.[0] ?? null}
+          history={inquiryHistory}
+          loading={inquiryLoading}
+          onAnswerChange={setInquiryAnswer}
+          onConfirm={handleInquiryComplete}
+          onSkip={handleSkipInquiry}
+          onSubmit={handleInquirySubmit}
+          summary={inquirySummary}
+        />
+      ) : phase === "trialConfirm" ? (
+        renderTrialConfirm()
+      ) : (
       <div className="build-profile-page">
         {/* 大标题 */}
         <div className="build-profile-heading">
@@ -356,6 +598,7 @@ export function BuildProfilePage() {
           </>
         )}
       </div>
+      )}
 
       {/* ── 上传资料弹窗 ── */}
       {showUpload && (
