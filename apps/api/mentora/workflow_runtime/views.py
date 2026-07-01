@@ -164,4 +164,5 @@ def workflow_list(request):
             "created_at": wf.created_at.isoformat() if wf.created_at else None,
         })
 
-    return Response({"items": items, "total": len(items), "limit": limit})
+    # offset 固定为 0：该端点仅支持 limit 截断，暂不支持翻页
+    return Response({"items": items, "total": len(items), "limit": limit, "offset": 0})

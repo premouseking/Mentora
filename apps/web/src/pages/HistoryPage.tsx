@@ -59,10 +59,10 @@ function historyEventToTask(ev: HistoryEvent): Task {
     date: ev.created_at?.slice(0, 10) ?? "",
     time: ev.created_at?.slice(11, 16) ?? "",
     status: "done",
-    title: ev.task_title || ev.description || ev.event_type,
+    title: ev.title || ev.event_type,
     course: ev.course_title || "",
-    courseId: ev.course_id ?? "",
-    desc: ev.description || "",
+    courseId: ev.course_id || "",
+    desc: ev.detail || "",
   };
 }
 

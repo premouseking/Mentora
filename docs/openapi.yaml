@@ -277,10 +277,9 @@ paths:
           description: No response body
   /api/courses/sessions/:
     get:
-      operationId: courses_sessions_retrieve
+      operationId: courses_sessions_list
       description: |-
         GET  /api/courses/sessions/ → 列出所有建课会话
-        POST /api/courses/sessions/ → 创建新会话
       tags:
       - courses
       security:
@@ -289,11 +288,38 @@ paths:
       - {}
       responses:
         '200':
-          description: No response body
+          description: 建课会话列表
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id: { type: string, format: uuid }
+                        course_id: { type: string, format: uuid, nullable: true }
+                        goal: { type: string }
+                        title: { type: string }
+                        status: { type: string }
+                        level: { type: string }
+                        pace: { type: string }
+                        time_budget: { type: string }
+                        school: { type: string }
+                        deadline: { type: string, format: date, nullable: true }
+                        current_phase: { type: string, nullable: true }
+                        next_task: { type: string, nullable: true }
+                        created_at: { type: string, format: date-time }
+                        updated_at: { type: string, format: date-time }
+                        last_studied_at: { type: string, format: date-time, nullable: true }
+                  count:
+                    type: integer
     post:
       operationId: courses_sessions_create
       description: |-
-        GET  /api/courses/sessions/ → 列出所有建课会话
         POST /api/courses/sessions/ → 创建新会话
       tags:
       - courses

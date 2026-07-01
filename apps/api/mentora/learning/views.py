@@ -14,9 +14,9 @@ from mentora.learning.services.mistakes import get_explanations, get_mistake_ite
 
 @extend_schema(
     summary="获取学习记录",
-    description="按课程获取学习事件时间线，倒序排列。",
+    description="获取学习事件时间线，倒序排列。不传 courseId 时返回跨课程的全部记录。",
     parameters=[
-        OpenApiParameter(name="courseId", type=str, description="课程 ID", required=True),
+        OpenApiParameter(name="courseId", type=str, description="课程 ID，选填，缺省返回全部课程"),
         OpenApiParameter(name="limit", type=int, description="返回条数，默认 50"),
     ],
     responses={200: {"description": "学习事件列表"}},
@@ -24,15 +24,14 @@ from mentora.learning.services.mistakes import get_explanations, get_mistake_ite
 @api_view(["GET"])
 def history_list(request):
     course_id = request.GET.get("courseId", "").strip()
-    if not course_id:
-        return Response({"error": "缺少 courseId 参数"}, status=400)
 
     try:
         limit = int(request.GET.get("limit", 50))
     except ValueError:
         limit = 50
 
-    return Response(get_history(course_id, limit=limit))
+    items = get_history(course_id, limit=limit)
+    return Response({"items": items, "count": len(items)})
 
 
 @extend_schema(
@@ -54,7 +53,7 @@ def mistake_list(request):
         return Response({"error": "缺少 course_id 参数"}, status=400)
 
     items = get_mistake_items(course_id)
-    return Response({"items": items})
+    return Response({"items": items, "count": len(items)})
 
 
 @extend_schema(
@@ -76,4 +75,4 @@ def explanation_list(request):
         return Response({"error": "缺少 course_id 参数"}, status=400)
 
     items = get_explanations(course_id)
-    return Response({"items": items})
+    return Response({"items": items, "count": len(items)})

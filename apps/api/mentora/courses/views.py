@@ -79,6 +79,30 @@ def _format_history(inquiry_history: list[dict]) -> str:
     return "\n".join(lines)
 
 
+def _serialize_session_list_item(session: CourseCreationSession) -> dict:
+    """列表项字段与 GET /api/courses/sessions/ 契约一致。"""
+    course = session.courses.order_by("created_at").first()
+    return {
+        "id": str(session.id),
+        "course_id": str(course.id) if course else None,
+        "goal": session.goal,
+        "title": session.title,
+        "status": session.status,
+        "level": session.level,
+        "pace": session.pace,
+        "time_budget": session.time_budget,
+        "school": session.school,
+        "deadline": session.deadline.isoformat() if session.deadline else None,
+        "current_phase": None,
+        "next_task": None,
+        "created_at": session.created_at.isoformat(),
+        "updated_at": session.updated_at.isoformat(),
+        "last_studied_at": (
+            session.last_studied_at.isoformat() if session.last_studied_at else None
+        ),
+    }
+
+
 # ── Session CRUD ──
 
 
@@ -86,25 +110,17 @@ def _format_history(inquiry_history: list[dict]) -> str:
 @extend_schema(summary="Session List Or Create")
 def session_list_or_create(request):
     """
-    GET  /api/courses/sessions/ → 列出所有建课会话
+    GET  /api/courses/sessions/ → { items, count }
     POST /api/courses/sessions/ → 创建新会话
     """
     if request.method == "GET":
-        sessions = CourseCreationSession.objects.all().order_by("-updated_at")
-        data = []
-        for s in sessions:
-            data.append({
-                "id": str(s.id),
-                "goal": s.goal,
-                "title": s.title,
-                "status": s.status,
-                "level": s.level,
-                "pace": s.pace,
-                "school": s.school,
-                "created_at": s.created_at.isoformat(),
-                "updated_at": s.updated_at.isoformat(),
-            })
-        return Response(data)
+        sessions = (
+            CourseCreationSession.objects.prefetch_related("courses")
+            .all()
+            .order_by("-updated_at")
+        )
+        items = [_serialize_session_list_item(s) for s in sessions]
+        return Response({"items": items, "count": len(items)})
 
     # POST
     try:

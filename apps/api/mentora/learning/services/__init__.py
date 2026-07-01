@@ -442,26 +442,38 @@ def write_history_event(
     }
 
 
-def get_history(course_id: str, *, limit: int = 50) -> list[dict]:
-    """获取课程学习记录，按时间倒序。"""
+def get_history(course_id: str = "", *, limit: int = 50) -> list[dict]:
+    """获取学习记录，按时间倒序。
+
+    course_id 为空时返回跨课程的全部记录（供历史页在前端按课程筛选）。
+    """
+    from mentora.courses.models import CourseCreationSession
     from mentora.learning.models import LearningHistoryEvent
 
-    events = LearningHistoryEvent.objects.filter(
-        course_id=course_id,
-    ).order_by("-created_at")[:limit]
+    events = LearningHistoryEvent.objects.all()
+    if course_id:
+        events = events.filter(course_id=course_id)
+    events = list(events.order_by("-created_at")[:limit])
+
+    session_ids = {e.course_id for e in events if e.course_id}
+    sessions = CourseCreationSession.objects.filter(id__in=session_ids)
+    title_by_id = {
+        str(s.id): s.title or (s.goal[:20] + "…" if len(s.goal) > 20 else s.goal)
+        for s in sessions
+    }
 
     return [
         {
             "id": str(e.id),
-            "type": e.event_type,
-            "date": e.created_at.strftime("%Y-%m-%d"),
-            "time": e.created_at.strftime("%H:%M"),
-            "courseId": e.course_id,
+            "event_type": e.event_type,
+            "course_id": e.course_id,
+            "course_title": title_by_id.get(e.course_id, ""),
             "title": e.title,
             "detail": e.detail,
             "result": e.result,
-            "taskId": e.task_id,
-            "phaseId": e.phase_id,
+            "task_id": e.task_id,
+            "phase_id": e.phase_id,
+            "created_at": e.created_at.isoformat(),
         }
         for e in events
     ]

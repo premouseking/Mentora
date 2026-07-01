@@ -94,12 +94,13 @@ export interface LearningTaskDetail {
 export interface HistoryEvent {
   id: string;
   event_type: string;
-  task_id: string | null;
-  task_title: string;
-  course_id: string | null;
+  course_id: string;
   course_title: string;
-  description: string;
-  metadata: Record<string, unknown>;
+  title: string;
+  detail: string;
+  result: string;
+  task_id: string;
+  phase_id: string;
   created_at: string;
 }
 
@@ -109,8 +110,13 @@ export async function fetchTask(taskId: string): Promise<LearningTaskDetail> {
   return apiClient.get<LearningTaskDetail>(`/api/learning/tasks/${encodeURIComponent(taskId)}/`);
 }
 
-export async function fetchHistory(limit = 50): Promise<{ items: HistoryEvent[] }> {
-  return apiClient.get<{ items: HistoryEvent[] }>(`/api/history/?limit=${limit}`);
+export interface ListResponse<T> {
+  items: T[];
+  count?: number;
+}
+
+export async function fetchHistory(limit = 50): Promise<ListResponse<HistoryEvent>> {
+  return apiClient.get<ListResponse<HistoryEvent>>(`/api/history/?limit=${limit}`);
 }
 
 /* ── 错题 & 讲解 ── */
@@ -139,14 +145,14 @@ export interface ExplanationItem {
   created_at: string;
 }
 
-export async function fetchMistakes(courseId: string): Promise<{ items: MistakeItem[] }> {
-  return apiClient.get<{ items: MistakeItem[] }>(
+export async function fetchMistakes(courseId: string): Promise<ListResponse<MistakeItem>> {
+  return apiClient.get<ListResponse<MistakeItem>>(
     `/api/learning/mistakes/?course_id=${encodeURIComponent(courseId)}`,
   );
 }
 
-export async function fetchExplanations(courseId: string): Promise<{ items: ExplanationItem[] }> {
-  return apiClient.get<{ items: ExplanationItem[] }>(
+export async function fetchExplanations(courseId: string): Promise<ListResponse<ExplanationItem>> {
+  return apiClient.get<ListResponse<ExplanationItem>>(
     `/api/learning/explanations/?course_id=${encodeURIComponent(courseId)}`,
   );
 }

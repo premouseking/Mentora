@@ -65,6 +65,7 @@ export interface PlanResponse {
 
 export interface CourseSessionListItem {
   id: string;
+  course_id?: string | null;
   goal: string;
   title: string;
   status: string;
@@ -78,6 +79,11 @@ export interface CourseSessionListItem {
   created_at: string;
   updated_at: string;
   last_studied_at: string | null;
+}
+
+export interface CourseSessionListResponse {
+  items: CourseSessionListItem[];
+  count?: number;
 }
 
 export interface ProfileItem {
@@ -102,7 +108,8 @@ export function buildProfileItems(session: SessionDetail): ProfileItem[] {
 export async function listCourseSessions(
   signal?: AbortSignal,
 ): Promise<CourseSessionListItem[]> {
-  return apiClient.get<CourseSessionListItem[]>(`${BASE}/`, { signal });
+  const data = await apiClient.get<CourseSessionListResponse>(`${BASE}/`, { signal });
+  return data.items;
 }
 
 export async function createCourseSession(
