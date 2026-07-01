@@ -1,10 +1,11 @@
-import { useRef, useState, type DragEvent } from "react";
+import { useEffect, useRef, useState, type DragEvent } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { Check, Circle, FileWarning, FolderOpen, Folders, Globe, Loader, Plus, Upload, X } from "lucide-react";
 
 import { SetupShell } from "../components/AppShell";
 import { useCourseCreation } from "../components/CourseCreationContext";
-import { createCourseSession } from "../services/courseApi";
+import { createCourseSession, updateCourseSession } from "../services/courseApi";
+import { fetchSources, setCourseSources, type SourceItem } from "../services/documentApi";
 import { uploadFile, type UploadProgress } from "../services/uploadService";
 
 /* ── 子步骤定义 ── */
@@ -49,16 +50,17 @@ const SUB_STEPS: SubStep[] = [
   },
 ];
 
-/* ── Mock 资料 ── */
+function formatByteSize(bytes: number): string {
+  if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  if (bytes >= 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${bytes} B`;
+}
 
-const MOCK_MATERIALS = [
-  { id: "m1", name: "人教版高中数学必修一.pdf", size: "12.4 MB" },
-  { id: "m2", name: "人教版高中数学必修二.pdf", size: "11.8 MB" },
-  { id: "m3", name: "五年高考三年模拟·数学.pdf", size: "45.2 MB" },
-  { id: "m4", name: "高中数学公式大全.pdf", size: "3.1 MB" },
-  { id: "m5", name: "数学错题集·上学期.docx", size: "2.3 MB" },
-  { id: "m6", name: "高考数学真题汇编 2019-2025.pdf", size: "28.7 MB" },
-];
+interface MaterialOption {
+  id: string;
+  name: string;
+  size: string;
+}
 
 /* ── 步骤 1：建立学习档案 ── */
 
@@ -72,6 +74,33 @@ export function BuildProfilePage() {
   const [inputValue, setInputValue] = useState("");
   const [selectedChoices, setSelectedChoices] = useState<Record<number, Set<string>>>({});
   const [selectedMaterials, setSelectedMaterials] = useState<Set<string>>(() => new Set());
+  const [libraryMaterials, setLibraryMaterials] = useState<MaterialOption[]>([]);
+  const [materialsLoading, setMaterialsLoading] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    setMaterialsLoading(true);
+    fetchSources()
+      .then((items: SourceItem[]) => {
+        if (cancelled) return;
+        setLibraryMaterials(
+          items
+            .filter((item) => item.latestVersion)
+            .map((item) => ({
+              id: item.latestVersion!.id,
+              name: item.latestVersion!.originalFilename || item.displayTitle,
+              size: formatByteSize(item.latestVersion!.byteSize),
+            })),
+        );
+      })
+      .catch(() => {
+        if (!cancelled) setLibraryMaterials([]);
+      })
+      .finally(() => {
+        if (!cancelled) setMaterialsLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, []);
 
   /* ── 上传弹窗 ── */
   const [showUpload, setShowUpload] = useState(false);
@@ -102,10 +131,12 @@ export function BuildProfilePage() {
 
   /* ── 创建会话并跳转方案页 ── */
   async function goToPlan() {
-    if (!sessionId) {
+    let activeSessionId = sessionId ?? sessionStorage.getItem("mentora-session-id");
+    if (!activeSessionId) {
       try {
         const goal = inputValue.trim() || sessionStorage.getItem("mentora-course-goal") || "待完善的学习目标";
         const session = await createCourseSession(goal);
+        activeSessionId = session.id;
         sessionStorage.setItem("mentora-session-id", session.id);
         setSessionId(session.id);
         addItem({ key: "goal", title: "学习目标", value: goal, source: "AI 对话" });
@@ -115,6 +146,32 @@ export function BuildProfilePage() {
         return;
       }
     }
+
+    const paceChoice = selectedChoices[2];
+    const timeChoice = selectedChoices[3];
+    const pace = paceChoice ? Array.from(paceChoice)[0] : undefined;
+    const timeBudget = timeChoice ? Array.from(timeChoice)[0] : undefined;
+    if (pace || timeBudget) {
+      try {
+        await updateCourseSession(activeSessionId, {
+          ...(pace ? { pace } : {}),
+          ...(timeBudget ? { time_budget: timeBudget } : {}),
+        });
+      } catch {
+        // 档案字段持久化失败不阻塞进入方案页
+      }
+    }
+
+    if (selectedMaterials.size > 0) {
+      try {
+        await setCourseSources(activeSessionId, Array.from(selectedMaterials));
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : "关联资料失败";
+        alert(msg);
+        return;
+      }
+    }
+
     navigate("/courses/new/plan");
   }
 
@@ -234,7 +291,12 @@ export function BuildProfilePage() {
                 <Plus size={15} />上传资料
               </button>
             </div>
-            {MOCK_MATERIALS.map((m) => {
+            {materialsLoading ? (
+              <p className="material-empty">正在加载资料库…</p>
+            ) : libraryMaterials.length === 0 ? (
+              <p className="material-empty">资料库暂无文件，可先上传资料</p>
+            ) : (
+              libraryMaterials.map((m) => {
               const checked = selectedMaterials.has(m.id);
               return (
                 <button
@@ -253,7 +315,8 @@ export function BuildProfilePage() {
                   </div>
                 </button>
               );
-            })}
+            })
+            )}
           </div>
         );
     }

@@ -11,25 +11,6 @@ try:
 except ImportError:
     pass
 
-# ── 加载 .env（stdlib 手动解析，无 python-dotenv 依赖）──
-
-def _load_dotenv() -> None:
-    env_path = REPO_ROOT / ".env"
-    if not env_path.exists():
-        return
-    with open(env_path, encoding="utf-8") as fh:
-        for line in fh:
-            line = line.strip()
-            if not line or line.startswith("#") or "=" not in line:
-                continue
-            key, _, value = line.partition("=")
-            key = key.strip()
-            value = value.strip().strip('"').strip("'")
-            if key and key not in os.environ:
-                os.environ[key] = value
-
-_load_dotenv()
-
 
 def _env(name: str) -> str:
     value = os.getenv(name)
@@ -171,6 +152,7 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 OBJECT_STORAGE_BACKEND = _env("OBJECT_STORAGE_BACKEND")
 OBJECT_STORAGE_ENDPOINT = _env("OBJECT_STORAGE_ENDPOINT")
+OBJECT_STORAGE_PUBLIC_ENDPOINT = os.getenv("OBJECT_STORAGE_PUBLIC_ENDPOINT", OBJECT_STORAGE_ENDPOINT)
 OBJECT_STORAGE_BUCKET = _env("OBJECT_STORAGE_BUCKET")
 OBJECT_STORAGE_ACCESS_KEY = _env("OBJECT_STORAGE_ACCESS_KEY")
 OBJECT_STORAGE_SECRET_KEY = _env("OBJECT_STORAGE_SECRET_KEY")
@@ -181,6 +163,7 @@ OBJECT_STORAGE_FS_ROOT = _env("OBJECT_STORAGE_FS_ROOT")
 
 DEV_OWNER_ID = _env("DEV_OWNER_ID")
 DEV_COURSE_SESSION_ID = os.getenv("DEV_COURSE_SESSION_ID")
+DEV_OWNER_FALLBACK_ENABLED = os.getenv("DEV_OWNER_FALLBACK_ENABLED", "false").lower() == "true"
 
 # ── pgvector ─────────────────────────────────────────────
 

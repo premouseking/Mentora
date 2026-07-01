@@ -3,6 +3,7 @@ import {
   AtSign,
   Check,
   ChevronLeft,
+  Copy,
   File,
   FolderClosed,
   History,
@@ -20,49 +21,29 @@ import type { FileNode } from "../../data/files";
 import {
   commitExplanationSave,
   previewExplanationSave,
-  type ExplanationItem,
   type ExplanationPreview,
-  type MistakeItem,
 } from "../../services/learningApi";
+import { AssistantMessageBody } from "./AssistantMessageBody";
+import { flattenAssistantBlocksContent, applyAssistantStreamEvent } from "./assistantBlocks";
+import { getAssistantMessagePlainText } from "./assistantStorage";
+import type { AssistantChatMessage, ChatMessage } from "./assistantTypes";
+import { isAssistantMessage } from "./assistantTypes";
+import { runAssistantChatStream } from "./runAssistantChatStream";
 
 /* ── 类型定义 ── */
-
-interface ChatMessage {
-  role: "user" | "assistant";
-  content: string;
-  statuses?: ChatStatus[];
-  citations?: ChatCitation[];
-  saveState?: "idle" | "previewing" | "saved";
-  savedDocId?: string;
-  failed?: boolean;
-}
-
-interface ChatStatus {
-  event: string;
-  message: string;
-  toolName?: string;
-  success?: boolean;
-}
-
-interface ChatCitation {
-  content_preview: string;
-  page_number?: number | null;
-  evidence_id?: string;
-  source_title?: string;
-}
-
-type ChatStreamEvent =
-  | { type: "chunk"; content: string }
-  | { type: "status"; event: string; message: string; tool_name?: string; success?: boolean }
-  | { type: "citations"; tool_name?: string; citations: ChatCitation[] }
-  | { type: "error"; message: string }
-  | { type: "done" };
 
 interface ChatSession {
   id: string;
   name: string;
   messages: ChatMessage[];
   createdAt: number;
+  updatedAt: number;
+}
+
+interface AiChatPersistedState {
+  sessions: ChatSession[];
+  openSessionIds: string[];
+  activeSessionId: string;
 }
 
 interface SelectedTextSnippet {
@@ -87,11 +68,24 @@ interface AiChatMention {
   source: string;
 }
 
+interface AiChatExplanationContextItem {
+  id: string;
+  title: string;
+  topic: string;
+}
+
+interface AiChatMistakeContextItem {
+  id?: string;
+  item_id?: string;
+  title: string;
+  topic: string;
+}
+
 export interface AiChatContext {
   courseId?: string;
   files?: FileNode[];
-  aiItems?: ExplanationItem[];
-  mistakeItems?: MistakeItem[];
+  aiItems?: AiChatExplanationContextItem[];
+  mistakeItems?: AiChatMistakeContextItem[];
   selectedFileId?: string | null;
   selectedAiId?: string | null;
   selectedMistakeId?: string | null;
@@ -105,10 +99,10 @@ interface MentionMenuItem extends AiChatMention {
 
 /* ── 工具函数 ── */
 
-function groupByDate<T extends { createdAt: number }>(items: T[]) {
+function groupByDate<T extends { createdAt: number; updatedAt?: number }>(items: T[]) {
   const groups = new Map<string, T[]>();
   for (const item of items) {
-    const date = new Date(item.createdAt);
+    const date = new Date(item.updatedAt ?? item.createdAt);
     const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
     const arr = groups.get(key) ?? [];
     arr.push(item);
@@ -140,6 +134,10 @@ const SELECTED_TEXT_PREVIEW_LENGTH = 80;
 const MAX_MENTION_MENU_ITEMS = 12;
 const AI_CHAT_INPUT_MIN_HEIGHT = 28;
 const AI_CHAT_INPUT_MAX_HEIGHT = 140;
+const AI_CHAT_STORAGE_KEY = "mentora.aiChatPanel.v2";
+const DEFAULT_SESSION_NAME = "新对话";
+const DEFAULT_ASSISTANT_GREETING =
+  "你好！我是 Mentora AI 助手。关于你的学习课程，有什么我可以帮你的吗？";
 
 function normalizeSelectedText(text: string) {
   return text.replace(/\s+/g, " ").trim();
@@ -149,14 +147,127 @@ function truncateText(text: string, maxLength: number) {
   return text.length > maxLength ? `${text.slice(0, maxLength)}…` : text;
 }
 
-function isSaveableAssistantMessage(msg: ChatMessage) {
-  if (msg.role !== "assistant" || msg.failed) {
-    return false;
-  }
-  const text = msg.content.trim();
+function isSaveableAssistantMessage(msg: ChatMessage, assistantText: string) {
+  if (!isAssistantMessage(msg)) return false;
+  const text = assistantText.trim();
   if (text.length < 20) return false;
   if (text.startsWith("错误:") || text.startsWith("抱歉，AI 服务出错")) return false;
   return true;
+}
+
+function buildSessionTitle(text: string) {
+  const normalized = normalizeSelectedText(text)
+    .replace(/^请(你)?(解释|介绍|说明|讲讲|说说)/, "")
+    .replace(/^什么是/, "")
+    .replace(/[？?。.!！]+$/g, "")
+    .trim();
+  const title = normalized || DEFAULT_SESSION_NAME;
+  return truncateText(title, 18);
+}
+
+function createDefaultSession(): ChatSession {
+  const now = Date.now();
+  return {
+    id: crypto.randomUUID(),
+    name: DEFAULT_SESSION_NAME,
+    createdAt: now,
+    updatedAt: now,
+    messages: [
+      {
+        role: "assistant",
+        blocks: [{ type: "text", content: DEFAULT_ASSISTANT_GREETING }],
+      },
+    ],
+  };
+}
+
+function isChatMessage(value: unknown): value is ChatMessage {
+  if (!value || typeof value !== "object") return false;
+  const message = value as ChatMessage;
+  if (message.role === "user") return typeof message.content === "string";
+  if (message.role === "assistant") return Array.isArray(message.blocks);
+  return false;
+}
+
+function normalizeStoredSession(value: unknown): ChatSession | null {
+  if (!value || typeof value !== "object") return null;
+  const item = value as Partial<ChatSession>;
+  if (typeof item.id !== "string" || !Array.isArray(item.messages)) return null;
+  const createdAt = typeof item.createdAt === "number" ? item.createdAt : Date.now();
+  const updatedAt = typeof item.updatedAt === "number" ? item.updatedAt : createdAt;
+  const messages = item.messages.filter(isChatMessage);
+  if (!messages.length) return null;
+  return {
+    id: item.id,
+    name: typeof item.name === "string" && item.name.trim() ? item.name : DEFAULT_SESSION_NAME,
+    createdAt,
+    updatedAt,
+    messages,
+  };
+}
+
+function loadPersistedAiChatState(): AiChatPersistedState {
+  const fallbackSession = createDefaultSession();
+  if (typeof window === "undefined") {
+    return {
+      sessions: [fallbackSession],
+      openSessionIds: [fallbackSession.id],
+      activeSessionId: fallbackSession.id,
+    };
+  }
+
+  try {
+    const raw = window.localStorage.getItem(AI_CHAT_STORAGE_KEY);
+    const parsed = raw ? JSON.parse(raw) : null;
+    const storedSessions = Array.isArray(parsed?.sessions)
+      ? parsed.sessions.map(normalizeStoredSession).filter(Boolean) as ChatSession[]
+      : [];
+    const sessions = storedSessions.length
+      ? storedSessions.sort((a, b) => (b.updatedAt ?? b.createdAt) - (a.updatedAt ?? a.createdAt))
+      : [fallbackSession];
+    const sessionIds = new Set(sessions.map((session) => session.id));
+    const storedOpenIds = Array.isArray(parsed?.openSessionIds)
+      ? parsed.openSessionIds.filter((id: unknown): id is string => typeof id === "string" && sessionIds.has(id))
+      : [];
+    const hasStoredOpenIds = Array.isArray(parsed?.openSessionIds);
+    const openSessionIds = hasStoredOpenIds
+      ? Array.from(new Set(storedOpenIds))
+      : [typeof parsed?.activeSessionId === "string" && sessionIds.has(parsed.activeSessionId)
+        ? parsed.activeSessionId
+        : sessions[0].id];
+    const activeSessionId =
+      typeof parsed?.activeSessionId === "string" && openSessionIds.includes(parsed.activeSessionId)
+        ? parsed.activeSessionId
+        : openSessionIds[0] ?? "";
+
+    return {
+      sessions,
+      openSessionIds,
+      activeSessionId,
+    };
+  } catch {
+    return {
+      sessions: [fallbackSession],
+      openSessionIds: [fallbackSession.id],
+      activeSessionId: fallbackSession.id,
+    };
+  }
+}
+
+function persistAiChatState(state: AiChatPersistedState) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(AI_CHAT_STORAGE_KEY, JSON.stringify(state));
+  } catch {
+    // localStorage may be full or disabled; the chat still works in memory.
+  }
+}
+
+function formatSessionTime(value: number) {
+  return new Date(value).toLocaleTimeString("zh-CN", {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }
 
 function buildSelectedTextMessage(text: string, snippets: SelectedTextSnippet[]) {
@@ -198,7 +309,7 @@ function buildMentionMenuItems(context?: AiChatContext, query = "") {
     subtitle: "AI 讲解",
   }));
   const mistakes: MentionMenuItem[] = (context?.mistakeItems ?? []).map((item) => ({
-    id: item.item_id,
+    id: item.id ?? item.item_id ?? item.title,
     type: "mistake",
     label: item.title,
     source: item.topic,
@@ -295,34 +406,32 @@ export function AiChatPanel({
   context?: AiChatContext;
 }) {
   /* ── 会话状态管理 ── */
-  const [sessions, setSessions] = useState<ChatSession[]>(() => [
-    {
-      id: crypto.randomUUID(),
-      name: "新对话",
-      createdAt: Date.now(),
-      messages: [
-        {
-          role: "assistant",
-          content:
-            "你好！我是 Mentora AI 助手。关于你的学习课程，有什么我可以帮你的吗？",
-        },
-      ],
-    },
-  ]);
+  const [initialChatState] = useState(loadPersistedAiChatState);
+  const [sessions, setSessions] = useState<ChatSession[]>(initialChatState.sessions);
+  const [openSessionIds, setOpenSessionIds] = useState<string[]>(initialChatState.openSessionIds);
   const [activeSessionId, setActiveSessionId] = useState<string>(
-    () => sessions[0]?.id ?? "",
+    initialChatState.activeSessionId,
   );
   const [historyOpen, setHistoryOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
 
   const filteredSessions = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
-    if (!q) return sessions;
-    return sessions.filter((s) =>
+    const sortedSessions = [...sessions].sort((a, b) => (b.updatedAt ?? b.createdAt) - (a.updatedAt ?? a.createdAt));
+    if (!q) return sortedSessions;
+    return sortedSessions.filter((s) =>
       getSessionTitle(s).toLowerCase().includes(q),
     );
   }, [sessions, searchQuery]);
 
+  const sessionMap = useMemo(
+    () => new Map(sessions.map((session) => [session.id, session])),
+    [sessions],
+  );
+  const openSessions = useMemo(
+    () => openSessionIds.map((id) => sessionMap.get(id)).filter(Boolean) as ChatSession[],
+    [openSessionIds, sessionMap],
+  );
   const activeSession = sessions.find((s) => s.id === activeSessionId);
 
   const [input, setInput] = useState("");
@@ -330,13 +439,11 @@ export function AiChatPanel({
   const listRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const [sending, setSending] = useState(false);
+  const [copiedMessageIndex, setCopiedMessageIndex] = useState<number | null>(null);
   const [selectedTextSnippets, setSelectedTextSnippets] = useState<SelectedTextSnippet[]>([]);
   const [selectionMenu, setSelectionMenu] = useState<SelectionMenuState | null>(null);
   const [mentions, setMentions] = useState<AiChatMention[]>([]);
   const [mentionMenuOpen, setMentionMenuOpen] = useState(false);
-  const [mentionQuery, setMentionQuery] = useState("");
-  const [mentionActiveIndex, setMentionActiveIndex] = useState(0);
-
   const [savePreview, setSavePreview] = useState<{
     messageIndex: number;
     preview: ExplanationPreview | null;
@@ -344,45 +451,43 @@ export function AiChatPanel({
     committing: boolean;
     error: string;
   } | null>(null);
+  const [mentionQuery, setMentionQuery] = useState("");
+  const [mentionActiveIndex, setMentionActiveIndex] = useState(0);
 
   const mentionItems = buildMentionMenuItems(context, mentionQuery);
 
   function createSession() {
-    const newSession: ChatSession = {
-      id: crypto.randomUUID(),
-      name: "新对话",
-      createdAt: Date.now(),
-      messages: [
-        {
-          role: "assistant",
-          content:
-            "你好！我是 Mentora AI 助手。关于你的学习课程，有什么我可以帮你的吗？",
-        },
-      ],
-    };
+    const newSession = createDefaultSession();
     setSessions((prev) => [...prev, newSession]);
+    setOpenSessionIds((prev) => [...prev.filter((id) => id !== newSession.id), newSession.id]);
     setActiveSessionId(newSession.id);
     setInput("");
   }
 
   function closeSession(id: string) {
-    setSessions((prev) => {
-      const next = prev.filter((s) => s.id !== id);
-      if (id === activeSessionId && next.length > 0) {
-        const idx = prev.findIndex((s) => s.id === id);
-        const targetIdx = Math.min(idx, next.length - 1);
-        setActiveSessionId(next[targetIdx].id);
+    setOpenSessionIds((prev) => {
+      const next = prev.filter((sessionId) => sessionId !== id);
+      if (id === activeSessionId) {
+        const currentIndex = prev.findIndex((sessionId) => sessionId === id);
+        const nextActiveId = next[Math.min(currentIndex, next.length - 1)];
+        if (nextActiveId) {
+          setActiveSessionId(nextActiveId);
+        } else {
+          setActiveSessionId("");
+        }
       }
       return next;
     });
   }
 
   function switchSession(id: string) {
+    setOpenSessionIds((prev) => (prev.includes(id) ? prev : [...prev, id]));
     setActiveSessionId(id);
     setInput("");
   }
 
   function openSessionFromHistory(id: string) {
+    setOpenSessionIds((prev) => (prev.includes(id) ? prev : [...prev, id]));
     setActiveSessionId(id);
     setHistoryOpen(false);
   }
@@ -393,21 +498,20 @@ export function AiChatPanel({
       if (id === activeSessionId && next.length > 0) {
         const idx = prev.findIndex((s) => s.id === id);
         const targetIdx = Math.min(idx, next.length - 1);
-        setActiveSessionId(next[targetIdx].id);
+        const nextActiveId = next[targetIdx].id;
+        setActiveSessionId(nextActiveId);
+        setOpenSessionIds((openIds) => {
+          const filteredOpenIds = openIds.filter((sessionId) => sessionId !== id);
+          return filteredOpenIds.includes(nextActiveId)
+            ? filteredOpenIds
+            : [...filteredOpenIds, nextActiveId];
+        });
+      } else {
+        setOpenSessionIds((openIds) => openIds.filter((sessionId) => sessionId !== id));
       }
       if (next.length === 0) {
-        const empty: ChatSession = {
-          id: crypto.randomUUID(),
-          name: "新对话",
-          createdAt: Date.now(),
-          messages: [
-            {
-              role: "assistant",
-              content:
-                "你好！我是 Mentora AI 助手。关于你的学习课程，有什么我可以帮你的吗？",
-            },
-          ],
-        };
+        const empty = createDefaultSession();
+        setOpenSessionIds([empty.id]);
         setActiveSessionId(empty.id);
         return [empty];
       }
@@ -416,25 +520,26 @@ export function AiChatPanel({
   }
 
   function deleteAllSessions() {
-    const empty: ChatSession = {
-      id: crypto.randomUUID(),
-      name: "新对话",
-      createdAt: Date.now(),
-      messages: [
-        {
-          role: "assistant",
-          content:
-            "你好！我是 Mentora AI 助手。关于你的学习课程，有什么我可以帮你的吗？",
-        },
-      ],
-    };
+    const empty = createDefaultSession();
     setSessions([empty]);
+    setOpenSessionIds([empty.id]);
     setActiveSessionId(empty.id);
   }
 
   function getSessionTitle(session: ChatSession) {
     const firstUser = session.messages.find((m) => m.role === "user");
-    return firstUser?.content?.trim() || "新对话";
+    return session.name !== DEFAULT_SESSION_NAME ? session.name : firstUser?.content?.trim() || DEFAULT_SESSION_NAME;
+  }
+
+  function getSessionPreview(session: ChatSession) {
+    const latest = [...session.messages].reverse().find((message) => {
+      if (message.role === "user") return message.content.trim().length > 0;
+      return flattenAssistantBlocksContent(message.blocks).trim().length > 0;
+    });
+    const preview = latest
+      ? getAssistantMessagePlainText(latest)
+      : DEFAULT_ASSISTANT_GREETING;
+    return truncateText(normalizeSelectedText(preview), 72);
   }
 
   function updateMessageAt(index: number, update: (message: ChatMessage) => ChatMessage) {
@@ -444,7 +549,7 @@ export function AiChatPanel({
         const msgs = [...s.messages];
         if (index < 0 || index >= msgs.length) return s;
         msgs[index] = update(msgs[index]);
-        return { ...s, messages: msgs };
+        return { ...s, messages: msgs, updatedAt: Date.now() };
       }),
     );
   }
@@ -453,24 +558,28 @@ export function AiChatPanel({
     if (!context?.courseId || !activeSession) return;
     const assistantMsg = activeSession.messages[messageIndex];
     const userMsg = activeSession.messages[messageIndex - 1];
-    if (!assistantMsg || assistantMsg.role !== "assistant") return;
-    if (!userMsg || userMsg.role !== "user") return;
+    if (!isAssistantMessage(assistantMsg) || !userMsg || userMsg.role !== "user") return;
 
+    const assistantText = flattenAssistantBlocksContent(assistantMsg.blocks);
     setSavePreview({ messageIndex, preview: null, loading: true, committing: false, error: "" });
-    updateMessageAt(messageIndex, (m) => ({ ...m, saveState: "previewing" }));
+    updateMessageAt(messageIndex, (m) =>
+      isAssistantMessage(m) ? { ...m, saveState: "previewing" } : m,
+    );
 
     try {
       const preview = await previewExplanationSave({
         course_id: context.courseId,
         user_message: userMsg.content,
-        assistant_message: assistantMsg.content,
+        assistant_message: assistantText,
         citations: assistantMsg.citations,
       });
       setSavePreview({ messageIndex, preview, loading: false, committing: false, error: "" });
     } catch (err) {
       const message = err instanceof Error ? err.message : "生成预览失败";
       setSavePreview({ messageIndex, preview: null, loading: false, committing: false, error: message });
-      updateMessageAt(messageIndex, (m) => ({ ...m, saveState: "idle" }));
+      updateMessageAt(messageIndex, (m) =>
+        isAssistantMessage(m) ? { ...m, saveState: "idle" } : m,
+      );
     }
   }
 
@@ -479,11 +588,11 @@ export function AiChatPanel({
     setSavePreview((prev) => (prev ? { ...prev, committing: true, error: "" } : prev));
     try {
       const result = await commitExplanationSave(context.courseId, savePreview.preview.preview_id);
-      updateMessageAt(savePreview.messageIndex, (m) => ({
-        ...m,
-        saveState: "saved",
-        savedDocId: result.doc_id,
-      }));
+      updateMessageAt(savePreview.messageIndex, (m) =>
+        isAssistantMessage(m)
+          ? { ...m, saveState: "saved", savedDocId: result.doc_id }
+          : m,
+      );
       context.onExplanationSaved?.(result.doc_id);
       setSavePreview(null);
     } catch (err) {
@@ -494,23 +603,35 @@ export function AiChatPanel({
 
   function handleCancelSaveExplanation() {
     if (savePreview) {
-      updateMessageAt(savePreview.messageIndex, (m) => ({ ...m, saveState: "idle" }));
+      updateMessageAt(savePreview.messageIndex, (m) =>
+        isAssistantMessage(m) ? { ...m, saveState: "idle" } : m,
+      );
     }
     setSavePreview(null);
   }
 
-  function updateLastAssistant(update: (message: ChatMessage) => ChatMessage) {
+  function updateLastAssistant(update: (message: AssistantChatMessage) => AssistantChatMessage) {
     if (!activeSession) return;
     setSessions((prev) =>
       prev.map((s) => {
         if (s.id !== activeSessionId) return s;
         const msgs = [...s.messages];
         const last = msgs[msgs.length - 1];
-        if (!last || last.role !== "assistant") return s;
+        if (!last || !isAssistantMessage(last)) return s;
         msgs[msgs.length - 1] = update(last);
-        return { ...s, messages: msgs };
+        return { ...s, messages: msgs, updatedAt: Date.now() };
       }),
     );
+  }
+
+  async function handleCopyAssistantMessage(content: string, index: number) {
+    const value = content.trim();
+    if (!value) return;
+    await navigator.clipboard.writeText(value);
+    setCopiedMessageIndex(index);
+    window.setTimeout(() => {
+      setCopiedMessageIndex((current) => (current === index ? null : current));
+    }, 1200);
   }
 
   function closeSelectionMenu() {
@@ -673,6 +794,28 @@ export function AiChatPanel({
   }, [input]);
 
   useEffect(() => {
+    const sessionIds = new Set(sessions.map((session) => session.id));
+    setOpenSessionIds((prev) => {
+      const filtered = prev.filter((id) => sessionIds.has(id));
+      return filtered.length === prev.length ? prev : filtered;
+    });
+
+    if (activeSessionId && (!sessionIds.has(activeSessionId) || !openSessionIds.includes(activeSessionId))) {
+      const nextActiveId = openSessionIds.find((id) => sessionIds.has(id)) ?? "";
+      setActiveSessionId(nextActiveId);
+    }
+  }, [activeSessionId, openSessionIds, sessions]);
+
+  useEffect(() => {
+    const sessionIds = new Set(sessions.map((session) => session.id));
+    persistAiChatState({
+      sessions,
+      openSessionIds: openSessionIds.filter((id) => sessionIds.has(id)),
+      activeSessionId: sessionIds.has(activeSessionId) ? activeSessionId : sessions[0]?.id ?? "",
+    });
+  }, [activeSessionId, openSessionIds, sessions]);
+
+  useEffect(() => {
     function handleDocumentMouseDown(event: MouseEvent) {
       const target = event.target as Node | null;
       if (target && panelRef.current?.contains(target)) {
@@ -701,25 +844,32 @@ export function AiChatPanel({
       document.removeEventListener("keydown", handleDocumentKeyDown);
       document.removeEventListener("keyup", handleDocumentKeyUp);
     };
-  });
+  }, []);
 
   async function handleSend() {
     const text = input.trim();
     if (!text || !activeSession) return;
 
+    const nextTitle = buildSessionTitle(text);
     const snippetsForRequest = selectedTextSnippets;
     const mentionsForRequest = mentions.filter((mention) => text.includes(`@${mention.label}`));
     const requestMessage = buildSelectedTextMessage(text, snippetsForRequest);
+    const historyForRequest = activeSession.messages.map((m) => ({
+      role: m.role,
+      content: getAssistantMessagePlainText(m),
+    }));
 
     setSessions((prev) =>
       prev.map((s) => {
         if (s.id !== activeSessionId) return s;
         return {
           ...s,
+          name: s.name === DEFAULT_SESSION_NAME ? nextTitle : s.name,
+          updatedAt: Date.now(),
           messages: [
             ...s.messages,
             { role: "user", content: text },
-            { role: "assistant", content: "" },
+            { role: "assistant", blocks: [] },
           ],
         };
       }),
@@ -733,104 +883,22 @@ export function AiChatPanel({
     window.setTimeout(syncInputHeight, 0);
 
     try {
-      const historyMessages =
-        sessions.find((s) => s.id === activeSessionId)?.messages ?? [];
-      const resp = await fetch("/api/chat/stream/", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+      await runAssistantChatStream(
+        {
           message: requestMessage,
-          course_id: context?.courseId,
-          history: historyMessages.map((m) => ({
-            role: m.role,
-            content: m.content,
-          })),
+          history: historyForRequest,
           mentions: mentionsForRequest,
-        }),
-      });
-
-      if (!resp.ok) {
-        const errorText = await resp.text();
-        throw new Error(errorText || `HTTP ${resp.status}`);
-      }
-
-      const reader = resp.body!.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop() || "";
-
-        for (const line of lines) {
-          if (!line.startsWith("data: ")) continue;
-          try {
-            const data = JSON.parse(line.slice(6)) as ChatStreamEvent;
-            if (data.type === "chunk") {
-              updateLastAssistant((last) => ({
-                ...last,
-                content: last.content + data.content,
-              }));
-            } else if (data.type === "status") {
-              updateLastAssistant((last) => ({
-                ...last,
-                statuses: [
-                  ...(last.statuses ?? []),
-                  {
-                    event: data.event,
-                    message: data.message,
-                    toolName: data.tool_name,
-                    success: data.success,
-                  },
-                ],
-              }));
-            } else if (data.type === "citations") {
-              updateLastAssistant((last) => ({
-                ...last,
-                citations: [...(last.citations ?? []), ...data.citations],
-              }));
-            } else if (data.type === "error") {
-              setSessions((prev) =>
-                prev.map((s) => {
-                  if (s.id !== activeSessionId) return s;
-                  const msgs = [...s.messages];
-                  const last = msgs[msgs.length - 1];
-                  msgs[msgs.length - 1] = {
-                    ...last,
-                    content: last.content || `错误: ${data.message}`,
-                    failed: true,
-                  };
-                  return { ...s, messages: msgs };
-                }),
-              );
-            } else if (data.type === "done") {
-              // 流式结束，保存入口在 finally 之后可用
-            }
-          } catch {
-            // 跳过无法解析的行
-          }
-        }
-      }
-    } catch (err: any) {
-      setSessions((prev) =>
-        prev.map((s) => {
-          if (s.id !== activeSessionId) return s;
-          const msgs = [...s.messages];
-          const last = msgs[msgs.length - 1];
-          const errorMsg = err?.message || "连接失败";
-          msgs[msgs.length - 1] = {
-            ...last,
-            content:
-              last.content || `抱歉，AI 服务出错: ${errorMsg}`,
-            failed: true,
-          };
-          return { ...s, messages: msgs };
-        }),
+        },
+        (assistant) => {
+          updateLastAssistant(() => assistant);
+        },
       );
+    } catch (err: unknown) {
+      const errorMsg = err instanceof Error ? err.message : "连接失败";
+      updateLastAssistant((last) => applyAssistantStreamEvent(last, {
+        type: "error",
+        message: last.blocks.length ? errorMsg : `抱歉，AI 服务出错: ${errorMsg}`,
+      }));
     } finally {
       setSending(false);
     }
@@ -914,6 +982,13 @@ export function AiChatPanel({
       </header>
 
       {historyOpen ? (
+        <>
+        <button
+          className="ai-chat-history-mask"
+          type="button"
+          aria-label="关闭历史会话"
+          onClick={() => setHistoryOpen(false)}
+        />
         <div className="ai-chat-history" aria-label="历史会话">
           <header className="ai-chat-history-header">
             <button
@@ -986,8 +1061,18 @@ export function AiChatPanel({
                           <span className="ai-chat-history-item-icon">
                             <MessageSquare size={14} />
                           </span>
-                          <span className="ai-chat-history-item-title">
-                            {getSessionTitle(session)}
+                          <span className="ai-chat-history-item-main">
+                            <span className="ai-chat-history-item-head">
+                              <span className="ai-chat-history-item-title">
+                                {getSessionTitle(session)}
+                              </span>
+                              <span className="ai-chat-history-item-time">
+                                {formatSessionTime(session.updatedAt ?? session.createdAt)}
+                              </span>
+                            </span>
+                            <span className="ai-chat-history-item-preview">
+                              {getSessionPreview(session)}
+                            </span>
                           </span>
                           <button
                             className="ai-chat-history-item-delete"
@@ -1009,33 +1094,32 @@ export function AiChatPanel({
             )}
           </div>
         </div>
-      ) : (
-        <>
+        </>
+      ) : null}
+
           <nav className="ai-chat-tab-bar" aria-label="会话标签">
-            {sessions.map((session) => (
+            {openSessions.map((session) => (
               <button
                 key={session.id}
                 className={`ai-chat-tab${
                   session.id === activeSessionId ? " active" : ""
                 }`}
                 onClick={() => switchSession(session.id)}
-                title={session.name}
+                title={getSessionTitle(session)}
                 type="button"
               >
-                <span className="ai-chat-tab-label">{session.name}</span>
-                {sessions.length > 1 && (
-                  <span
-                    className="ai-chat-tab-close"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      closeSession(session.id);
-                    }}
-                    role="button"
-                    aria-label={`关闭 ${session.name}`}
-                  >
-                    <X size={12} />
-                  </span>
-                )}
+                <span className="ai-chat-tab-label">{getSessionTitle(session)}</span>
+                <span
+                  className="ai-chat-tab-close"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    closeSession(session.id);
+                  }}
+                  role="button"
+                  aria-label={`关闭 ${getSessionTitle(session)}`}
+                >
+                  <X size={12} />
+                </span>
               </button>
             ))}
           </nav>
@@ -1046,85 +1130,64 @@ export function AiChatPanel({
             onMouseUp={handleSelectionEnd}
             onScroll={closeSelectionMenu}
           >
-            {activeSession?.messages.map((msg, i) => (
-              <div className={`ai-chat-message ${msg.role}`} data-message-index={i} key={i}>
-                {msg.role === "assistant" && (
-                  <span className="ai-chat-avatar">
-                    <Sparkles size={13} />
-                  </span>
-                )}
-                <div className="ai-chat-bubble">
-                  {msg.content && (
-                    msg.role === "assistant" ? (
-                      msg.failed ? (
-                        <p className="ai-chat-error-text">{msg.content}</p>
-                      ) : (
-                        <AiMarkdownContent content={msg.content} />
-                      )
-                    ) : (
-                      <div className="ai-chat-content">{msg.content}</div>
-                    )
-                  )}
-                  {msg.statuses?.length ? (
-                    <div className="ai-chat-status-list">
-                      {msg.statuses.map((status, index) => (
-                        <div
-                          className={`ai-chat-status ${
-                            status.success === false ? "failed" : ""
-                          }`}
-                          key={`${status.event}-${index}`}
-                        >
-                          <span className="ai-chat-status-dot" />
-                          <span>{status.message}</span>
-                        </div>
-                      ))}
-                    </div>
-                  ) : null}
-                  {msg.citations?.length ? (
-                    <div className="ai-chat-citations" aria-label="引用来源">
-                      {msg.citations.map((citation, index) => (
-                        <div
-                          className="ai-chat-citation"
-                          key={`${citation.evidence_id ?? "source"}-${index}`}
-                        >
-                          <Check size={12} />
-                          <span>
-                            {citation.source_title
-                              ? `${citation.source_title}: `
-                              : ""}
-                            {citation.content_preview}
-                            {citation.page_number
-                              ? ` · p.${citation.page_number}`
-                              : ""}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  ) : null}
-                  {context?.courseId && msg.role === "assistant" && msg.saveState === "saved" ? (
-                    <div className="ai-chat-save-actions">
-                      <span className="ai-chat-save-done">已保存到 AI 讲解</span>
-                    </div>
-                  ) : null}
-                  {context?.courseId
-                    && isSaveableAssistantMessage(msg)
-                    && msg.saveState !== "saved"
-                    && !(sending && i === activeSession.messages.length - 1) ? (
-                    <div className="ai-chat-save-actions">
-                      <button
-                        type="button"
-                        className="ai-chat-save-btn"
-                        disabled={savePreview?.loading && savePreview.messageIndex === i}
-                        onClick={() => handleStartSaveExplanation(i)}
-                      >
-                        保存到 AI 讲解
-                      </button>
-                      <span className="ai-chat-save-hint">将生成本轮对话摘要</span>
-                    </div>
-                  ) : null}
-                </div>
+            {!activeSession ? (
+              <div className="ai-chat-empty-session">
+                从历史恢复会话，或新建对话继续。
               </div>
-            ))}
+            ) : null}
+            {activeSession?.messages.map((msg, i) => {
+              const assistantText = isAssistantMessage(msg)
+                ? flattenAssistantBlocksContent(msg.blocks)
+                : "";
+              return (
+              <div className={`ai-chat-message ${msg.role}`} data-message-index={i} key={i}>
+                {isAssistantMessage(msg) ? (
+                  <>
+                    <div className="ai-chat-assistant-header">
+                      <span className="ai-chat-avatar">
+                        <Sparkles size={13} />
+                      </span>
+                      <strong>AI 助手</strong>
+                    </div>
+                    <div className="ai-chat-assistant-block">
+                      <AssistantMessageBody message={msg} />
+                    </div>
+                    {assistantText.trim() ? (
+                      <div className="ai-chat-message-toolbar">
+                        <button
+                          type="button"
+                          onClick={() => void handleCopyAssistantMessage(assistantText, i)}
+                          aria-label={copiedMessageIndex === i ? "已复制" : "复制回复"}
+                          title={copiedMessageIndex === i ? "已复制" : "复制回复"}
+                        >
+                          {copiedMessageIndex === i ? <Check size={14} /> : <Copy size={14} />}
+                        </button>
+                        {context?.courseId && msg.saveState === "saved" ? (
+                          <span className="ai-chat-save-done">已保存到 AI 讲解</span>
+                        ) : null}
+                        {context?.courseId
+                          && isSaveableAssistantMessage(msg, assistantText)
+                          && msg.saveState !== "saved"
+                          && !(sending && i === activeSession.messages.length - 1) ? (
+                          <button
+                            type="button"
+                            className="ai-chat-save-btn"
+                            disabled={savePreview?.loading && savePreview.messageIndex === i}
+                            onClick={() => void handleStartSaveExplanation(i)}
+                          >
+                            保存到 AI 讲解
+                          </button>
+                        ) : null}
+                      </div>
+                    ) : null}
+                  </>
+                ) : (
+                  <div className="ai-chat-bubble">
+                    <div className="ai-chat-content">{msg.content}</div>
+                  </div>
+                )}
+              </div>
+            );})}
           </div>
 
           <div className="ai-chat-input-area">
@@ -1186,11 +1249,12 @@ export function AiChatPanel({
               <textarea
                 ref={inputRef}
                 className="ai-chat-input"
-                placeholder="输入消息…"
+                placeholder={activeSession ? "输入消息…" : "先新建或从历史恢复会话"}
                 value={input}
                 onChange={handleInputChange}
                 onKeyDown={handleKeyDown}
                 onClick={(event) => syncMentionMenu(input, (event.target as HTMLTextAreaElement).selectionStart)}
+                disabled={!activeSession}
                 rows={1}
               />
               <div className="ai-chat-input-actions">
@@ -1206,7 +1270,7 @@ export function AiChatPanel({
                   className="ai-chat-send"
                   type="button"
                   onClick={handleSend}
-                  disabled={!input.trim() || sending}
+                  disabled={!activeSession || !input.trim() || sending}
                   aria-label="发送"
                 >
                   <Send size={16} />
@@ -1214,8 +1278,6 @@ export function AiChatPanel({
               </div>
             </div>
           </div>
-        </>
-      )}
       {selectionMenu && (
         <div
           className="ai-selection-menu"
@@ -1259,7 +1321,7 @@ export function AiChatPanel({
               <button
                 type="button"
                 className="primary"
-                onClick={handleConfirmSaveExplanation}
+                onClick={() => void handleConfirmSaveExplanation()}
                 disabled={!savePreview.preview || savePreview.committing}
               >
                 {savePreview.committing ? "保存中…" : "确认保存"}

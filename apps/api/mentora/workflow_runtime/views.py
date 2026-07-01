@@ -16,6 +16,7 @@ from rest_framework.decorators import api_view
 from rest_framework.response import Response
 
 from mentora.workflow_runtime.services import WorkflowRuntime
+from mentora.workflow_runtime.tasks import run_workflow
 
 
 @extend_schema(
@@ -72,6 +73,8 @@ def workflow_submit(request):
         input_json=input_json,
         owner_id=owner_id,
     )
+
+    run_workflow.delay(str(wf.id))
 
     return Response(
         {"workflow_id": str(wf.id), "status": wf.status},

@@ -208,4 +208,62 @@ export const apiClient = {
   delete<T>(url: string, opts?: { signal?: AbortSignal; timeoutMs?: number }): Promise<T> {
     return request<T>("DELETE", url, opts);
   },
+  /** SSE 流式 POST：返回 raw Response，由调用方读取 body stream。 */
+  async streamPost(
+    url: string,
+    body?: unknown,
+    opts?: { signal?: AbortSignal; timeoutMs?: number; skipAuth?: boolean },
+  ): Promise<Response> {
+    const { signal: externalSignal, timeoutMs = DEFAULT_TIMEOUT_MS, skipAuth } = opts ?? {};
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+    const signal = externalSignal
+      ? combineSignals(externalSignal, controller.signal)
+      : controller.signal;
+
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      // 不设 Accept: text/event-stream —— DRF @api_view 会在进入视图前做内容协商，
+      // 该 Accept 不在默认 renderer 列表内会 406；响应体仍是 SSE，由调用方读 stream。
+    };
+    if (!skipAuth && _shouldInjectAuth(url)) {
+      const token = tokenStore.get();
+      if (token) {
+        headers.Authorization = `Bearer ${token.access}`;
+      }
+    }
+
+    const doFetch = () =>
+      fetch(url, {
+        method: "POST",
+        signal,
+        headers,
+        body: body !== undefined ? JSON.stringify(body) : undefined,
+      });
+
+    try {
+      let resp = await doFetch();
+      if (resp.status === 401 && !skipAuth && _shouldInjectAuth(url)) {
+        const refreshed = await _refreshAccessToken();
+        if (refreshed) {
+          headers.Authorization = `Bearer ${refreshed.access}`;
+          resp = await doFetch();
+        }
+      }
+      if (!resp.ok) {
+        const data = await resp.json().catch(() => ({}));
+        throw new ApiError(resp.status, data.error ?? data.detail ?? `请求失败 (${resp.status})`);
+      }
+      return resp;
+    } catch (err: unknown) {
+      if (err instanceof ApiError) throw err;
+      if (err instanceof DOMException && err.name === "AbortError") {
+        throw new ApiError(0, "请求已取消或超时");
+      }
+      throw new ApiError(0, err instanceof Error ? err.message : "网络错误");
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  },
 };

@@ -815,42 +815,25 @@ def course_scope_suggest(request, course_id):
         return Response({"error": str(exc)}, status=500)
 
 
-@extend_schema(
-    summary="课程阶段列表",
-    description="返回课程的学习阶段列表及计划调整影响范围。阶段状态按学习进度推导。",
-    tags=["课程管理"],
-    responses={
-        200: {"description": "阶段列表 + 调整影响"},
-        404: {"description": "课程不存在或无学习计划"},
-    },
-)
-@api_view(["GET"])
-def course_phases(request, course_id):
-    """GET /api/courses/<course_id>/phases/"""
-    from mentora.courses.models import Course
+def _build_phases_response_for_session(session_id: str) -> dict:
+    """按建课会话 ID 组装阶段列表与调整影响。"""
     from mentora.learning.models import LearningPlan, LearningPlanRevision
 
     try:
-        course = Course.objects.get(id=course_id)
-    except Course.DoesNotExist:
-        return Response({"error": "课程不存在"}, status=404)
-
-    try:
-        plan = LearningPlan.objects.get(course_session_id=str(course.session.id))
+        plan = LearningPlan.objects.get(course_session_id=str(session_id))
     except LearningPlan.DoesNotExist:
-        return Response({"error": "该课程尚未生成学习计划"}, status=404)
+        raise ValueError("该课程尚未生成学习计划")
 
     if not plan.active_revision_id:
-        return Response({"phases": [], "adjustments": []})
+        return {"phases": [], "adjustments": []}
 
     try:
         revision = LearningPlanRevision.objects.get(id=plan.active_revision_id)
     except LearningPlanRevision.DoesNotExist:
-        return Response({"phases": [], "adjustments": []})
+        return {"phases": [], "adjustments": []}
 
     phases_qs = revision.phases.order_by("position")
     if not phases_qs.exists():
-        # 尝试从 plan_snapshot_json 获取
         snapshot = revision.plan_snapshot_json or {}
         snapshot_phases = snapshot.get("phases", [])
         items = []
@@ -867,14 +850,12 @@ def course_phases(request, course_id):
                 "state": "completed" if i == 0 else ("active" if i == 1 else "upcoming"),
             })
         adjustments = snapshot.get("adjustments", [])
-        return Response({"phases": items, "adjustments": adjustments})
+        return {"phases": items, "adjustments": adjustments}
 
-    # 从 LearningPlanPhase 模型组装
     total_phases = phases_qs.count()
     items = []
     for phase in phases_qs:
         units_count = phase.units.count()
-        # 阶段状态推导：position=0 已完成，最后一个有内容的为 active，其余 upcoming
         if phase.position == 0:
             state = "completed"
         elif phase.position == total_phases - 1:
@@ -893,12 +874,63 @@ def course_phases(request, course_id):
             "state": state,
         })
 
-    # 调整影响从 validation_result_json 或 plan_snapshot_json 获取
     adjustments = (revision.validation_result_json or {}).get("adjustments", [])
     if not adjustments:
         adjustments = (revision.plan_snapshot_json or {}).get("adjustments", [])
 
-    return Response({"phases": items, "adjustments": adjustments})
+    return {"phases": items, "adjustments": adjustments}
+
+
+@extend_schema(
+    summary="课程阶段列表",
+    description="返回课程的学习阶段列表及计划调整影响范围。阶段状态按学习进度推导。",
+    tags=["课程管理"],
+    responses={
+        200: {"description": "阶段列表 + 调整影响"},
+        404: {"description": "课程不存在或无学习计划"},
+    },
+)
+@api_view(["GET"])
+def course_phases(request, course_id):
+    """GET /api/courses/<course_id>/phases/"""
+    from mentora.courses.models import Course
+
+    try:
+        course = Course.objects.get(id=course_id)
+    except Course.DoesNotExist:
+        return Response({"error": "课程不存在"}, status=404)
+
+    try:
+        payload = _build_phases_response_for_session(str(course.session_id))
+    except ValueError as exc:
+        return Response({"error": str(exc)}, status=404)
+
+    return Response(payload)
+
+
+@extend_schema(
+    summary="建课会话阶段列表",
+    description="按建课会话 ID 返回学习阶段列表（路由 param 为 session_id）。",
+    tags=["课程管理"],
+    responses={
+        200: {"description": "阶段列表 + 调整影响"},
+        404: {"description": "会话不存在或无学习计划"},
+    },
+)
+@api_view(["GET"])
+def session_phases(request, session_id):
+    """GET /api/courses/sessions/<session_id>/phases/"""
+    try:
+        _get_session(session_id)
+    except ValueError as exc:
+        return Response({"error": str(exc)}, status=404)
+
+    try:
+        payload = _build_phases_response_for_session(session_id)
+    except ValueError as exc:
+        return Response({"error": str(exc)}, status=404)
+
+    return Response(payload)
 
 
 @api_view(["POST"])
@@ -971,10 +1003,7 @@ def course_activate(request, course_id):
 
     plan_result = create_plan_revision(
         course_session_id=str(session.id),
-        plan_snapshot={
-            "total_budget_minutes": 80 * 60,
-            "phases": plan_output.get("phases", []),
-        },
+        plan_snapshot=_plan_to_learning_snapshot(plan_output),
         profile_revision_id=str(profile.id),
     )
 

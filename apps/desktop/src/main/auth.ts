@@ -18,9 +18,9 @@ import { createLogger } from "./logger";
 const log = createLogger("auth");
 
 interface TokenResponse {
-  access_token: string;
-  refresh_token: string;
-  account_id?: string;
+  access: string;
+  refresh: string;
+  user_id?: string;
   display_name?: string;
 }
 
@@ -106,13 +106,10 @@ export class AuthManager extends EventEmitter {
         return null;
       }
       try {
-        const res = await fetch(`${API_BASE_URL}/auth/token/`, {
+        const res = await fetch(`${API_BASE_URL}/auth/refresh/`, {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            grant_type: "refresh_token",
-            refresh_token: refreshToken,
-          }),
+          body: JSON.stringify({ refresh: refreshToken }),
         });
         if (!res.ok) throw new Error(`refresh failed: ${res.status}`);
         const data = (await res.json()) as TokenResponse;
@@ -147,19 +144,23 @@ export class AuthManager extends EventEmitter {
   }
 
   private async applyTokenResponse(data: TokenResponse): Promise<void> {
-    this.accessToken = data.access_token;
-    await this.writeRefreshToken(data.refresh_token);
+    this.accessToken = data.access;
+    await this.writeRefreshToken(data.refresh);
     this.setStatus({
       state: "signed-in",
-      accountId: data.account_id,
+      accountId: data.user_id,
       displayName: data.display_name,
     });
   }
 
   private async readErrorMessage(res: Response): Promise<string> {
     try {
-      const body = (await res.json()) as { detail?: string; message?: string };
-      return body.detail ?? body.message ?? `认证失败（${res.status}）`;
+      const body = (await res.json()) as {
+        error?: string;
+        detail?: string;
+        message?: string;
+      };
+      return body.error ?? body.detail ?? body.message ?? `认证失败（${res.status}）`;
     } catch {
       return `认证失败（${res.status}）`;
     }

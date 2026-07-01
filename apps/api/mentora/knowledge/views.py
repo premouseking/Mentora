@@ -35,7 +35,7 @@ def _resolve_owner_id(value: object | None) -> tuple[str | None, Response | None
     owner_id = str(value or "").strip()
     if owner_id:
         return owner_id, None
-    if settings.DEBUG:
+    if settings.DEBUG or getattr(settings, "DEV_OWNER_FALLBACK_ENABLED", False):
         return DEV_OWNER_ID, None
     return None, Response({"error": "缺少 ownerId"}, status=400)
 

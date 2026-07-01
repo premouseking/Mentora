@@ -35,6 +35,7 @@ from mentora.courses.views import (
     plan_handler,
     session_delete,
     session_detail,
+    session_phases,
     session_list_or_create,
     session_start,
     session_update,
@@ -77,6 +78,7 @@ urlpatterns = [
     path("api/learning/explanations/<uuid:doc_id>/", explanation_doc, name="learning-explanation-doc"),
     # Agent 聊天
     path("api/", include("mentora.agent_runtime.urls")),
+    path("api/", include("mentora.model_gateway.urls")),
     # Workflow 异步任务
     path("api/", include("mentora.workflow_runtime.urls")),
     path("api/assessment/sessions/generate/", generate_quiz_session, name="assessment-generate"),
@@ -91,6 +93,7 @@ urlpatterns = [
     path("api/courses/sessions/<uuid:session_id>/start/", session_start, name="session-start"),
     path("api/courses/sessions/<uuid:session_id>/inquiry/", inquiry_next, name="inquiry-next"),
     path("api/courses/sessions/<uuid:session_id>/plan/", plan_handler, name="plan-handler"),
+    path("api/courses/sessions/<uuid:session_id>/phases/", session_phases, name="session-phases"),
     # 课程管理
     path("api/courses/", course_list, name="course-list"),
     path("api/courses/confirm/", course_confirm, name="course-confirm"),

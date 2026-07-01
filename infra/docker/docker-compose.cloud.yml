@@ -1,0 +1,94 @@
+name: mentora
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-mentora}
+      POSTGRES_USER: ${POSTGRES_USER:-mentora}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-mentora}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${OBJECT_STORAGE_ACCESS_KEY:?OBJECT_STORAGE_ACCESS_KEY is required}
+      MINIO_ROOT_PASSWORD: ${OBJECT_STORAGE_SECRET_KEY:?OBJECT_STORAGE_SECRET_KEY is required}
+    ports:
+      - "127.0.0.1:9002:9000"
+    volumes:
+      - minio_data:/data
+
+  api:
+    build:
+      context: ../../apps/api
+    env_file:
+      - ../../.env
+    environment:
+      DJANGO_DEBUG: "false"
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      REDIS_URL: redis://redis:6379/0
+      OBJECT_STORAGE_BACKEND: s3
+      OBJECT_STORAGE_ENDPOINT: http://minio:9000
+    ports:
+      - "127.0.0.1:${API_PORT:-8000}:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_started
+    command: >
+      sh -c "python manage.py migrate &&
+             python manage.py runserver 0.0.0.0:8000"
+
+  worker:
+    build:
+      context: ../../apps/api
+    env_file:
+      - ../../.env
+    environment:
+      DJANGO_DEBUG: "false"
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      REDIS_URL: redis://redis:6379/0
+      OBJECT_STORAGE_BACKEND: s3
+      OBJECT_STORAGE_ENDPOINT: http://minio:9000
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_started
+    command: >
+      celery -A config worker
+      -Q heavy,agent,learning
+      -n worker@%h
+      --loglevel=info
+
+volumes:
+  postgres_data:
+  redis_data:
+  minio_data:

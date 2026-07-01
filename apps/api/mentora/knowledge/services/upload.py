@@ -32,7 +32,7 @@ DEV_OWNER_ID = settings.DEV_OWNER_ID
 def _resolve_owner_id(owner_id: str | None) -> str:
     if owner_id:
         return owner_id
-    if settings.DEBUG:
+    if settings.DEBUG or getattr(settings, "DEV_OWNER_FALLBACK_ENABLED", False):
         return DEV_OWNER_ID
     raise ValueError("缺少 owner_id")
 

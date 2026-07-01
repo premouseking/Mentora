@@ -7,15 +7,22 @@ import {
   Sparkles,
 } from "lucide-react";
 
-import { adjustmentImpact } from "../../data/courses";
-
 export type AdjustmentDecision = "pending" | "accepted" | "kept";
+
+export interface PlanAdjustmentImpact {
+  id: string;
+  scope: string;
+  change: string;
+}
 
 type PlanAdjustmentCardProps = {
   decision: AdjustmentDecision;
   impactOpen: boolean;
   onDecision: (decision: Exclude<AdjustmentDecision, "pending">) => void;
   onToggleImpact: () => void;
+  suggestion?: string;
+  triggerReason?: string;
+  impacts?: PlanAdjustmentImpact[];
 };
 
 export function PlanAdjustmentCard({
@@ -23,6 +30,9 @@ export function PlanAdjustmentCard({
   impactOpen,
   onDecision,
   onToggleImpact,
+  suggestion = "暂无调整建议。",
+  triggerReason = "阶段进度数据尚未接入，建议保留当前方案。",
+  impacts = [],
 }: PlanAdjustmentCardProps) {
   const decisionLabel =
     decision === "accepted"
@@ -47,25 +57,25 @@ export function PlanAdjustmentCard({
       <div className="adjustment-summary">
         <div>
           <strong>建议内容</strong>
-          <p>
-            将“Cache 替换策略”加入补学清单，并把下一阶段第一项综合题调整为引导式练习。
-          </p>
+          <p>{suggestion}</p>
         </div>
         <div>
           <strong><CircleHelp size={15} /> 触发原因</strong>
-          <p>2 项任务掌握度不足，1 项任务尚未完成。</p>
+          <p>{triggerReason}</p>
         </div>
-        <button className="impact-toggle" onClick={onToggleImpact} type="button">
-          {impactOpen ? "收起调整影响" : "查看调整影响"}
-          {impactOpen ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
-        </button>
+        {impacts.length > 0 ? (
+          <button className="impact-toggle" onClick={onToggleImpact} type="button">
+            {impactOpen ? "收起调整影响" : "查看调整影响"}
+            {impactOpen ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+          </button>
+        ) : null}
       </div>
 
-      {impactOpen ? (
+      {impactOpen && impacts.length > 0 ? (
         <div className="adjustment-impact">
           <strong>调整影响（对比原方案）</strong>
           <div className="impact-flow">
-            {adjustmentImpact.map((item) => (
+            {impacts.map((item) => (
               <div className="impact-item" key={item.id}>
                 <span>{item.scope}</span>
                 <strong>{item.change}</strong>
@@ -80,23 +90,20 @@ export function PlanAdjustmentCard({
       ) : null}
 
       <div className="adjustment-actions">
-        {decision === "pending" ? (
-          <>
-            <button className="button secondary" onClick={() => onDecision("kept")} type="button">
-              保持原方案
-            </button>
-            <button className="button primary" onClick={() => onDecision("accepted")} type="button">
-              <Check size={16} /> 接受调整
-            </button>
-          </>
-        ) : (
-          <p>
-            <Check size={16} />
-            {decision === "accepted"
-              ? "调整已应用，下一阶段将使用引导式练习。"
-              : "已保留原方案，仍可正常进入下一阶段。"}
-          </p>
-        )}
+        <button
+          className={`button secondary${decision === "kept" ? " active" : ""}`}
+          onClick={() => onDecision("kept")}
+          type="button"
+        >
+          <Check size={16} /> 保留原方案
+        </button>
+        <button
+          className={`button primary${decision === "accepted" ? " active" : ""}`}
+          onClick={() => onDecision("accepted")}
+          type="button"
+        >
+          <Check size={16} /> 应用建议
+        </button>
       </div>
     </section>
   );

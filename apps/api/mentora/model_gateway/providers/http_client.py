@@ -30,6 +30,29 @@ class HttpError(Exception):
         super().__init__(f"HTTP error: {status} | body: {body[:200]}")
 
 
+def _is_ssl_close_notify_error(exc: BaseException) -> bool:
+    """部分兼容 OpenAI 的 SSE 上游会在 TLS close_notify 后仍触发 stdlib SSL 收尾异常。"""
+    if not isinstance(exc, ssl.SSLError):
+        return False
+    reason = getattr(exc, "reason", "")
+    message = str(exc)
+    return (
+        reason == "APPLICATION_DATA_AFTER_CLOSE_NOTIFY"
+        or "APPLICATION_DATA_AFTER_CLOSE_NOTIFY" in message
+        or "application data after close notify" in message.lower()
+    )
+
+
+async def _close_writer_safely(writer: asyncio.StreamWriter) -> None:
+    writer.close()
+    try:
+        await writer.wait_closed()
+    except ssl.SSLError as exc:
+        if _is_ssl_close_notify_error(exc):
+            return
+        raise
+
+
 async def async_post_json(
     url: str,
     payload: dict,
@@ -159,8 +182,7 @@ async def async_post_sse(
             try:
                 line = await asyncio.wait_for(reader.readline(), timeout=timeout)
             except ssl.SSLError as exc:
-                # 部分 LLM 网关在 close_notify 后仍发送残留数据，流已结束时可忽略
-                if "APPLICATION_DATA_AFTER_CLOSE_NOTIFY" in str(exc):
+                if _is_ssl_close_notify_error(exc):
                     break
                 raise
             if not line:
@@ -176,9 +198,4 @@ async def async_post_sse(
                 except json.JSONDecodeError:
                     continue
     finally:
-        writer.close()
-        try:
-            await writer.wait_closed()
-        except ssl.SSLError as exc:
-            if "APPLICATION_DATA_AFTER_CLOSE_NOTIFY" not in str(exc):
-                raise
+        await _close_writer_safely(writer)

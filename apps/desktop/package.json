@@ -5,7 +5,7 @@
   "description": "Mentora Electron thin desktop host (main + preload).",
   "main": "dist/main/index.cjs",
   "scripts": {
-    "dev": "concurrently -k -n bundle,electron \"tsup --watch\" \"wait-on %MENTORA_DEV_SERVER_URL% dist/main/index.cjs dist/preload/index.cjs && nodemon --delay 300ms --watch dist/main/index.cjs --watch dist/preload/index.cjs -e cjs --exec \\\"electron .\\\"\"",
+    "dev": "node scripts/dev.mjs",
     "icons:generate": "node scripts/generate-icons.mjs",
     "build:bundle": "tsup",
     "build:renderer": "pnpm --dir ../web build",

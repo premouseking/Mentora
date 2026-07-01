@@ -93,6 +93,10 @@ function getKatexTexFromElement(element: Element | null): string {
   return annotation?.textContent?.trim() ?? "";
 }
 
+function getKatexElement(element: Element | null): HTMLElement | null {
+  return element?.closest<HTMLElement>(".katex") ?? null;
+}
+
 function getSelectedKatexTex(root: HTMLElement): string {
   const selection = window.getSelection();
   if (!selection || selection.isCollapsed) return "";
@@ -131,9 +135,14 @@ export function AssistantMarkdown({ content }: AssistantMarkdownProps) {
     const handleFormulaClick = async (event: MouseEvent) => {
       const target = event.target instanceof Element ? event.target : null;
       if (target?.closest(".assistant-md-math-copy")) return;
-      const tex = getKatexTexFromElement(target);
+      const katex = getKatexElement(target);
+      const tex = getKatexTexFromElement(katex);
       if (!tex) return;
       await navigator.clipboard.writeText(tex);
+      katex?.classList.add("assistant-md-formula-copied");
+      window.setTimeout(() => {
+        katex?.classList.remove("assistant-md-formula-copied");
+      }, 900);
     };
 
     const handleCopy = (event: ClipboardEvent) => {

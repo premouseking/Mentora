@@ -33,6 +33,10 @@ class AgentInput(BaseModel):
         description="本次可用的工具定义",
     )
     max_tool_rounds: int = Field(default=5, description="最大工具调用轮次")
+    audit_sub_agent_run_id: str = Field(
+        default="",
+        description="RunManager 子 Agent 运行 ID，供 tool 审计持久化",
+    )
 
 
 class Agent(ABC):

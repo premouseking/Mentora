@@ -16,9 +16,11 @@
 from __future__ import annotations
 
 import json
+import logging
 from typing import TYPE_CHECKING
 
 from mentora.agent_runtime.agents.base import AgentInput
+from mentora.agent_runtime.models import SubAgentRun
 from mentora.agent_runtime.schemas.context import ToolContext
 from mentora.agent_runtime.schemas.output import (
     AgentOutput,
@@ -32,6 +34,17 @@ from mentora.model_gateway.schemas import ChatResponse, Message, ToolCall
 
 if TYPE_CHECKING:
     from mentora.agent_runtime.events import EventEmitter
+
+log = logging.getLogger(__name__)
+_run_manager = None
+
+
+def _get_run_manager():
+    global _run_manager
+    if _run_manager is None:
+        from mentora.agent_runtime.services import RunManager
+        _run_manager = RunManager()
+    return _run_manager
 
 
 def _merge_usage(total: TokenUsage, addition: TokenUsage | None) -> TokenUsage:
@@ -84,6 +97,7 @@ async def _execute_tool(
     *,
     task_id: str,
     agent_role: str,
+    audit_sub_agent_run_id: str = "",
     emitter: EventEmitter | None,
 ) -> tuple[ToolInvocationRecord, str, list[dict]]:
     """执行单个工具调用，返回 (记录, tool message 内容, 引文列表)。"""
@@ -95,10 +109,30 @@ async def _execute_tool(
     if emitter:
         emitter.tool_call(task_id, tc.function.name, args)
 
-    ctx = ToolContext(task_id=task_id, agent_role=agent_role, run_id="")
+    ctx = ToolContext(
+        task_id=task_id,
+        agent_role=agent_role,
+        run_id=audit_sub_agent_run_id,
+    )
     result = await registry.execute(tc.function.name, args, ctx)
     content = _format_tool_message_content(result)
     citations = _extract_tool_citations(result)
+
+    if audit_sub_agent_run_id:
+        try:
+            sub_run = SubAgentRun.objects.get(id=audit_sub_agent_run_id)
+            tool_result = result.result if isinstance(result.result, dict) else {"value": result.result}
+            _get_run_manager().record_tool_invocation(
+                sub_run,
+                tc.function.name,
+                args,
+                result=tool_result,
+                success=result.success,
+                duration_ms=result.duration_ms,
+                artifact_ref=result.artifact_ref or "",
+            )
+        except SubAgentRun.DoesNotExist:
+            log.warning("audit sub_agent_run not found: %s", audit_sub_agent_run_id)
 
     record = ToolInvocationRecord(
         tool_name=tc.function.name,
@@ -170,6 +204,7 @@ async def run_tool_loop(
                 tc,
                 task_id=agent_input.task_id,
                 agent_role=agent_role,
+                audit_sub_agent_run_id=agent_input.audit_sub_agent_run_id,
                 emitter=emitter,
             )
             tool_records.append(record)
@@ -213,7 +248,12 @@ async def run_tool_loop_stream(
     chat_messages = list(agent_input.context.messages)
     tools = registry.get_openai_tools(agent_role)
 
-    for _round_num in range(agent_input.max_tool_rounds):
+    round_num = 0
+    while round_num < agent_input.max_tool_rounds:
+        round_num += 1
+        if emitter:
+            emitter.agent_thinking(agent_input.task_id, round_num)
+
         accumulated_content: list[str] = []
         pending_tool_calls: list[ToolCall] = []
 
@@ -224,8 +264,9 @@ async def run_tool_loop_stream(
             model=agent_input.model_id,
         ):
             total_usage = _merge_usage(total_usage, chunk.usage)
+            # 部分 Provider 会在 finish chunk 重复携带完整 tool_calls，按最后一次覆盖即可。
             if chunk.tool_calls:
-                pending_tool_calls.extend(chunk.tool_calls)
+                pending_tool_calls = list(chunk.tool_calls)
             if chunk.content:
                 accumulated_content.append(chunk.content)
                 if emitter:
@@ -259,6 +300,7 @@ async def run_tool_loop_stream(
                 tc,
                 task_id=agent_input.task_id,
                 agent_role=agent_role,
+                audit_sub_agent_run_id=agent_input.audit_sub_agent_run_id,
                 emitter=emitter,
             )
             tool_records.append(record)
@@ -276,12 +318,42 @@ async def run_tool_loop_stream(
                 )
             )
 
+    # 轮次用尽仍未产出最终文本时，再尝试一次无工具补全，避免对话戛然而止。
+    fallback_content: list[str] = []
+    try:
+        async for chunk in gateway.chat_stream(
+            task_type=agent_role,
+            messages=chat_messages,
+            tools=None,
+            model=agent_input.model_id,
+        ):
+            total_usage = _merge_usage(total_usage, chunk.usage)
+            if chunk.content:
+                fallback_content.append(chunk.content)
+                if emitter:
+                    emitter.agent_response_stream(
+                        agent_input.task_id, chunk.content, is_final=False
+                    )
+    except Exception:
+        log.warning("max-rounds fallback stream failed", exc_info=True)
+        if emitter:
+            emitter.agent_run_error(
+                agent_input.task_id,
+                agent_role,
+                "fallback_stream_error",
+                "补全回复失败",
+            )
+
+    final_message = "".join(fallback_content)
+    if emitter and final_message:
+        emitter.agent_response_stream(agent_input.task_id, "", is_final=True)
+
     return AgentOutput(
         agent_role=agent_role,
         task_id=agent_input.task_id,
-        final_message="",
+        final_message=final_message,
         citations=all_citations,
         tool_calls_made=tool_records,
-        finish_reason="max_rounds",
+        finish_reason="completed" if final_message else "max_rounds",
         usage=total_usage,
     )
