@@ -5,6 +5,8 @@
  * - 资料列表按 DEV_OWNER_ID 过滤
  * - 详情接口返回 ParsedBundle 正文供文档阅读页渲染
  */
+import { apiClient } from "./client";
+
 const API = "/api";
 
 /* ── shared types ──────────────────────────────────── */
@@ -64,17 +66,13 @@ export async function fetchSources(courseId?: string): Promise<SourceItem[]> {
   const params = new URLSearchParams();
   if (courseId) params.set("courseId", courseId);
   const qs = params.toString();
-  const url = qs ? `${API}/library/sources/?${qs}` : `${API}/library/sources/`;
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`获取资料列表失败: ${res.status}`);
-  const data = await res.json();
+  const url = qs ? `/api/library/sources/?${qs}` : `/api/library/sources/`;
+  const data = await apiClient.get<{ items?: SourceItem[] }>(url);
   return data.items ?? [];
 }
 
 export async function fetchSourceDetail(sourceVersionId: string): Promise<SourceDetail> {
-  const res = await fetch(`${API}/library/sources/${sourceVersionId}/`);
-  if (!res.ok) throw new Error(`获取资料详情失败: ${res.status}`);
-  return res.json();
+  return apiClient.get<SourceDetail>(`/api/library/sources/${encodeURIComponent(sourceVersionId)}/`);
 }
 
 /* ── helpers ───────────────────────────────────────── */
@@ -95,10 +93,7 @@ export function sourcesToFileNodes(items: SourceItem[]): { id: string; name: str
 /* ── 删除 ── */
 
 export async function deleteSource(sourceId: string): Promise<void> {
-  const res = await fetch(`${API}/library/sources/${encodeURIComponent(sourceId)}/delete/`, {
-    method: "DELETE",
-  });
-  if (!res.ok) throw new Error("删除失败");
+  await apiClient.delete(`/api/library/sources/${encodeURIComponent(sourceId)}/delete/`);
 }
 
 /* ── 课程资料关联 ── */
@@ -113,26 +108,24 @@ export interface CourseSourceItem {
 }
 
 export async function getCourseSources(courseId: string): Promise<CourseSourceItem[]> {
-  const res = await fetch(`${API}/courses/sessions/${encodeURIComponent(courseId)}/sources/`);
-  if (!res.ok) throw new Error("获取课程资料失败");
-  const data = await res.json();
+  const data = await apiClient.get<{ items?: CourseSourceItem[] }>(
+    `/api/courses/sessions/${encodeURIComponent(courseId)}/sources/`,
+  );
   return data.items ?? [];
 }
 
-export async function setCourseSources(
-  courseId: string,
+export async function setSessionSources(
+  sessionId: string,
   sourceVersionIds: string[],
 ): Promise<void> {
-  const res = await fetch(
-    `${API}/courses/sessions/${encodeURIComponent(courseId)}/sources/`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ source_version_ids: sourceVersionIds }),
-    },
+  await apiClient.post(
+    `/api/courses/sessions/${encodeURIComponent(sessionId)}/sources/`,
+    { source_version_ids: sourceVersionIds },
   );
-  if (!res.ok) throw new Error("设置课程资料失败");
 }
+
+/** @deprecated 使用 setSessionSources */
+export const setCourseSources = setSessionSources;
 
 /* ── 重新解析 ── */
 

@@ -22,6 +22,7 @@ import {
   type SectionKey,
 } from "../components/FileExplorer";
 import { MistakeReviewPanel } from "../components/MistakeReviewPanel";
+import { AiExplanationView } from "../components/AiExplanationView";
 import { PhaseSummary } from "../components/PhaseSummary";
 import { QuizPracticeView } from "../components/QuizPracticeView";
 import type { FileNode } from "../data/files";
@@ -39,7 +40,7 @@ import {
   type TreeNode,
   type CoursePhasesResponse,
 } from "../services/documentApi";
-import { getActivePlan, updateCourseSession, type ActivePlan } from "../services/courseApi";
+import { getActivePlan, updateCourseActivity, type ActivePlan } from "../services/courseApi";
 import {
   fetchExplanations,
   fetchMistakes,
@@ -435,6 +436,9 @@ function ContentBody({
   onStartQuiz,
   aiItems,
   mistakeItems,
+  courseId,
+  onExplanationDeleted,
+  onExplanationUpdated,
 }: {
   tab: WorkspaceTab;
   fileState?: FileBundleState;
@@ -443,6 +447,9 @@ function ContentBody({
   onStartQuiz: (sourceId: string | null) => void;
   aiItems: ExplanationItem[];
   mistakeItems: MistakeItem[];
+  courseId: string;
+  onExplanationDeleted: (docId: string) => void;
+  onExplanationUpdated: () => void;
 }) {
   const selectedAi = tab.kind === "ai" ? aiItems.find((item) => item.id === tab.itemId) : null;
   const selectedMistake = tab.kind === "mistake" ? mistakeItems.find((item) => item.item_id === tab.itemId) ?? null : null;
@@ -486,18 +493,19 @@ function ContentBody({
     );
   }
 
-  return (
-    <div className="cw-ai-preview">
-      <div className="cw-ai-preview-icon">
-        <BrainCircuit size={22} />
-      </div>
-      <div>
-        <p className="cw-ai-preview-kicker">{selectedAi?.type ?? "AI 讲解"}</p>
-        <h2>{selectedAi?.title ?? tab.title}</h2>
-        <p>{selectedAi?.topic ? `关联知识点：${selectedAi.topic}` : "AI 讲解内容将在这里显示。"}</p>
-      </div>
-    </div>
-  );
+  if (tab.kind === "ai") {
+    if (!selectedAi) return <p className="cw-preview-text">该讲解文件暂时不可用。</p>;
+    return (
+      <AiExplanationView
+        courseId={courseId}
+        docId={tab.itemId}
+        onDeleted={() => onExplanationDeleted(tab.itemId)}
+        onUpdated={onExplanationUpdated}
+      />
+    );
+  }
+
+  return <p className="cw-preview-text">无法显示此内容。</p>;
 }
 
 function ContextMenu({
@@ -563,9 +571,7 @@ export function CourseWorkspacePage() {
       .catch(() => setActivePlan(null))
       .finally(() => setPlanLoading(false));
     // 更新最近学习时间
-    updateCourseSession(courseId, {
-      last_studied_at: new Date().toISOString(),
-    }).catch(() => {});
+    updateCourseActivity(courseId, new Date().toISOString()).catch(() => {});
 
     // 加载讲解、错题、阶段数据
     Promise.all([
@@ -665,7 +671,7 @@ export function CourseWorkspacePage() {
       setActiveTabId(nextTab.id);
       return prev.map((tab) => (tab.id === activeTabId ? nextTab : tab));
     });
-  }, [activeTabId, fileNodes]);
+  }, [activeTabId, fileNodes, aiItems, mistakeItems]);
 
   const handleSelectFile = useCallback((id: string) => openItem("file", id, "replace"), [openItem]);
   const handleSelectAi = useCallback((id: string) => openItem("ai", id, "replace"), [openItem]);
@@ -720,6 +726,22 @@ export function CourseWorkspacePage() {
 
   const handleBottomClick = useCallback(() => setPhaseSummaryOpen(true), []);
 
+  const reloadExplanations = useCallback(() => {
+    if (!courseId) return;
+    fetchExplanations(courseId)
+      .then((d) => setAiItems(d.items))
+      .catch(() => {});
+  }, [courseId]);
+
+  const handleExplanationSaved = useCallback((docId: string) => {
+    reloadExplanations();
+    openItem("ai", docId, "new");
+  }, [reloadExplanations, openItem]);
+
+  const handleExplanationDeleted = useCallback((docId: string) => {
+    closeTab(getTabId("ai", docId));
+    reloadExplanations();
+  }, [reloadExplanations]);
 
   const explorerResizeRef = useRef(false);
   const onExplorerMove = useCallback((event: MouseEvent) => {
@@ -778,12 +800,14 @@ export function CourseWorkspacePage() {
   return (
     <AppShell
       aiChatContext={{
+        courseId: courseId ?? undefined,
         files: fileNodes,
-        aiItems: aiExplanations,
+        aiItems,
         mistakeItems,
         selectedFileId: selectedFile,
         selectedAiId: selectedAi,
         selectedMistakeId: selectedMistake,
+        onExplanationSaved: handleExplanationSaved,
       }}
     >
       {quizPracticeOpen ? (
@@ -847,6 +871,9 @@ export function CourseWorkspacePage() {
                       onStartQuiz={startQuiz}
                       aiItems={aiItems}
                       mistakeItems={mistakeItems}
+                      courseId={courseId ?? ""}
+                      onExplanationDeleted={handleExplanationDeleted}
+                      onExplanationUpdated={reloadExplanations}
                     />
                   )}
                 </main>

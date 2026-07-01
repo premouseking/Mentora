@@ -2,14 +2,18 @@
 学习计划领域服务：计划创建、校验、激活与查询。
 
 约定：
-- 计划创建与激活在一个事务内完成
+- 计划激活与任务物化分离：激活失败才阻断，物化失败不 rollback 激活
 - feasibility_status 由内部校验函数自动计算
 - 不在此模块引入 Agent 层依赖
 
 @module mentora/learning/services
 """
 
+import logging
+
 from django.db import transaction
+
+logger = logging.getLogger(__name__)
 
 from mentora.learning.models import (
     LearningPlan,
@@ -78,9 +82,15 @@ def create_plan_revision(
         {plan_id, revision_id, phase_count, unit_count, task_count,
          feasibility_status, validation_result}
     """
-    plan, _ = LearningPlan.objects.get_or_create(
-        course_session_id=course_session_id,
-    )
+    from mentora.courses.models import CourseCreationSession
+    from mentora.courses.services import resolve_course
+
+    session = CourseCreationSession.objects.get(id=course_session_id)
+    plan, _ = LearningPlan.objects.get_or_create(creation_session=session)
+    resolved = resolve_course(course_session_id)
+    if resolved.course_id and not plan.course_id:
+        plan.course_id = resolved.course_id
+        plan.save(update_fields=["course_id"])
 
     # 旧版本 superseded
     if plan.active_revision_id:
@@ -150,6 +160,14 @@ def create_plan_revision(
     }
 
 
+def _safe_materialize_tasks(revision_id: str) -> None:
+    """物化失败只记日志，不影响已激活的计划。"""
+    try:
+        materialize_tasks(revision_id)
+    except Exception:
+        logger.exception("计划激活后物化任务失败 revision_id=%s", revision_id)
+
+
 @transaction.atomic
 def activate_revision(revision_id: str) -> dict:
     """激活指定修订版本为当前生效计划。
@@ -174,36 +192,55 @@ def activate_revision(revision_id: str) -> dict:
     revision.status = LearningPlanRevision.Status.ACTIVE
     revision.save(update_fields=["status"])
 
-    # 激活后自动物化近期任务
-    materialize_tasks(str(revision.id))
-
-    return {
+    result = {
         "plan_id": str(plan.id),
         "active_revision_id": str(revision.id),
         "status": revision.status,
     }
+    # 物化与激活分事务：避免 LearningTask 写入异常 rollback 激活状态
+    transaction.on_commit(lambda rid=str(revision.id): _safe_materialize_tasks(rid))
+    return result
 
 
-def get_active_plan(course_session_id: str) -> dict | None:
-    """获取课程当前生效的学习计划。"""
-    try:
-        plan = LearningPlan.objects.get(course_session_id=course_session_id)
-    except LearningPlan.DoesNotExist:
-        return None
+def _resolve_active_revision(plan: LearningPlan) -> LearningPlanRevision | None:
+    """解析当前应展示/使用的修订版本。"""
+    if plan.active_revision_id:
+        revision = LearningPlanRevision.objects.filter(id=plan.active_revision_id).first()
+        if revision and revision.status != LearningPlanRevision.Status.SUPERSEDED:
+            return revision
 
-    if not plan.active_revision_id:
-        return None
+    return (
+        LearningPlanRevision.objects.filter(learning_plan=plan)
+        .exclude(status=LearningPlanRevision.Status.SUPERSEDED)
+        .order_by("-created_at")
+        .first()
+    )
 
-    try:
-        revision = LearningPlanRevision.objects.get(id=plan.active_revision_id)
-    except LearningPlanRevision.DoesNotExist:
-        return None
 
+def _heal_plan_activation(plan: LearningPlan, revision: LearningPlanRevision) -> None:
+    """修复「revision 已创建但未激活」的历史脏数据。"""
+    updates: list[str] = []
+    if plan.active_revision_id != revision.id:
+        plan.active_revision_id = revision.id
+        updates.append("active_revision_id")
+    if updates:
+        plan.save(update_fields=updates)
+
+    if revision.status == LearningPlanRevision.Status.DRAFT:
+        revision.status = LearningPlanRevision.Status.ACTIVE
+        revision.save(update_fields=["status"])
+
+
+def _build_plan_payload(plan: LearningPlan, revision: LearningPlanRevision) -> dict:
     phases = list(
         revision.phases.order_by("position").values(
             "id", "position", "title", "objective", "estimated_minutes",
         )
     )
+    unit_titles = {
+        str(unit_id): title
+        for unit_id, title in revision.units.values_list("id", "phase__title")
+    }
     for phase in phases:
         units = list(
             revision.units.filter(phase_id=phase["id"])
@@ -214,6 +251,7 @@ def get_active_plan(course_session_id: str) -> dict | None:
             )
         )
         for unit in units:
+            unit["title"] = unit_titles.get(str(unit["id"]), phase["title"])
             unit["tasks"] = list(
                 revision.task_templates.filter(unit_id=unit["id"])
                 .values("id", "task_type", "delivery_mode", "estimated_minutes", "required")
@@ -230,7 +268,40 @@ def get_active_plan(course_session_id: str) -> dict | None:
     }
 
 
-def get_progress(course_session_id: str) -> dict | None:
+def _get_learning_plan(resource_id: str):
+    """按 course FK 优先，回退 course_session_id（建课期）。"""
+    from mentora.courses.services import resolve_course
+
+    from mentora.learning.models import LearningPlan
+
+    resolved = resolve_course(resource_id)
+    if resolved.course_id:
+        plan = LearningPlan.objects.filter(course_id=resolved.course_id).first()
+        if plan is not None:
+            return plan
+    try:
+        return LearningPlan.objects.get(creation_session_id=resolved.session_id)
+    except LearningPlan.DoesNotExist:
+        return None
+
+
+def get_active_plan(resource_id: str) -> dict | None:
+    """获取课程当前生效的学习计划（resource_id 为 course_id 或 session_id）。"""
+    plan = _get_learning_plan(resource_id)
+    if plan is None:
+        return None
+
+    revision = _resolve_active_revision(plan)
+    if revision is None:
+        return None
+
+    if not plan.active_revision_id or plan.active_revision_id != revision.id:
+        _heal_plan_activation(plan, revision)
+
+    return _build_plan_payload(plan, revision)
+
+
+def get_progress(resource_id: str) -> dict | None:
     """
     获取学习进度摘要。
 
@@ -238,7 +309,7 @@ def get_progress(course_session_id: str) -> dict | None:
     """
     from mentora.assessment.services import get_latest_session_for_unit
 
-    plan = get_active_plan(course_session_id)
+    plan = get_active_plan(resource_id)
     if not plan:
         return None
 
@@ -339,11 +410,12 @@ def materialize_tasks(revision_id: str, *, weeks: int = 2) -> dict:
 
         cutoff = now + timedelta(weeks=weeks * 7)
 
+        unit_label = tmpl.unit.phase.title if tmpl.unit.phase else f"第 {tmpl.unit.position + 1} 章"
         LearningTask.objects.create(
             revision=revision,
             unit=tmpl.unit,
             template=tmpl,
-            title=f"{tmpl.get_task_type_display()}: {tmpl.unit.title if hasattr(tmpl, 'unit') else '未知'}",
+            title=f"{tmpl.get_task_type_display()}: {unit_label}",
             task_type=tmpl.task_type,
             estimated_minutes=tmpl.estimated_minutes,
             required=tmpl.required,
@@ -356,14 +428,30 @@ def materialize_tasks(revision_id: str, *, weeks: int = 2) -> dict:
     return {"task_count": task_count}
 
 
+def _resolve_plan_session_id(resource_id: str) -> str:
+    """deprecated：请使用 courses.services.resolve_course。"""
+    from mentora.courses.services import resolve_course
+
+    return resolve_course(resource_id).session_id
+
+
 def get_upcoming_tasks(course_id: str, *, limit: int = 20) -> list[dict]:
     """查询课程下所有待办任务。"""
+    from mentora.courses.services import resolve_course
+
     from mentora.learning.models import LearningTask
 
-    tasks = LearningTask.objects.filter(
-        revision__learning_plan__course_session__courses__id=course_id,
-        status__in=("pending", "in_progress"),
-    ).order_by("due_date", "position")[:limit]
+    resolved = resolve_course(course_id)
+    if resolved.course_id:
+        tasks = LearningTask.objects.filter(
+            revision__learning_plan__course_id=resolved.course_id,
+            status__in=("pending", "in_progress"),
+        ).order_by("due_date", "position")[:limit]
+    else:
+        tasks = LearningTask.objects.filter(
+            revision__learning_plan__creation_session_id=resolved.session_id,
+            status__in=("pending", "in_progress"),
+        ).order_by("due_date", "position")[:limit]
 
     return [
         {
@@ -393,7 +481,8 @@ def complete_task(task_id: str) -> dict:
 
     # 写入学习记录
     try:
-        course_id = str(task.unit.revision.learning_plan.course_session_id) if task.unit.revision.learning_plan.course_session_id else ""
+        plan = task.unit.revision.learning_plan
+        course_id = str(plan.course_id) if plan.course_id else str(plan.creation_session_id)
     except Exception:
         course_id = ""
     write_history_event(

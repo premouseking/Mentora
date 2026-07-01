@@ -24,7 +24,22 @@ class AssessmentItem(models.Model):
         SHORT_ANSWER = "short_answer", "简答题"
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    course_session_id = models.UUIDField(db_index=True, help_text="关联课程会话 ID")
+    course = models.ForeignKey(
+        "courses.Course",
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="assessment_items",
+        help_text="正式课程 FK",
+    )
+    creation_session = models.ForeignKey(
+        "courses.CourseCreationSession",
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="assessment_items",
+        help_text="建课期关联；确认后以 course FK 为主",
+    )
     topic_id = models.UUIDField(null=True, blank=True, help_text="关联 knowledge topic ID")
     question_type = models.CharField(max_length=16, choices=QuestionType.choices)
     difficulty = models.IntegerField(default=3, help_text="难度等级 1-5")
@@ -36,7 +51,7 @@ class AssessmentItem(models.Model):
         verbose_name = "题目"
         verbose_name_plural = verbose_name
         indexes = [
-            models.Index(fields=["course_session_id"]),
+            models.Index(fields=["creation_session"]),
             models.Index(fields=["topic_id"]),
         ]
 
@@ -83,7 +98,22 @@ class AssessmentSession(models.Model):
         COMPLETED = "completed", "已完成"
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    course_session_id = models.UUIDField(db_index=True)
+    course = models.ForeignKey(
+        "courses.Course",
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="assessment_sessions",
+        help_text="正式课程 FK",
+    )
+    creation_session = models.ForeignKey(
+        "courses.CourseCreationSession",
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="assessment_sessions",
+        help_text="建课期关联；确认后以 course FK 为主",
+    )
     unit_id = models.UUIDField(null=True, blank=True, help_text="关联 learning_plan_unit ID")
     status = models.CharField(max_length=16, choices=Status.choices, default=Status.CREATED)
     total_items = models.IntegerField(default=0)
@@ -98,7 +128,8 @@ class AssessmentSession(models.Model):
         verbose_name = "测验会话"
         verbose_name_plural = verbose_name
         indexes = [
-            models.Index(fields=["course_session_id", "-created_at"]),
+            models.Index(fields=["creation_session", "-created_at"]),
+            models.Index(fields=["course", "-created_at"]),
         ]
 
 

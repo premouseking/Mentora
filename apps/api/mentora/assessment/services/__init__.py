@@ -37,8 +37,12 @@ def create_item(
     model_request_id: str = "",
 ) -> dict:
     """创建题目 + 首版修订 + 溯源记录。"""
+    from mentora.courses.services import resolve_course
+
+    resolved = resolve_course(course_session_id)
     item = AssessmentItem.objects.create(
-        course_session_id=course_session_id,
+        creation_session=resolved.session,
+        course=resolved.course,
         topic_id=topic_id or None,
         question_type=question_type,
         difficulty=difficulty,
@@ -112,12 +116,16 @@ def create_session(
     unit_id: str = "",
 ) -> dict:
     """创建测验会话并关联题目。"""
+    from mentora.courses.services import resolve_course
+
+    resolved = resolve_course(course_session_id)
     items = list(AssessmentItem.objects.filter(id__in=item_ids))
     if not items:
         raise ValueError("题目列表不能为空")
 
     session = AssessmentSession.objects.create(
-        course_session_id=course_session_id,
+        creation_session=resolved.session,
+        course=resolved.course,
         unit_id=unit_id or None,
         status=AssessmentSession.Status.CREATED,
         total_items=len(items),
@@ -179,8 +187,9 @@ def submit_attempt(
     # 写入学习记录
     from mentora.learning.services import write_history_event
     revision = AssessmentItemRevision.objects.get(id=attempt.item.current_revision_id)
+    history_course_id = str(session.course_id) if session.course_id else str(session.creation_session_id)
     write_history_event(
-        course_id=str(session.course_session_id),
+        course_id=history_course_id,
         event_type="quiz_attempted",
         title=f"作答题目：{revision.question_text[:40]}...",
         detail=f"选自测验 {session_id}",
@@ -241,7 +250,8 @@ def get_session_result(session_id: str) -> dict | None:
 
     return {
         "session_id": str(session.id),
-        "course_session_id": str(session.course_session_id),
+        "course_id": str(session.course_id) if session.course_id else None,
+        "creation_session_id": str(session.creation_session_id) if session.creation_session_id else None,
         "unit_id": str(session.unit_id) if session.unit_id else None,
         "status": session.status,
         "total_items": session.total_items,

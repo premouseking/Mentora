@@ -4,12 +4,17 @@ import { useNavigate } from "react-router-dom";
 
 import { SetupShell } from "../components/AppShell";
 import {
-  getActivePlan,
   getCourseSession,
+  getSessionActivePlan,
   startCourse,
   type ActivePlan,
   type SessionDetail,
 } from "../services/courseApi";
+import {
+  getStoredCourseSessionId,
+  markCourseStarted,
+  resetCourseCreationStorage,
+} from "../services/courseCreationStorage";
 
 /* ── 类型 ── */
 
@@ -122,7 +127,7 @@ function PlanOverviewCanvas({
 
 export function ConfirmPlanPage() {
   const navigate = useNavigate();
-  const sessionId = sessionStorage.getItem("mentora-session-id");
+  const sessionId = getStoredCourseSessionId();
 
   /* 加载状态 */
   const [plan, setPlan] = useState<ActivePlan | null>(null);
@@ -138,7 +143,7 @@ export function ConfirmPlanPage() {
 
     let cancelled = false;
     Promise.all([
-      getActivePlan(sessionId),
+      getSessionActivePlan(sessionId),
       getCourseSession(sessionId),
     ])
       .then(([planData, sessionData]) => {
@@ -314,9 +319,10 @@ export function ConfirmPlanPage() {
     if (!sessionId) return;
     setStarting(true);
     try {
-      await startCourse(sessionId);
-      sessionStorage.setItem("mentora-course-started", "true");
-      navigate("/courses");
+      const result = await startCourse(sessionId);
+      resetCourseCreationStorage();
+      markCourseStarted();
+      navigate(`/courses/${result.course_id}`);
     } catch (err) {
       setStarting(false);
       setError(err instanceof Error ? err.message : "启动课程失败");

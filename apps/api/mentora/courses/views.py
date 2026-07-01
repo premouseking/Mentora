@@ -22,7 +22,8 @@ from rest_framework.response import Response
 from rest_framework.decorators import api_view
 from drf_spectacular.utils import extend_schema
 
-from mentora.courses.models import CourseCreationSession, SessionStatus
+from mentora.courses.models import Course, CourseCreationSession, SessionStatus
+from mentora.courses.services import archive_session, resolve_course
 from mentora.courses.schemas import (
     ClarifierResponse,
     PlanResponse,
@@ -53,7 +54,39 @@ def _get_session(session_id: str) -> CourseCreationSession:
     try:
         return CourseCreationSession.objects.get(id=session_id)
     except CourseCreationSession.DoesNotExist:
-        raise ValueError(f"会话 {session_id} 不存在")
+        try:
+            course = Course.objects.select_related("session").get(id=session_id)
+            return course.session
+        except Course.DoesNotExist:
+            raise ValueError(f"会话 {session_id} 不存在")
+
+
+def _resolve_course_context(resource_id: str) -> tuple[Course | None, CourseCreationSession, str]:
+    """解析 course_id 或 session_id，返回 (course|None, session, session_id)。"""
+    resolved = resolve_course(resource_id)
+    return resolved.course, resolved.session, resolved.session_id
+
+
+_ARCHIVED_STATUSES = frozenset({SessionStatus.ARCHIVED, SessionStatus.STARTED})
+
+
+def _ensure_session_writable(session: CourseCreationSession) -> Response | None:
+    """archived/legacy started 会话禁止写入。"""
+    if session.status in _ARCHIVED_STATUSES:
+        return Response({"error": "建课会话已归档，不可修改"}, status=409)
+    return None
+
+
+def _purge_session(session: CourseCreationSession) -> None:
+    """删除会话及关联的学习计划、Course 与资料绑定。"""
+    from mentora.knowledge.models import CourseSource
+    from mentora.learning.models import LearningPlan
+
+    session_id = str(session.id)
+    CourseSource.objects.filter(course_session_id=session_id).delete()
+    LearningPlan.objects.filter(creation_session=session).delete()
+    Course.objects.filter(session=session).delete()
+    session.delete()
 
 
 def _get_gateway_and_prompts():
@@ -79,6 +112,47 @@ def _format_history(inquiry_history: list[dict]) -> str:
     return "\n".join(lines)
 
 
+def _build_source_context(source_version_ids: list[str], *, limit: int = 12) -> str:
+    """Build a compact evidence summary for PlannerAgent."""
+    if not source_version_ids:
+        return "No uploaded course materials were selected."
+
+    from mentora.knowledge.models import SourceVersion
+    from mentora.retrieval.models import EvidenceUnit
+
+    versions = {
+        str(version.id): version
+        for version in SourceVersion.objects.select_related("source").filter(
+            id__in=source_version_ids,
+        )
+    }
+    units = EvidenceUnit.objects.filter(
+        source_version_id__in=source_version_ids,
+    ).order_by("source_version_id", "page_number", "created_at")[:limit]
+
+    lines = []
+    for unit in units:
+        version = versions.get(str(unit.source_version_id))
+        title = (
+            version.source.display_title
+            if version is not None
+            else str(unit.source_version_id)
+        )
+        content = " ".join((unit.content or "").split())[:260]
+        lines.append(
+            f"- evidence_id={unit.id}; source={title}; page={unit.page_number}; text={content}"
+        )
+
+    if lines:
+        return "\n".join(lines)
+
+    titles = [
+        version.source.display_title or version.original_filename or str(version.id)
+        for version in versions.values()
+    ]
+    return "Selected materials have no parsed evidence yet: " + ", ".join(titles)
+
+
 # ── Session CRUD ──
 
 
@@ -90,19 +164,64 @@ def session_list_or_create(request):
     POST /api/courses/sessions/ → 创建新会话
     """
     if request.method == "GET":
-        sessions = CourseCreationSession.objects.all().order_by("-updated_at")
-        data = []
-        for s in sessions:
+        from mentora.learning.services import get_active_plan, get_upcoming_tasks
+
+        data: list[dict] = []
+
+        for course in Course.objects.select_related("session").order_by("-session__updated_at"):
+            s = course.session
+            current_phase = None
+            next_task = None
+            plan = get_active_plan(str(course.id))
+            if plan and plan.get("phases"):
+                current_phase = plan["phases"][0].get("title")
+            try:
+                tasks = get_upcoming_tasks(str(course.id), limit=1)
+                if tasks:
+                    next_task = tasks[0].get("task_type")
+            except Exception:
+                next_task = None
             data.append({
+                "course_id": str(course.id),
+                "session_id": str(s.id),
+                "id": str(course.id),
+                "goal": s.goal,
+                "title": s.title,
+                "status": "active",
+                "level": s.level,
+                "pace": s.pace,
+                "time_budget": s.time_budget,
+                "school": s.school,
+                "deadline": s.deadline.isoformat() if s.deadline else None,
+                "current_phase": current_phase,
+                "next_task": next_task,
+                "created_at": s.created_at.isoformat(),
+                "updated_at": s.updated_at.isoformat(),
+                "last_studied_at": s.last_studied_at.isoformat() if s.last_studied_at else None,
+            })
+
+        confirmed_session_ids = Course.objects.values_list("session_id", flat=True)
+        pending = CourseCreationSession.objects.filter(
+            status=SessionStatus.COMPLETED,
+        ).exclude(id__in=confirmed_session_ids).order_by("-updated_at")
+        for s in pending:
+            data.append({
+                "course_id": None,
+                "session_id": str(s.id),
                 "id": str(s.id),
                 "goal": s.goal,
                 "title": s.title,
-                "status": s.status,
+                "status": "completed",
                 "level": s.level,
                 "pace": s.pace,
+                "time_budget": s.time_budget,
                 "school": s.school,
+                "deadline": s.deadline.isoformat() if s.deadline else None,
+                "current_phase": None,
+                "next_task": None,
                 "created_at": s.created_at.isoformat(),
                 "updated_at": s.updated_at.isoformat(),
+                "last_studied_at": s.last_studied_at.isoformat() if s.last_studied_at else None,
             })
         return Response(data)
 
@@ -140,7 +259,6 @@ def session_detail(request, session_id):
         session = _get_session(session_id)
     except ValueError as exc:
         return Response({"error": str(exc)}, status=404)
-
     data = SessionDetailSerializer(session).data
     data["id"] = str(data["id"])
     return Response(data)
@@ -159,6 +277,10 @@ def session_update(request, session_id):
         session = _get_session(session_id)
     except ValueError as exc:
         return Response({"error": str(exc)}, status=404)
+
+    blocked = _ensure_session_writable(session)
+    if blocked is not None:
+        return blocked
 
     try:
         body = _parse_json(request)
@@ -183,7 +305,7 @@ def session_delete(request, session_id):
         session = _get_session(session_id)
     except ValueError as exc:
         return Response({"error": str(exc)}, status=404)
-    session.delete()
+    _purge_session(session)
     return Response({"status": "deleted"})
 
 
@@ -210,6 +332,10 @@ def inquiry_next(request, session_id):
         session = _get_session(session_id)
     except ValueError as exc:
         return Response({"error": str(exc)}, status=404)
+
+    blocked = _ensure_session_writable(session)
+    if blocked is not None:
+        return blocked
 
     try:
         body = _parse_json(request)
@@ -381,19 +507,80 @@ def plan_handler(request, session_id):
 def _plan_detail(request, session_id):
     """返回当前生效的学习方案（阶段、单元、任务）。"""
     try:
-        _get_session(session_id)
+        session = _get_session(session_id)
     except ValueError as exc:
         return Response({"error": str(exc)}, status=404)
 
     from mentora.learning.services import get_active_plan
     from mentora.topics.services import get_topic_tree
 
-    plan = get_active_plan(session_id)
+    resolved_session_id = str(session.id)
+    plan = get_active_plan(resolved_session_id)
+    if plan is None and resolved_session_id != str(session_id):
+        plan = get_active_plan(str(session_id))
+    if plan is None:
+        revision_id = session.extra.get("plan_revision_id")
+        if revision_id:
+            from mentora.learning.services import activate_revision
+
+            try:
+                activate_revision(str(revision_id))
+            except Exception:
+                pass
+            plan = get_active_plan(resolved_session_id)
     if plan is None:
         return Response({"error": "该课程尚未生成学习方案"}, status=404)
 
-    plan["topics"] = get_topic_tree(session_id)
+    plan["topics"] = get_topic_tree(str(session_id))
     return Response(plan)
+
+
+@api_view(["GET"])
+@extend_schema(summary="Course Active Plan")
+def course_plan(request, course_id):
+    """GET /api/courses/<course_id>/plan/ — 学习期活跃方案。"""
+    from mentora.courses.services import resolve_course_required
+    from mentora.learning.services import get_active_plan
+    from mentora.topics.services import get_topic_tree
+
+    try:
+        course, _session = resolve_course_required(str(course_id))
+    except ValueError as exc:
+        return Response({"error": str(exc)}, status=404)
+
+    plan = get_active_plan(str(course.id))
+    if plan is None:
+        return Response({"error": "该课程尚未生成学习方案"}, status=404)
+    plan["topics"] = get_topic_tree(str(course.id))
+    return Response(plan)
+
+
+@api_view(["PATCH"])
+@extend_schema(summary="Course Activity")
+def course_activity(request, course_id):
+    """PATCH /api/courses/<course_id>/activity/ — 更新最近学习时间。"""
+    from django.utils.dateparse import parse_datetime
+
+    from mentora.courses.services import resolve_course_required
+
+    try:
+        _course, session = resolve_course_required(str(course_id))
+    except ValueError as exc:
+        return Response({"error": str(exc)}, status=404)
+
+    try:
+        body = _parse_json(request)
+    except ValueError as exc:
+        return Response({"error": str(exc)}, status=400)
+
+    raw = body.get("last_studied_at")
+    if raw:
+        parsed = parse_datetime(raw)
+        if parsed is None:
+            return Response({"error": "last_studied_at 格式无效"}, status=400)
+        session.last_studied_at = parsed
+        session.save(update_fields=["last_studied_at", "updated_at"])
+    return Response({"status": "ok"})
 
 
 def _plan_generate(request, session_id):
@@ -411,6 +598,12 @@ def _plan_generate(request, session_id):
     except ValueError as exc:
         return Response({"error": str(exc)}, status=404)
 
+    blocked = _ensure_session_writable(session)
+    if blocked is not None:
+        return blocked
+
+    resolved_session_id = str(session.id)
+
     try:
         gateway, prompt_mgr = _get_gateway_and_prompts()
     except RuntimeError as exc:
@@ -424,6 +617,9 @@ def _plan_generate(request, session_id):
         "inquiry_history": _format_history(session.inquiry_history),
     }
     system_text = prompt_mgr.render("planner", variables)
+    source_version_ids = [str(item) for item in session.extra.get("source_version_ids", [])]
+    source_context = _build_source_context(source_version_ids)
+    system_text = f"{system_text}\n\nSelected source evidence for planning:\n{source_context}"
 
     messages = [
         Message(role="system", content=system_text),
@@ -470,7 +666,7 @@ def _plan_generate(request, session_id):
 
         snapshot = _plan_to_learning_snapshot(plan_output)
         revision = create_plan_revision(
-            course_session_id=session_id,
+            course_session_id=resolved_session_id,
             plan_snapshot=snapshot,
             profile_revision_id="",
             knowledge_scope_revision_id="",
@@ -484,7 +680,7 @@ def _plan_generate(request, session_id):
             from mentora.topics.models import Topic
             from mentora.topics.services import build_topic_tree, link_evidence
 
-            build_topic_tree(session_id, [
+            build_topic_tree(resolved_session_id, [
                 {"name": t["name"], "level": 0, "position": idx,
                  "estimated_minutes": 0}
                 for idx, t in enumerate(topics_data)
@@ -493,16 +689,18 @@ def _plan_generate(request, session_id):
                 eids = t.get("evidence_ids", [])
                 if eids:
                     topic = Topic.objects.filter(
-                        course_id=session_id, name=t["name"]
+                        legacy_course_key=resolved_session_id,
+                        name=t["name"],
                     ).first()
                     if topic:
                         link_evidence(str(topic.id), eids)
-    except Exception:
+    except Exception as exc:
         # 持久化失败不影响方案返回，前端可继续展示
-        pass
+        return Response({"error": f"方案持久化失败: {str(exc)}"}, status=500)
 
     session.status = SessionStatus.COMPLETED
-    session.save(update_fields=["title", "status", "updated_at"])
+    session.extra["plan_revision_id"] = revision_id
+    session.save(update_fields=["title", "status", "extra", "updated_at"])
 
     return Response({**plan_output, "revision_id": revision_id})
 
@@ -524,27 +722,58 @@ def session_start(request, session_id):
         session = _get_session(session_id)
     except ValueError as exc:
         return Response({"error": str(exc)}, status=404)
+    resolved_session_id = str(session.id)
 
-    if session.status != SessionStatus.COMPLETED:
+    if session.status not in (
+        SessionStatus.COMPLETED,
+        SessionStatus.STARTED,
+        SessionStatus.ARCHIVED,
+    ):
         return Response(
             {"error": "方案尚未生成，无法开始学习"},
             status=400,
         )
 
-    from mentora.learning.services import activate_revision, get_active_plan
+    from mentora.courses.models import CourseProfileRevision
+    from mentora.courses.services import activate_course, confirm_course_from_session
+    from mentora.learning.services import get_active_plan
 
-    plan = get_active_plan(session_id)
+    plan = get_active_plan(resolved_session_id)
+    if plan is None and resolved_session_id != str(session_id):
+        plan = get_active_plan(str(session_id))
+    if plan is None:
+        revision_id = session.extra.get("plan_revision_id")
+        if revision_id:
+            from mentora.learning.services import activate_revision
+
+            try:
+                activate_revision(str(revision_id))
+            except Exception:
+                pass
+            plan = get_active_plan(resolved_session_id)
     if plan is None:
         return Response({"error": "未找到关联的学习计划"}, status=404)
 
-    result = activate_revision(plan["revision_id"])
+    confirm_result = confirm_course_from_session(resolved_session_id)
+    course_id = confirm_result["course_id"]
 
-    session.status = SessionStatus.STARTED
-    session.save(update_fields=["status", "updated_at"])
+    course = Course.objects.get(id=course_id)
+    profile = None
+    if course.active_profile_revision_id:
+        profile = CourseProfileRevision.objects.filter(
+            id=course.active_profile_revision_id,
+        ).first()
+
+    if profile is None or profile.status != CourseProfileRevision.Status.ACTIVE:
+        activate_course(course_id)
+    revision_id = plan["revision_id"]
+
+    archive_session(session)
 
     return JsonResponse({
-        "status": "started",
-        "revision_id": result["revision_id"],
+        "status": "active",
+        "revision_id": revision_id,
+        "course_id": course_id,
     })
 
 
@@ -561,13 +790,13 @@ def course_sources_manage(request, session_id):
     注意：为幂等安全，先删后建，而非增量合并。
     """
     try:
-        _get_session(session_id)
+        session = _get_session(session_id)
     except ValueError as exc:
         return JsonResponse({"error": str(exc)}, status=404)
 
     if request.method == "GET":
         links = CourseSource.objects.filter(
-            course_session_id=session_id,
+            course_session_id=str(session.id),
         ).select_related("source_version__source")
         items = []
         for link in links:
@@ -582,6 +811,10 @@ def course_sources_manage(request, session_id):
             })
         return JsonResponse({"items": items, "count": len(items)})
 
+    blocked = _ensure_session_writable(session)
+    if blocked is not None:
+        return JsonResponse({"error": "建课会话已归档，不可修改"}, status=409)
+
     # POST
     try:
         body = _parse_json(request)
@@ -593,7 +826,7 @@ def course_sources_manage(request, session_id):
         return JsonResponse({"error": "source_version_ids 必须是数组"}, status=400)
 
     # 幂等：先删后建
-    CourseSource.objects.filter(course_session_id=session_id).delete()
+    CourseSource.objects.filter(course_session_id=str(session.id)).delete()
 
     created = 0
     for vid in version_ids:
@@ -613,29 +846,6 @@ def course_sources_manage(request, session_id):
     session.save(update_fields=["extra", "updated_at"])
 
     return JsonResponse({"status": "ok", "source_count": created})
-
-
-# ── 删除课程 ──
-
-
-@csrf_exempt
-@require_http_methods(["DELETE"])
-def session_delete(request, session_id):
-    """
-    DELETE /api/courses/sessions/<uuid:id>/
-
-    删除建课会话及其课程资料关联。
-    """
-    try:
-        session = _get_session(session_id)
-    except ValueError as exc:
-        return JsonResponse({"error": str(exc)}, status=404)
-
-    # 清理课程资料关联（非 FK，需手动删）
-    CourseSource.objects.filter(course_session_id=session_id).delete()
-    session.delete()
-
-    return JsonResponse({"status": "deleted"})
 
 
 # ── Course list ──
@@ -710,13 +920,26 @@ def course_detail(request, course_id):
 
     返回课程详情：画像字段 + 当前作用域
     """
-    from mentora.courses.models import Course, CourseProfileRevision
+    from mentora.courses.models import CourseProfileRevision
     from mentora.courses.services import get_course_scope
 
     try:
-        course = Course.objects.get(id=course_id)
-    except Course.DoesNotExist:
-        return Response({"error": "课程不存在"}, status=404)
+        course, session, session_id = _resolve_course_context(str(course_id))
+    except ValueError as exc:
+        return Response({"error": str(exc)}, status=404)
+
+    if course is None:
+        return Response({
+            "course_id": str(session.id),
+            "goal": session.goal,
+            "level": session.level,
+            "pace": session.pace,
+            "school": session.school,
+            "status": session.status,
+            "plan_revision_id": session.extra.get("plan_revision_id"),
+            "source_version_ids": session.extra.get("source_version_ids", []),
+            "created_at": session.created_at.isoformat(),
+        })
 
     profile = None
     if course.active_profile_revision_id:
@@ -727,13 +950,13 @@ def course_detail(request, course_id):
 
     return Response({
         "course_id": str(course.id),
-        "goal": profile.goal if profile else "",
-        "level": profile.level if profile else "",
-        "pace": profile.pace if profile else "",
-        "school": profile.school if profile else "",
-        "status": profile.status if profile else "",
-        "plan_revision_id": str(profile.plan_revision_id) if profile and profile.plan_revision_id else None,
-        "source_version_ids": get_course_scope(course_id),
+        "goal": profile.goal if profile else session.goal,
+        "level": profile.level if profile else session.level,
+        "pace": profile.pace if profile else session.pace,
+        "school": profile.school if profile else session.school,
+        "status": profile.status if profile else session.status,
+        "plan_revision_id": str(profile.plan_revision_id) if profile and profile.plan_revision_id else session.extra.get("plan_revision_id"),
+        "source_version_ids": get_course_scope(str(course.id)),
         "created_at": course.created_at.isoformat(),
     })
 
@@ -827,24 +1050,21 @@ def course_scope_suggest(request, course_id):
 @api_view(["GET"])
 def course_phases(request, course_id):
     """GET /api/courses/<course_id>/phases/"""
-    from mentora.courses.models import Course
-    from mentora.learning.models import LearningPlan, LearningPlanRevision
+    from mentora.learning.models import LearningPlanRevision
+    from mentora.learning.services import get_active_plan
 
     try:
-        course = Course.objects.get(id=course_id)
-    except Course.DoesNotExist:
-        return Response({"error": "课程不存在"}, status=404)
+        course, _session, _session_id = _resolve_course_context(str(course_id))
+    except ValueError as exc:
+        return Response({"error": str(exc)}, status=404)
 
-    try:
-        plan = LearningPlan.objects.get(course_session_id=str(course.session.id))
-    except LearningPlan.DoesNotExist:
+    plan_resource = str(course.id) if course else str(course_id)
+    plan_data = get_active_plan(plan_resource)
+    if plan_data is None:
         return Response({"error": "该课程尚未生成学习计划"}, status=404)
 
-    if not plan.active_revision_id:
-        return Response({"phases": [], "adjustments": []})
-
     try:
-        revision = LearningPlanRevision.objects.get(id=plan.active_revision_id)
+        revision = LearningPlanRevision.objects.get(id=plan_data["revision_id"])
     except LearningPlanRevision.DoesNotExist:
         return Response({"phases": [], "adjustments": []})
 
@@ -1008,14 +1228,16 @@ def course_activate(request, course_id):
 @api_view(["GET"])
 def course_files(request, course_id):
     """GET /api/courses/<course_id>/files/"""
-    from mentora.courses.models import Course
+    from mentora.knowledge.models import CourseSource
+    from mentora.learning.models import LearningPlanRevision
+    from mentora.learning.services import get_active_plan
 
     try:
-        course = Course.objects.get(id=course_id)
-    except Course.DoesNotExist:
-        return Response({"error": "课程不存在"}, status=404)
+        course, _session, session_id = _resolve_course_context(str(course_id))
+    except ValueError as exc:
+        return Response({"error": str(exc)}, status=404)
 
-    session_id = str(course.session.id)
+    plan_resource = str(course.id) if course else str(course_id)
 
     # 课程关联的资料来源
     source_links = CourseSource.objects.filter(
@@ -1027,39 +1249,29 @@ def course_files(request, course_id):
         sv = link.source_version
         source_map[str(sv.id)] = sv.original_filename or sv.source.display_title or "未命名"
 
-    # 学习计划阶段 → 文件夹结构
-    from mentora.learning.models import LearningPlan, LearningPlanRevision
-
     tree: list[dict] = []
-    try:
-        plan = LearningPlan.objects.get(course_session_id=session_id)
-        if plan.active_revision_id:
-            revision = LearningPlanRevision.objects.filter(
-                id=plan.active_revision_id,
-            ).first()
-            if revision:
-                phases_qs = revision.phases.order_by("position")
-                for phase in phases_qs:
-                    children: list[dict] = []
-                    for unit in phase.units.all():
-                        for task in unit.tasks.all():
-                            for mat in task.materials:
-                                name = source_map.get(mat.get("id", ""), mat.get("title", "资料"))
-                                children.append({
-                                    "id": mat.get("id", ""),
-                                    "name": name,
-                                    "type": "file",
-                                    "extension": ".md" if task.task_type == "lecture" else ".quiz",
-                                })
+    plan_data = get_active_plan(plan_resource)
+    if plan_data is not None:
+        revision = LearningPlanRevision.objects.filter(id=plan_data["revision_id"]).first()
+        if revision:
+            phases_qs = revision.phases.order_by("position")
+            for phase in phases_qs:
+                children: list[dict] = []
+                for unit in phase.units.all():
+                    for tmpl in revision.task_templates.filter(unit=unit):
+                        children.append({
+                            "id": str(tmpl.id),
+                            "name": f"{tmpl.get_task_type_display()} · {phase.title}",
+                            "type": "file",
+                            "extension": ".md" if tmpl.task_type == "lecture" else ".quiz",
+                        })
 
-                    tree.append({
-                        "id": str(phase.id),
-                        "name": phase.title,
-                        "type": "folder",
-                        "children": children,
-                    })
-    except LearningPlan.DoesNotExist:
-        pass
+                tree.append({
+                    "id": str(phase.id),
+                    "name": phase.title,
+                    "type": "folder",
+                    "children": children,
+                })
 
     # 无阶段时，直接平铺所有 source 文件
     if not tree and source_links:

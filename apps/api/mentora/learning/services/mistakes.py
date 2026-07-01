@@ -41,7 +41,12 @@ def get_mistake_items(course_id: str) -> list[dict]:
     # 该课程下所有错误的作答记录，按 item 分组
     wrong_attempts = (
         AssessmentAttempt.objects
-        .filter(is_correct=False, session__course_session_id=session_id)
+        .filter(
+            is_correct=False,
+        )
+        .filter(
+            Q(session__course_id=course.id) | Q(session__creation_session_id=course.session_id),
+        )
         .values("item_id")
         .annotate(wrong_count=Count("id"), last_wrong=Max("created_at"))
         .order_by("-last_wrong")
@@ -131,25 +136,7 @@ def get_mistake_items(course_id: str) -> list[dict]:
 
 
 def get_explanations(course_id: str) -> list[dict]:
-    """获取课程中已完成的讲解类学习记录。
+    """获取课程 AI 讲解文档列表。"""
+    from mentora.learning.services.explanations import list_explanation_docs
 
-    从 task_completed 事件中过滤 AI 讲解记录，返回前端 aiExplanations 数据。
-    """
-    from mentora.learning.models import LearningHistoryEvent
-
-    events = LearningHistoryEvent.objects.filter(
-        course_id=course_id,
-        event_type="task_completed",
-    ).order_by("-created_at")[:20]
-
-    items = []
-    for e in events:
-        items.append({
-            "id": str(e.id),
-            "title": e.title,
-            "topic": e.detail[:30] if e.detail else "",
-            "type": e.result or "知识点讲解",
-            "created_at": e.created_at.isoformat(),
-        })
-
-    return items
+    return list_explanation_docs(course_id)

@@ -24,7 +24,8 @@ class SessionStatus(models.TextChoices):
     INQUIRING = "inquiring", "AI 追问中"
     GENERATING_PLAN = "generating_plan", "生成方案中"
     COMPLETED = "completed", "方案已生成"
-    STARTED = "started", "已开始学习"
+    STARTED = "started", "已开始学习"  # 遗留值，迁移至 archived
+    ARCHIVED = "archived", "已归档（已创建 Course）"
 
 
 class CourseCreationSession(models.Model):
