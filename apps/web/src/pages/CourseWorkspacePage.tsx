@@ -782,12 +782,19 @@ export function CourseWorkspacePage() {
   return (
     <AppShell
       aiChatContext={{
+        courseId,
         files: fileNodes,
         aiItems,
         mistakeItems,
         selectedFileId: selectedFile,
         selectedAiId: selectedAi,
         selectedMistakeId: selectedMistake,
+        onExplanationSaved: () => {
+          if (!courseId) return;
+          fetchExplanations(courseId)
+            .then((d) => setAiItems(d.items))
+            .catch(() => {});
+        },
       }}
     >
       {quizPracticeOpen ? (

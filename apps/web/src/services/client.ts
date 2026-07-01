@@ -151,6 +151,9 @@ async function request<T>(
     });
 
   const handleResponse = async (resp: Response): Promise<T> => {
+    if (resp.status === 204) {
+      return undefined as T;
+    }
     const data = await resp.json().catch(() => ({}));
     if (!resp.ok) {
       throw new ApiError(resp.status, data.error ?? data.detail ?? `请求失败 (${resp.status})`);

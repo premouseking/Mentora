@@ -299,16 +299,19 @@ class LearningHistoryEvent(models.Model):
         SKILL_MASTERED = "skill_mastered", "技能掌握"
         COURSE_STARTED = "course_started", "开始课程"
         COURSE_PAUSED = "course_paused", "暂停课程"
+        AI_EXPLANATION = "ai_explanation", "AI 讲解文档"
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     course_id = models.CharField(max_length=128, db_index=True, help_text="关联课程 ID")
     event_type = models.CharField(max_length=20, choices=EventType.choices)
     title = models.CharField(max_length=512)
-    detail = models.TextField(blank=True, default="")
+    detail = models.TextField(blank=True, default="", help_text="AI 讲解 Markdown 正文")
     result = models.CharField(max_length=128, blank=True, default="")
     task_id = models.CharField(max_length=128, blank=True, default="")
     phase_id = models.CharField(max_length=128, blank=True, default="")
+    metadata = models.JSONField(default=dict, blank=True, help_text="扩展元数据，如 keywords、doc_type")
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         db_table = "learning_history_event"

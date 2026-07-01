@@ -54,6 +54,8 @@ export interface AssistantChatMessage {
   role: "assistant";
   blocks: AssistantBlock[];
   citations?: ChatCitation[];
+  saveState?: "idle" | "previewing" | "saved";
+  savedDocId?: string;
 }
 
 export type ChatMessage = UserChatMessage | AssistantChatMessage;
