@@ -179,7 +179,8 @@ def _serialize_session(session_id: str) -> dict | None:
 
     return {
         "session_id": str(session.id),
-        "course_session_id": str(session.course_session_id),
+        "course_id": str(session.course_id) if session.course_id else None,
+        "creation_session_id": str(session.creation_session_id) if session.creation_session_id else None,
         "status": session.status,
         "total_items": session.total_items,
         "correct_count": session.correct_count,

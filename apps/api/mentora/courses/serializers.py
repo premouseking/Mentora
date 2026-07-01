@@ -33,7 +33,7 @@ class SessionUpdateSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = CourseCreationSession
-        fields = ["level", "pace", "time_budget", "school", "deadline", "last_studied_at", "status"]
+        fields = ["goal", "level", "pace", "time_budget", "school", "deadline", "last_studied_at", "status"]
 
 
 class SessionDetailSerializer(serializers.ModelSerializer):

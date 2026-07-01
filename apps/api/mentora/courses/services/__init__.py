@@ -16,7 +16,74 @@ from mentora.courses.models import (
     CourseKnowledgeScopeRevision,
     CourseProfileRevision,
     CourseScopeBinding,
+    SessionStatus,
 )
+
+
+class CourseResolution:
+    """resolve_course 返回值。"""
+
+    __slots__ = ("course", "session", "course_id", "session_id")
+
+    def __init__(
+        self,
+        *,
+        course: Course | None,
+        session: CourseCreationSession,
+    ) -> None:
+        self.course = course
+        self.session = session
+        self.course_id = str(course.id) if course else None
+        self.session_id = str(session.id)
+
+
+def resolve_course(resource_id: str) -> CourseResolution:
+    """course_id 优先；否则按 session_id 解析（建课期）。"""
+    try:
+        course = Course.objects.select_related("session").get(id=resource_id)
+        return CourseResolution(course=course, session=course.session)
+    except Course.DoesNotExist:
+        pass
+
+    session = CourseCreationSession.objects.get(id=resource_id)
+    course = Course.objects.filter(session=session).first()
+    return CourseResolution(course=course, session=session)
+
+
+def resolve_course_required(resource_id: str) -> tuple[Course, CourseCreationSession]:
+    """学习期 API：必须已有正式 Course。"""
+    resolved = resolve_course(resource_id)
+    if resolved.course is None:
+        raise ValueError(f"课程 {resource_id} 尚未创建，请先开始学习")
+    return resolved.course, resolved.session
+
+
+def bind_durable_course_refs(session: CourseCreationSession, course: Course) -> None:
+    """将 learning / assessment / topics 从 session 键改绑到 Course FK。"""
+    from mentora.assessment.models import AssessmentItem, AssessmentSession
+    from mentora.learning.models import LearningPlan
+    from mentora.topics.models import Topic
+
+    session_id = str(session.id)
+    course_uuid = course.id
+
+    LearningPlan.objects.filter(creation_session=session).update(course_id=course_uuid)
+    AssessmentItem.objects.filter(creation_session=session).update(course_id=course_uuid)
+    AssessmentSession.objects.filter(creation_session=session).update(course_id=course_uuid)
+
+    Topic.objects.filter(legacy_course_key=session_id).update(
+        course_id=course_uuid,
+        legacy_course_key=str(course_uuid),
+    )
+    Topic.objects.filter(course_id=course_uuid, legacy_course_key="").update(
+        legacy_course_key=str(course_uuid),
+    )
+
+
+def archive_session(session: CourseCreationSession) -> None:
+    """开始学习后归档建课会话（只读）。"""
+    session.status = SessionStatus.ARCHIVED
+    session.save(update_fields=["status", "updated_at"])
 
 
 @transaction.atomic
@@ -33,6 +100,22 @@ def confirm_course_from_session(session_id: str) -> dict:
     返回: {course_id, profile_revision_id, scope_revision_id, bindings}
     """
     session = CourseCreationSession.objects.get(id=session_id)
+    existing = Course.objects.filter(session=session).first()
+    if existing is not None:
+        bind_durable_course_refs(session, existing)
+        source_version_ids = get_course_scope(str(existing.id)) or session.extra.get("source_version_ids", [])
+        return {
+            "course_id": str(existing.id),
+            "profile_revision_id": str(existing.active_profile_revision_id or ""),
+            "scope_revision_id": str(existing.active_scope_revision_id or ""),
+            "bindings": [
+                str(binding.id)
+                for binding in CourseScopeBinding.objects.filter(
+                    revision_id=existing.active_scope_revision_id,
+                ).order_by("position")
+            ],
+            "source_version_ids": source_version_ids,
+        }
 
     course = Course.objects.create(session=session)
 
@@ -69,6 +152,8 @@ def confirm_course_from_session(session_id: str) -> dict:
     course.active_profile_revision_id = profile.id
     course.active_scope_revision_id = scope.id
     course.save(update_fields=["active_profile_revision_id", "active_scope_revision_id"])
+
+    bind_durable_course_refs(session, course)
 
     return {
         "course_id": str(course.id),
@@ -179,8 +264,14 @@ def activate_course(course_id: str) -> dict:
     profile.save(update_fields=["status"])
 
     if profile.plan_revision_id:
+        from mentora.learning.models import LearningPlanRevision
         from mentora.learning.services import activate_revision
-        activate_revision(str(profile.plan_revision_id))
+
+        plan_revision = LearningPlanRevision.objects.filter(
+            id=profile.plan_revision_id,
+        ).first()
+        if plan_revision and plan_revision.status != LearningPlanRevision.Status.ACTIVE:
+            activate_revision(str(profile.plan_revision_id))
 
     # 写入学习记录
     from mentora.learning.services import write_history_event

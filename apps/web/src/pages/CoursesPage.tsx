@@ -15,6 +15,11 @@ import { useCallback, useEffect, useState } from "react";
 
 import { AppShell } from "../components/AppShell";
 import { deleteCourseSession, listCourseSessions, type CourseSessionListItem } from "../services/courseApi";
+import {
+  consumeCourseStartedFlag,
+  resetCourseCreationStorage,
+  setStoredCourseSessionId,
+} from "../services/courseCreationStorage";
 
 /* ── 状态映射 ── */
 
@@ -23,7 +28,9 @@ const STATUS_LABEL: Record<string, string> = {
   inquiring: "AI 追问中",
   generating_plan: "生成方案中",
   completed: "方案已生成",
+  active: "学习中",
   started: "学习中",
+  archived: "学习中",
 };
 
 const STATUS_CLASS: Record<string, string> = {
@@ -32,6 +39,11 @@ const STATUS_CLASS: Record<string, string> = {
 };
 
 const COLOR_KEYS = ["teal", "blue", "violet"] as const;
+
+function goCreateCourse(navigate: ReturnType<typeof useNavigate>) {
+  resetCourseCreationStorage();
+  navigate("/courses/new");
+}
 
 function pickColor(index: number): string {
   return COLOR_KEYS[index % COLOR_KEYS.length];
@@ -62,7 +74,7 @@ function CourseHeader({ hasCourses }: { hasCourses: boolean }) {
           <Search size={17} />
           <input aria-label="搜索课程" placeholder="搜索课程" />
         </label>
-        <button className="button primary compact" onClick={() => navigate("/courses/new")} type="button">
+        <button className="button primary compact" onClick={() => goCreateCourse(navigate)} type="button">
           <Plus size={17} />
           创建课程
         </button>
@@ -80,7 +92,7 @@ function EmptyCourses() {
       </div>
       <h2>还没有课程</h2>
       <p>描述你想完成的学习目标，Mentora 会帮你整理需求并规划阶段路径。</p>
-      <button className="button primary" onClick={() => navigate("/courses/new")} type="button">
+      <button className="button primary" onClick={() => goCreateCourse(navigate)} type="button">
         <Plus size={17} />
         创建第一门课程
       </button>
@@ -138,7 +150,20 @@ const TASK_TYPE_LABEL: Record<string, string> = {
   review: "复习",
 };
 
-function CourseList({ courses, onDelete }: { courses: CourseSessionListItem[]; onDelete: (id: string) => void }) {
+function courseHref(course: CourseSessionListItem): string {
+  if (course.status === "completed") {
+    return "/courses/new/plan";
+  }
+  const courseId = course.course_id ?? course.id;
+  return `/courses/${courseId}`;
+}
+
+function prepareCourseNavigation(course: CourseSessionListItem) {
+  const sessionId = course.session_id || course.id;
+  setStoredCourseSessionId(sessionId);
+}
+
+function CourseList({ courses, onDelete }: { courses: CourseSessionListItem[]; onDelete: (course: CourseSessionListItem) => void }) {
   const [confirmId, setConfirmId] = useState<string | null>(null);
 
   return (
@@ -147,7 +172,7 @@ function CourseList({ courses, onDelete }: { courses: CourseSessionListItem[]; o
         const color = pickColor(i);
         const statusLabel = STATUS_LABEL[course.status] ?? course.status;
         const statusClass = STATUS_CLASS[course.status] ?? "";
-        const isStarted = course.status === "started";
+        const isActive = course.status === "active" || course.status === "started" || course.status === "archived";
         const isCompleted = course.status === "completed";
 
         const name = courseDisplayName(course.title, course.goal);
@@ -156,14 +181,19 @@ function CourseList({ courses, onDelete }: { courses: CourseSessionListItem[]; o
           <div className="course-card-wrapper" key={course.id}>
             <Link
               className={`course-card ${colorClasses[color] ?? ""}`}
-              to={`/courses/${course.id}`}
+              to={courseHref(course)}
+              onClick={() => {
+                if (course.status === "completed") {
+                  prepareCourseNavigation(course);
+                }
+              }}
             >
               <span className={`course-card-icon ${color}`}>
                 {name.charAt(0)}
               </span>
               <h2 className="course-card-name">{name}</h2>
               <div className="course-card-meta">
-                {(isStarted || isCompleted) && (
+                {(isActive || isCompleted) && (
                   <span className="course-card-progress">
                     <span
                       className="course-card-progress-bar"
@@ -222,7 +252,7 @@ function CourseList({ courses, onDelete }: { courses: CourseSessionListItem[]; o
               <span>确定删除该课程？</span>
               <button
                 className="button primary danger small"
-                onClick={(e) => { e.preventDefault(); onDelete(course.id); setConfirmId(null); }}
+                onClick={(e) => { e.preventDefault(); onDelete(course); setConfirmId(null); }}
                 type="button"
               >
                 删除
@@ -269,21 +299,22 @@ export function CoursesPage() {
 
   // 建课完成后跳回列表页时主动刷新
   useEffect(() => {
-    const started = sessionStorage.getItem("mentora-course-started");
-    if (started) {
-      sessionStorage.removeItem("mentora-course-started");
+    if (consumeCourseStartedFlag()) {
       fetchSessions();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const displayCourses = sessions.filter((s) => s.status === "started" || s.status === "completed");
+  const displayCourses = sessions.filter(
+    (s) => s.status === "active" || s.status === "started" || s.status === "archived" || s.status === "completed",
+  );
   const hasCourses = displayCourses.length > 0;
 
-  const handleDelete = useCallback(async (id: string) => {
+  const handleDelete = useCallback(async (course: CourseSessionListItem) => {
+    const deleteId = course.session_id;
     try {
-      await deleteCourseSession(id);
-      setSessions((prev) => prev.filter((s) => s.id !== id));
+      await deleteCourseSession(deleteId);
+      setSessions((prev) => prev.filter((s) => s.session_id !== deleteId));
     } catch {
       // 静默失败
     }

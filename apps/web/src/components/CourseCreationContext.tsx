@@ -22,6 +22,8 @@ interface CourseCreationContextValue {
   /** 后端会话 ID，步骤 1 提交后赋值 */
   sessionId: string | null;
   setSessionId: (id: string) => void;
+  /** 清空建课上下文，开始全新流程 */
+  resetCreation: () => void;
 }
 
 const CourseCreationContext = createContext<CourseCreationContextValue | null>(null);
@@ -50,8 +52,13 @@ export function CourseCreationProvider({ children }: { children: ReactNode }) {
     setItems((prev) => prev.map((i) => (i.key === key ? { ...i, value } : i)));
   }, []);
 
+  const resetCreation = useCallback(() => {
+    setItems([]);
+    setSessionId(null);
+  }, []);
+
   return (
-    <CourseCreationContext.Provider value={{ items, addItem, removeItem, updateItem, sessionId, setSessionId }}>
+    <CourseCreationContext.Provider value={{ items, addItem, removeItem, updateItem, sessionId, setSessionId, resetCreation }}>
       {children}
     </CourseCreationContext.Provider>
   );

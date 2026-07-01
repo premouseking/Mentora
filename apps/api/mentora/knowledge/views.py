@@ -196,10 +196,15 @@ def list_sources(request):
 
         linked_version_ids = None
         try:
-            course = Course.objects.get(session_id=course_id)
+            course = Course.objects.get(id=course_id)
             linked_version_ids = get_course_scope(str(course.id))
+            course_id = str(course.session_id)
         except Course.DoesNotExist:
-            pass
+            try:
+                course = Course.objects.get(session_id=course_id)
+                linked_version_ids = get_course_scope(str(course.id))
+            except Course.DoesNotExist:
+                pass
 
         if not linked_version_ids:
             linked_version_ids = list(
@@ -604,20 +609,30 @@ def source_move(request, source_id):
 )
 @api_view(["GET", "POST"])
 def course_sources(request, session_id):
+    from mentora.courses.models import CourseCreationSession
+    from mentora.knowledge.models import SourceVersion
+
+    try:
+        session = CourseCreationSession.objects.get(id=session_id)
+    except CourseCreationSession.DoesNotExist:
+        return Response({"error": "课程创建会话不存在"}, status=404)
+
     if request.method == "GET":
         items = CourseSource.objects.filter(
             course_session_id=str(session_id),
-        ).select_related("source_version").order_by("id")
+        ).select_related("source_version__source").order_by("id")
         result = []
         for cs in items:
             sv = cs.source_version
             result.append({
                 "id": str(sv.id),
+                "sourceVersionId": str(sv.id),
                 "sourceId": str(sv.source.id),
                 "displayTitle": sv.source.display_title,
                 "originalFilename": sv.original_filename,
                 "byteSize": sv.byte_size,
                 "processingStatus": sv.processing_status,
+                "addedAt": cs.added_at.isoformat(),
             })
         return Response({"items": result, "count": len(result)})
 
@@ -628,12 +643,27 @@ def course_sources(request, session_id):
         return Response({"error": "无效 JSON"}, status=400)
 
     sv_ids = body.get("source_version_ids", [])
+    if not isinstance(sv_ids, list):
+        return Response({"error": "source_version_ids 必须是数组"}, status=400)
+
+    normalized_ids = [str(sv_id) for sv_id in sv_ids if str(sv_id).strip()]
+    found_ids = {
+        str(sv_id)
+        for sv_id in SourceVersion.objects.filter(
+            id__in=normalized_ids,
+        ).values_list("id", flat=True)
+    }
+    missing_ids = [sv_id for sv_id in normalized_ids if sv_id not in found_ids]
+    if missing_ids:
+        return Response({"error": "资料版本不存在", "missing": missing_ids}, status=400)
     # 清空旧关联
     CourseSource.objects.filter(course_session_id=str(session_id)).delete()
     # 写入新关联
-    for sv_id in sv_ids:
+    for sv_id in normalized_ids:
         CourseSource.objects.create(
             course_session_id=str(session_id),
             source_version_id=sv_id,
         )
-    return Response({"count": len(sv_ids)})
+    session.extra["source_version_ids"] = normalized_ids
+    session.save(update_fields=["extra", "updated_at"])
+    return Response({"count": len(normalized_ids), "source_version_ids": normalized_ids})

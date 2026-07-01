@@ -1,11 +1,21 @@
-import { useRef, useState, type DragEvent } from "react";
+import { useEffect, useRef, useState, type DragEvent } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { Check, Circle, FileWarning, FolderOpen, Folders, Globe, Loader, Plus, Upload, X } from "lucide-react";
 
 import { SetupShell } from "../components/AppShell";
 import { useCourseCreation } from "../components/CourseCreationContext";
-import { createCourseSession } from "../services/courseApi";
+import { createCourseSession, generatePlan, updateCourseSession } from "../services/courseApi";
+import {
+  getStoredCourseGoal,
+  getStoredCourseSessionId,
+  resetCourseCreationStorage,
+  setStoredCourseGoal,
+  setStoredCourseSessionId,
+} from "../services/courseCreationStorage";
+import { fetchSources, setSessionSources, type SourceItem } from "../services/documentApi";
 import { uploadFile, type UploadProgress } from "../services/uploadService";
+
+/* ── 步骤 1：建立学习档案 ── */
 
 /* ── 子步骤定义 ── */
 
@@ -22,6 +32,9 @@ interface SubStep {
   /** type === "choice" 时的选项列表 */
   options?: string[];
 }
+
+const PACE_STEP_INDEX = 2;
+const TIME_BUDGET_STEP_INDEX = 3;
 
 const SUB_STEPS: SubStep[] = [
   {
@@ -49,29 +62,26 @@ const SUB_STEPS: SubStep[] = [
   },
 ];
 
-/* ── Mock 资料 ── */
-
-const MOCK_MATERIALS = [
-  { id: "m1", name: "人教版高中数学必修一.pdf", size: "12.4 MB" },
-  { id: "m2", name: "人教版高中数学必修二.pdf", size: "11.8 MB" },
-  { id: "m3", name: "五年高考三年模拟·数学.pdf", size: "45.2 MB" },
-  { id: "m4", name: "高中数学公式大全.pdf", size: "3.1 MB" },
-  { id: "m5", name: "数学错题集·上学期.docx", size: "2.3 MB" },
-  { id: "m6", name: "高考数学真题汇编 2019-2025.pdf", size: "28.7 MB" },
-];
-
-/* ── 步骤 1：建立学习档案 ── */
+function formatBytes(bytes?: number) {
+  if (!bytes || bytes <= 0) return "";
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${Math.round((bytes / 1024 / 1024) * 10) / 10} MB`;
+}
 
 export function BuildProfilePage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const { addItem, setSessionId, sessionId } = useCourseCreation();
+  const { addItem, setSessionId, sessionId, resetCreation } = useCourseCreation();
 
   const isAdjust = searchParams.get("adjust") === "true";
   const [stepIndex, setStepIndex] = useState(0);
   const [inputValue, setInputValue] = useState("");
   const [selectedChoices, setSelectedChoices] = useState<Record<number, Set<string>>>({});
   const [selectedMaterials, setSelectedMaterials] = useState<Set<string>>(() => new Set());
+  const [materials, setMaterials] = useState<SourceItem[]>([]);
+  const [materialsLoading, setMaterialsLoading] = useState(false);
+  const [materialsError, setMaterialsError] = useState<string | null>(null);
+  const [generating, setGenerating] = useState(false);
 
   /* ── 上传弹窗 ── */
   const [showUpload, setShowUpload] = useState(false);
@@ -100,26 +110,85 @@ export function BuildProfilePage() {
   /** 左侧"生成学习方案"按钮是否可用 — 第 1 步始终不可用，调整模式除外 */
   const canGenerate = isAdjust ? canProceed : (isStep1 ? false : canProceed);
 
+  useEffect(() => {
+    if (isAdjust) {
+      const storedId = getStoredCourseSessionId();
+      if (storedId) setSessionId(storedId);
+      const storedGoal = getStoredCourseGoal();
+      if (storedGoal) setInputValue(storedGoal);
+      return;
+    }
+    resetCourseCreationStorage();
+    resetCreation();
+  }, [isAdjust, resetCreation, setSessionId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setMaterialsLoading(true);
+    fetchSources()
+      .then((items) => {
+        if (!cancelled) setMaterials(items);
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setMaterialsError(err instanceof Error ? err.message : "获取资料列表失败");
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setMaterialsLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, []);
+
   /* ── 创建会话并跳转方案页 ── */
   async function goToPlan() {
-    if (!sessionId) {
-      try {
-        const goal = inputValue.trim() || sessionStorage.getItem("mentora-course-goal") || "待完善的学习目标";
+    if (generating) return;
+    setGenerating(true);
+
+    const goal =
+      inputValue.trim()
+      || getStoredCourseGoal()
+      || "待完善的学习目标";
+
+    let activeSessionId = sessionId ?? getStoredCourseSessionId();
+
+    try {
+      if (!activeSessionId) {
         const session = await createCourseSession(goal);
-        sessionStorage.setItem("mentora-session-id", session.id);
+        activeSessionId = session.id;
+        setStoredCourseSessionId(session.id);
         setSessionId(session.id);
-        addItem({ key: "goal", title: "学习目标", value: goal, source: "AI 对话" });
-      } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : "创建会话失败";
-        alert(msg);
-        return;
+        addItem({ key: "goal", title: "学习目标", value: goal, source: "你的输入" });
       }
+
+      const pace = Array.from(selectedChoices[PACE_STEP_INDEX] ?? []).join("、");
+      const timeBudget = Array.from(selectedChoices[TIME_BUDGET_STEP_INDEX] ?? []).join("、");
+
+      await updateCourseSession(activeSessionId, {
+        goal,
+        pace,
+        time_budget: timeBudget,
+      });
+      await setSessionSources(activeSessionId, Array.from(selectedMaterials));
+      await generatePlan(activeSessionId);
+
+      setStoredCourseGoal(goal);
+      setStoredCourseSessionId(activeSessionId);
+      navigate("/courses/new/plan");
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "生成学习方案失败";
+      alert(msg);
+    } finally {
+      setGenerating(false);
     }
-    navigate("/courses/new/plan");
   }
 
   /* ── 继续完善档案 → 进入下一步或跳转方案 ── */
   function handleContinue() {
+    if (step.type === "input") {
+      const goal = inputValue.trim();
+      if (goal) setStoredCourseGoal(goal);
+    }
     if (isLastStep) {
       goToPlan();
     } else {
@@ -145,7 +214,23 @@ export function BuildProfilePage() {
   async function handleUploadFile(file: File) {
     setUploadProgress({ step: "create", message: "正在创建上传会话…" });
     try {
-      await uploadFile(file, (p) => setUploadProgress(p));
+      const uploaded = await uploadFile(file, (p) => setUploadProgress(p));
+      setSelectedMaterials((prev) => new Set(prev).add(uploaded.sourceVersionId));
+      setMaterials((prev) => [
+        {
+          id: uploaded.sourceId,
+          displayTitle: uploaded.displayTitle || file.name,
+          status: "active",
+          latestVersion: {
+            id: uploaded.sourceVersionId,
+            versionNumber: 1,
+            processingStatus: uploaded.processingStatus,
+            byteSize: file.size,
+            originalFilename: file.name,
+          },
+        },
+        ...prev.filter((item) => item.latestVersion?.id !== uploaded.sourceVersionId),
+      ]);
       setUploadProgress({ step: "done", message: "上传完成，解析中…" });
       setTimeout(() => {
         setShowUpload(false);
@@ -234,19 +319,26 @@ export function BuildProfilePage() {
                 <Plus size={15} />上传资料
               </button>
             </div>
-            {MOCK_MATERIALS.map((m) => {
-              const checked = selectedMaterials.has(m.id);
+            {materialsLoading ? <div className="bp-material-size">正在加载资料...</div> : null}
+            {materialsError ? <div className="bp-material-size">{materialsError}</div> : null}
+            {materials.filter((m) => m.latestVersion).map((m) => {
+              const version = m.latestVersion!;
+              const checked = selectedMaterials.has(version.id);
+              const meta = [
+                formatBytes(version.byteSize),
+                version.processingStatus,
+              ].filter(Boolean).join(" · ");
               return (
                 <button
-                  key={m.id}
+                  key={version.id}
                   className={`material-row${checked ? " selected" : ""}`}
-                  onClick={() => toggleMaterial(m.id)}
+                  onClick={() => toggleMaterial(version.id)}
                   type="button"
                 >
                   <div className="material-row-left">
                     <FolderOpen size={16} />
-                    <span className="material-name">{m.name}</span>
-                    <span className="bp-material-size">{m.size}</span>
+                    <span className="material-name">{m.displayTitle || version.originalFilename}</span>
+                    <span className="bp-material-size">{meta}</span>
                   </div>
                   <div className={`material-check${checked ? " selected" : ""}`}>
                     {checked ? <Check size={14} /> : <Circle size={18} />}
@@ -254,6 +346,9 @@ export function BuildProfilePage() {
                 </button>
               );
             })}
+            {!materialsLoading && !materialsError && materials.filter((m) => m.latestVersion).length === 0 ? (
+              <div className="bp-material-size">暂无资料，可以先上传，也可以不选择资料继续。</div>
+            ) : null}
           </div>
         );
     }
@@ -268,7 +363,7 @@ export function BuildProfilePage() {
           <div className="build-profile-actions">
             <button
               className="button primary"
-              disabled={!canProceed}
+              disabled={generating || !canProceed}
               onClick={goToPlan}
               type="button"
             >
@@ -276,7 +371,7 @@ export function BuildProfilePage() {
             </button>
             <button
               className="button secondary"
-              disabled={!canProceed}
+              disabled={generating || !canProceed}
               onClick={handleContinue}
               type="button"
             >
@@ -287,7 +382,7 @@ export function BuildProfilePage() {
           <div className="build-profile-actions build-profile-actions--single">
             <button
               className="button primary"
-              disabled={!canProceed}
+              disabled={generating || !canProceed}
               onClick={goToPlan}
               type="button"
             >
@@ -298,7 +393,7 @@ export function BuildProfilePage() {
           <div className="build-profile-actions">
             <button
               className="button primary"
-              disabled={!canGenerate}
+              disabled={generating || !canGenerate}
               onClick={goToPlan}
               type="button"
             >
@@ -306,7 +401,7 @@ export function BuildProfilePage() {
             </button>
             <button
               className="button secondary"
-              disabled={!canProceed}
+              disabled={generating || !canProceed}
               onClick={handleContinue}
               type="button"
             >

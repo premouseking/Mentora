@@ -59,6 +59,8 @@ recommendations
 - 截止时间、总预算、范围、目标深度等变化必须由 `courses` 创建新画像修订；
 - `courses` 负责最终启动事务，同时切换活动画像和活动计划；`learning` 不能单独激活
   一个与课程活动画像不匹配的计划；
+- 用户点击「开始学习」后，`CourseCreationSession` 归档为只读（`archived`），学习期
+  运行时标识与 FK 统一为 `Course.id`（见 ADR-0008）；
 - 未进入 `ready_to_start` 的计划不能物化可执行 `LearningTask`；
 - `assessment` 产生带题目质量信息的原始证据，`learning` 负责汇总掌握度；
 - `assessment` 拥有题目内容、答案、Rubric、验证状态和统计；`courses` 只选择题库

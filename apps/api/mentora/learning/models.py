@@ -19,9 +19,21 @@ class LearningPlan(models.Model):
     """学习计划，1门课1个计划。"""
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    course_session_id = models.UUIDField(
-        db_index=True,
-        help_text="关联的 CourseCreationSession ID。等 courses 模块补充 Course model 后迁移为 FK。",
+    course = models.ForeignKey(
+        "courses.Course",
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="learning_plans",
+        help_text="正式课程 FK；建课期可为空",
+    )
+    creation_session = models.OneToOneField(
+        "courses.CourseCreationSession",
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="learning_plan",
+        help_text="建课期关联；确认后以 course FK 为主",
     )
     active_revision_id = models.UUIDField(
         null=True,
