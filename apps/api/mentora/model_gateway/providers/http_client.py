@@ -156,7 +156,13 @@ async def async_post_sse(
 
         # 解析 SSE 流
         while True:
-            line = await asyncio.wait_for(reader.readline(), timeout=timeout)
+            try:
+                line = await asyncio.wait_for(reader.readline(), timeout=timeout)
+            except ssl.SSLError as exc:
+                # 部分 LLM 网关在 close_notify 后仍发送残留数据，流已结束时可忽略
+                if "APPLICATION_DATA_AFTER_CLOSE_NOTIFY" in str(exc):
+                    break
+                raise
             if not line:
                 break
             decoded = line.decode("utf-8").rstrip("\r\n")
@@ -171,4 +177,8 @@ async def async_post_sse(
                     continue
     finally:
         writer.close()
-        await writer.wait_closed()
+        try:
+            await writer.wait_closed()
+        except ssl.SSLError as exc:
+            if "APPLICATION_DATA_AFTER_CLOSE_NOTIFY" not in str(exc):
+                raise

@@ -13,7 +13,14 @@ from mentora.assessment.views import (
 )
 from django.urls import include
 from mentora.users.views import change_password, login, logout, profile, refresh, register, update_profile
-from mentora.learning.views import explanation_list, history_list, mistake_list
+from mentora.learning.views import (
+    explanation_commit,
+    explanation_doc,
+    explanation_list,
+    explanation_preview,
+    history_list,
+    mistake_list,
+)
 from mentora.courses.views import (
     course_activate,
     course_confirm,
@@ -65,6 +72,9 @@ urlpatterns = [
     path("api/history/", history_list, name="history-list"),
     path("api/learning/mistakes/", mistake_list, name="learning-mistakes"),
     path("api/learning/explanations/", explanation_list, name="learning-explanations"),
+    path("api/learning/explanations/preview/", explanation_preview, name="learning-explanations-preview"),
+    path("api/learning/explanations/commit/", explanation_commit, name="learning-explanations-commit"),
+    path("api/learning/explanations/<uuid:doc_id>/", explanation_doc, name="learning-explanation-doc"),
     # Agent 聊天
     path("api/", include("mentora.agent_runtime.urls")),
     # Workflow 异步任务

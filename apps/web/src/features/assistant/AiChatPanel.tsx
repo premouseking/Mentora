@@ -14,11 +14,16 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
-import type { AiExplanation } from "../../data/aiExplanations";
+import { AiKeywordPill } from "../../components/AiKeywordPill";
+import { AiMarkdownContent } from "../../components/AiMarkdownContent";
 import type { FileNode } from "../../data/files";
-import type { MistakeItem } from "../../data/mistakes";
+import {
+  commitExplanationSave,
+  previewExplanationSave,
+  type ExplanationItem,
+  type ExplanationPreview,
+  type MistakeItem,
+} from "../../services/learningApi";
 
 /* ── 类型定义 ── */
 
@@ -27,6 +32,9 @@ interface ChatMessage {
   content: string;
   statuses?: ChatStatus[];
   citations?: ChatCitation[];
+  saveState?: "idle" | "previewing" | "saved";
+  savedDocId?: string;
+  failed?: boolean;
 }
 
 interface ChatStatus {
@@ -80,12 +88,14 @@ interface AiChatMention {
 }
 
 export interface AiChatContext {
+  courseId?: string;
   files?: FileNode[];
-  aiItems?: AiExplanation[];
+  aiItems?: ExplanationItem[];
   mistakeItems?: MistakeItem[];
   selectedFileId?: string | null;
   selectedAiId?: string | null;
   selectedMistakeId?: string | null;
+  onExplanationSaved?: (docId: string) => void;
 }
 
 interface MentionMenuItem extends AiChatMention {
@@ -94,23 +104,6 @@ interface MentionMenuItem extends AiChatMention {
 }
 
 /* ── 工具函数 ── */
-
-function AiMarkdownMessage({ content }: { content: string }) {
-  return (
-    <div className="ai-chat-markdown">
-      <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
-        components={{
-          a: ({ ...props }) => (
-            <a {...props} target="_blank" rel="noreferrer noopener" />
-          ),
-        }}
-      >
-        {content}
-      </ReactMarkdown>
-    </div>
-  );
-}
 
 function groupByDate<T extends { createdAt: number }>(items: T[]) {
   const groups = new Map<string, T[]>();
@@ -156,6 +149,16 @@ function truncateText(text: string, maxLength: number) {
   return text.length > maxLength ? `${text.slice(0, maxLength)}…` : text;
 }
 
+function isSaveableAssistantMessage(msg: ChatMessage) {
+  if (msg.role !== "assistant" || msg.failed) {
+    return false;
+  }
+  const text = msg.content.trim();
+  if (text.length < 20) return false;
+  if (text.startsWith("错误:") || text.startsWith("抱歉，AI 服务出错")) return false;
+  return true;
+}
+
 function buildSelectedTextMessage(text: string, snippets: SelectedTextSnippet[]) {
   if (!snippets.length) return text;
 
@@ -195,7 +198,7 @@ function buildMentionMenuItems(context?: AiChatContext, query = "") {
     subtitle: "AI 讲解",
   }));
   const mistakes: MentionMenuItem[] = (context?.mistakeItems ?? []).map((item) => ({
-    id: item.id,
+    id: item.item_id,
     type: "mistake",
     label: item.title,
     source: item.topic,
@@ -334,6 +337,14 @@ export function AiChatPanel({
   const [mentionQuery, setMentionQuery] = useState("");
   const [mentionActiveIndex, setMentionActiveIndex] = useState(0);
 
+  const [savePreview, setSavePreview] = useState<{
+    messageIndex: number;
+    preview: ExplanationPreview | null;
+    loading: boolean;
+    committing: boolean;
+    error: string;
+  } | null>(null);
+
   const mentionItems = buildMentionMenuItems(context, mentionQuery);
 
   function createSession() {
@@ -424,6 +435,68 @@ export function AiChatPanel({
   function getSessionTitle(session: ChatSession) {
     const firstUser = session.messages.find((m) => m.role === "user");
     return firstUser?.content?.trim() || "新对话";
+  }
+
+  function updateMessageAt(index: number, update: (message: ChatMessage) => ChatMessage) {
+    setSessions((prev) =>
+      prev.map((s) => {
+        if (s.id !== activeSessionId) return s;
+        const msgs = [...s.messages];
+        if (index < 0 || index >= msgs.length) return s;
+        msgs[index] = update(msgs[index]);
+        return { ...s, messages: msgs };
+      }),
+    );
+  }
+
+  async function handleStartSaveExplanation(messageIndex: number) {
+    if (!context?.courseId || !activeSession) return;
+    const assistantMsg = activeSession.messages[messageIndex];
+    const userMsg = activeSession.messages[messageIndex - 1];
+    if (!assistantMsg || assistantMsg.role !== "assistant") return;
+    if (!userMsg || userMsg.role !== "user") return;
+
+    setSavePreview({ messageIndex, preview: null, loading: true, committing: false, error: "" });
+    updateMessageAt(messageIndex, (m) => ({ ...m, saveState: "previewing" }));
+
+    try {
+      const preview = await previewExplanationSave({
+        course_id: context.courseId,
+        user_message: userMsg.content,
+        assistant_message: assistantMsg.content,
+        citations: assistantMsg.citations,
+      });
+      setSavePreview({ messageIndex, preview, loading: false, committing: false, error: "" });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "生成预览失败";
+      setSavePreview({ messageIndex, preview: null, loading: false, committing: false, error: message });
+      updateMessageAt(messageIndex, (m) => ({ ...m, saveState: "idle" }));
+    }
+  }
+
+  async function handleConfirmSaveExplanation() {
+    if (!context?.courseId || !savePreview?.preview) return;
+    setSavePreview((prev) => (prev ? { ...prev, committing: true, error: "" } : prev));
+    try {
+      const result = await commitExplanationSave(context.courseId, savePreview.preview.preview_id);
+      updateMessageAt(savePreview.messageIndex, (m) => ({
+        ...m,
+        saveState: "saved",
+        savedDocId: result.doc_id,
+      }));
+      context.onExplanationSaved?.(result.doc_id);
+      setSavePreview(null);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "保存失败";
+      setSavePreview((prev) => (prev ? { ...prev, committing: false, error: message } : prev));
+    }
+  }
+
+  function handleCancelSaveExplanation() {
+    if (savePreview) {
+      updateMessageAt(savePreview.messageIndex, (m) => ({ ...m, saveState: "idle" }));
+    }
+    setSavePreview(null);
   }
 
   function updateLastAssistant(update: (message: ChatMessage) => ChatMessage) {
@@ -667,6 +740,7 @@ export function AiChatPanel({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           message: requestMessage,
+          course_id: context?.courseId,
           history: historyMessages.map((m) => ({
             role: m.role,
             content: m.content,
@@ -728,10 +802,13 @@ export function AiChatPanel({
                   msgs[msgs.length - 1] = {
                     ...last,
                     content: last.content || `错误: ${data.message}`,
+                    failed: true,
                   };
                   return { ...s, messages: msgs };
                 }),
               );
+            } else if (data.type === "done") {
+              // 流式结束，保存入口在 finally 之后可用
             }
           } catch {
             // 跳过无法解析的行
@@ -749,6 +826,7 @@ export function AiChatPanel({
             ...last,
             content:
               last.content || `抱歉，AI 服务出错: ${errorMsg}`,
+            failed: true,
           };
           return { ...s, messages: msgs };
         }),
@@ -978,7 +1056,11 @@ export function AiChatPanel({
                 <div className="ai-chat-bubble">
                   {msg.content && (
                     msg.role === "assistant" ? (
-                      <AiMarkdownMessage content={msg.content} />
+                      msg.failed ? (
+                        <p className="ai-chat-error-text">{msg.content}</p>
+                      ) : (
+                        <AiMarkdownContent content={msg.content} />
+                      )
                     ) : (
                       <div className="ai-chat-content">{msg.content}</div>
                     )
@@ -1017,6 +1099,27 @@ export function AiChatPanel({
                           </span>
                         </div>
                       ))}
+                    </div>
+                  ) : null}
+                  {context?.courseId && msg.role === "assistant" && msg.saveState === "saved" ? (
+                    <div className="ai-chat-save-actions">
+                      <span className="ai-chat-save-done">已保存到 AI 讲解</span>
+                    </div>
+                  ) : null}
+                  {context?.courseId
+                    && isSaveableAssistantMessage(msg)
+                    && msg.saveState !== "saved"
+                    && !(sending && i === activeSession.messages.length - 1) ? (
+                    <div className="ai-chat-save-actions">
+                      <button
+                        type="button"
+                        className="ai-chat-save-btn"
+                        disabled={savePreview?.loading && savePreview.messageIndex === i}
+                        onClick={() => handleStartSaveExplanation(i)}
+                      >
+                        保存到 AI 讲解
+                      </button>
+                      <span className="ai-chat-save-hint">将生成本轮对话摘要</span>
                     </div>
                   ) : null}
                 </div>
@@ -1122,6 +1225,47 @@ export function AiChatPanel({
             <MessageSquare size={15} />
             添加到对话
           </button>
+        </div>
+      )}
+      {savePreview && (
+        <div className="ai-explanation-save-overlay" role="dialog" aria-modal="true">
+          <div className="ai-explanation-save-dialog">
+            <h3>保存到 AI 讲解</h3>
+            {savePreview.loading ? (
+              <p>正在生成摘要并匹配目标文件…</p>
+            ) : savePreview.error ? (
+              <p className="ai-explanation-error">{savePreview.error}</p>
+            ) : savePreview.preview ? (
+              <>
+                <p className="ai-explanation-save-target">
+                  {savePreview.preview.action === "append"
+                    ? `追加到：${savePreview.preview.target_title}（关键词重叠 ${savePreview.preview.overlap_count} 个）`
+                    : `新建文件：${savePreview.preview.target_title}`}
+                </p>
+                <div className="ai-mentioned-context-list ai-explanation-save-keywords">
+                  {savePreview.preview.keywords.map((kw) => (
+                    <AiKeywordPill key={kw} label={kw} />
+                  ))}
+                </div>
+                <div className="ai-explanation-save-preview-body">
+                  <AiMarkdownContent content={savePreview.preview.summary_md} />
+                </div>
+              </>
+            ) : null}
+            <div className="ai-explanation-save-dialog-actions">
+              <button type="button" onClick={handleCancelSaveExplanation} disabled={savePreview.committing}>
+                取消
+              </button>
+              <button
+                type="button"
+                className="primary"
+                onClick={handleConfirmSaveExplanation}
+                disabled={!savePreview.preview || savePreview.committing}
+              >
+                {savePreview.committing ? "保存中…" : "确认保存"}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

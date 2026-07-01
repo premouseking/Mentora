@@ -131,22 +131,96 @@ export interface MistakeItem {
   source_links: { title: string; location: string; excerpt: string }[];
 }
 
-export interface ExplanationItem {
-  id: string;
-  title: string;
-  topic: string;
-  type: string;
-  created_at: string;
-}
-
 export async function fetchMistakes(courseId: string): Promise<{ items: MistakeItem[] }> {
   return apiClient.get<{ items: MistakeItem[] }>(
     `/api/learning/mistakes/?course_id=${encodeURIComponent(courseId)}`,
   );
 }
 
+export interface ExplanationItem {
+  id: string;
+  title: string;
+  topic: string;
+  type: string;
+  keywords?: string[];
+  created_at: string;
+  updated_at?: string;
+}
+
+export interface ExplanationDetail {
+  id: string;
+  title: string;
+  detail: string;
+  keywords: string[];
+  doc_type: string;
+  created_at: string;
+  updated_at: string;
+  append_count: number;
+}
+
+export interface ExplanationPreview {
+  preview_id: string;
+  action: "append" | "create";
+  target_doc_id: string | null;
+  target_title: string;
+  keywords: string[];
+  overlap_count: number;
+  summary_md: string;
+  doc_type: string;
+}
+
+export interface ExplanationCommitResult {
+  doc_id: string;
+  action: "append" | "create";
+  title: string;
+}
+
 export async function fetchExplanations(courseId: string): Promise<{ items: ExplanationItem[] }> {
   return apiClient.get<{ items: ExplanationItem[] }>(
     `/api/learning/explanations/?course_id=${encodeURIComponent(courseId)}`,
+  );
+}
+
+export async function fetchExplanationDetail(docId: string, courseId: string): Promise<ExplanationDetail> {
+  return apiClient.get<ExplanationDetail>(
+    `/api/learning/explanations/${encodeURIComponent(docId)}/?course_id=${encodeURIComponent(courseId)}`,
+  );
+}
+
+export async function previewExplanationSave(payload: {
+  course_id: string;
+  user_message: string;
+  assistant_message: string;
+  citations?: { content_preview?: string; page_number?: number | null; evidence_id?: string; source_title?: string }[];
+}): Promise<ExplanationPreview> {
+  return apiClient.post<ExplanationPreview>("/api/learning/explanations/preview/", payload, {
+    timeoutMs: 60_000,
+  });
+}
+
+export async function commitExplanationSave(
+  courseId: string,
+  previewId: string,
+): Promise<ExplanationCommitResult> {
+  return apiClient.post<ExplanationCommitResult>("/api/learning/explanations/commit/", {
+    course_id: courseId,
+    preview_id: previewId,
+  });
+}
+
+export async function updateExplanation(
+  docId: string,
+  courseId: string,
+  data: { title?: string; detail?: string; keywords?: string[]; doc_type?: string },
+): Promise<ExplanationDetail> {
+  return apiClient.patch<ExplanationDetail>(
+    `/api/learning/explanations/${encodeURIComponent(docId)}/`,
+    { course_id: courseId, ...data },
+  );
+}
+
+export async function deleteExplanation(docId: string, courseId: string): Promise<void> {
+  await apiClient.delete<void>(
+    `/api/learning/explanations/${encodeURIComponent(docId)}/?course_id=${encodeURIComponent(courseId)}`,
   );
 }
