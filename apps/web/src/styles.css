@@ -11001,6 +11001,33 @@ button.mistake-source-row:hover {
   cursor: grabbing;
 }
 
+.ps-plan-edit-delete {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--quiet);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: color 0.15s, background 0.15s;
+}
+
+.ps-plan-edit-delete:hover {
+  color: #e53e3e;
+  background: #fff5f5;
+}
+
+.ps-plan-edit-delete:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+  color: var(--quiet);
+  background: transparent;
+}
+
 /* + 添加阶段 */
 
 .ps-plan-edit-add-area {

@@ -16,117 +16,145 @@ const MOCK_PLAN = {
   profile_revision_id: "mock-profile-1",
   phases: [
     {
-      id: "p1", position: 0, title: "基础入门",
-      objective: "掌握集合、函数等核心概念与基本方法", estimated_minutes: 480,
+      id: "p1", position: 0, title: "基础知识",
+      objective: "按教材章节系统学习，掌握核心知识点", estimated_minutes: 480,
       units: [
-        { id: "p1-u1", title: "集合与逻辑", position: 0, topic_id: null, target_depth: "understand", estimated_minutes: 160, prerequisite_unit_ids: [], priority: 1, tasks: [
-          { id: "p1-u1-t1", task_type: "lecture", delivery_mode: "self_paced", estimated_minutes: 40, required: true, knowledge_point: "集合的概念", materials: [{ id: "m-1-1", title: "集合概念讲义.pdf" }] },
-          { id: "p1-u1-t2", task_type: "exercise", delivery_mode: "self_paced", estimated_minutes: 40, required: true, materials: [{ id: "m-1-2", title: "集合运算练习.pdf" }] },
-          { id: "p1-u1-t3", task_type: "lecture", delivery_mode: "self_paced", estimated_minutes: 40, required: true, knowledge_point: "命题与逻辑", materials: [{ id: "m-1-3", title: "命题与逻辑讲义.pdf" }] },
-          { id: "p1-u1-t4", task_type: "review", delivery_mode: "self_paced", estimated_minutes: 40, required: true, materials: [] },
+        { id: "p1-u1", title: "第一章 计算机系统概述", position: 0, topic_id: null, target_depth: "understand", estimated_minutes: 80, prerequisite_unit_ids: [], priority: 1, tasks: [
+          { id: "p1-u1-t1", task_type: "lecture", delivery_mode: "self_paced", estimated_minutes: 30, required: true, knowledge_point: "计算机系统层次结构", materials: [{ id: "m-1-1", title: "计算机系统概述讲义.pdf" }] },
+          { id: "p1-u1-t2", task_type: "lecture", delivery_mode: "self_paced", estimated_minutes: 30, required: true, knowledge_point: "计算机性能指标", materials: [] },
+          { id: "p1-u1-t3", task_type: "exercise", delivery_mode: "self_paced", estimated_minutes: 20, required: true, materials: [{ id: "m-1-2", title: "系统概述练习.pdf" }] },
         ] },
-        { id: "p1-u2", title: "函数基础", position: 1, topic_id: null, target_depth: "understand", estimated_minutes: 150, prerequisite_unit_ids: ["p1-u1"], priority: 1, tasks: [
-          { id: "p1-u2-t1", task_type: "lecture", delivery_mode: "self_paced", estimated_minutes: 50, required: true, knowledge_point: "函数的定义", materials: [{ id: "m-2-1", title: "函数定义讲义.pdf" }] },
-          { id: "p1-u2-t2", task_type: "exercise", delivery_mode: "self_paced", estimated_minutes: 50, required: true, materials: [{ id: "m-2-2", title: "定义域值域练习.pdf" }] },
-          { id: "p1-u2-t3", task_type: "lecture", delivery_mode: "self_paced", estimated_minutes: 50, required: true, knowledge_point: "函数的表示方法", materials: [] },
+        { id: "p1-u2", title: "第二章 数据的表示和运算", position: 1, topic_id: null, target_depth: "understand", estimated_minutes: 100, prerequisite_unit_ids: ["p1-u1"], priority: 1, tasks: [
+          { id: "p1-u2-t1", task_type: "lecture", delivery_mode: "self_paced", estimated_minutes: 30, required: true, knowledge_point: "定点数的表示与运算", materials: [{ id: "m-2-1", title: "数据表示讲义.pdf" }] },
+          { id: "p1-u2-t2", task_type: "lecture", delivery_mode: "self_paced", estimated_minutes: 30, required: true, knowledge_point: "浮点数的表示与运算", materials: [] },
+          { id: "p1-u2-t3", task_type: "exercise", delivery_mode: "self_paced", estimated_minutes: 40, required: true, materials: [{ id: "m-2-2", title: "数据运算练习.pdf" }] },
         ] },
-        { id: "p1-u3", title: "基本初等函数", position: 2, topic_id: null, target_depth: "understand", estimated_minutes: 170, prerequisite_unit_ids: ["p1-u2"], priority: 1, tasks: [
-          { id: "p1-u3-t1", task_type: "lecture", delivery_mode: "self_paced", estimated_minutes: 40, required: true, knowledge_point: "正比例函数", materials: [{ id: "m-3-1", title: "正比例函数讲义.pdf" }] },
-          { id: "p1-u3-t2", task_type: "exercise", delivery_mode: "self_paced", estimated_minutes: 45, required: true, materials: [{ id: "m-3-2", title: "反比例函数练习.pdf" }] },
-          { id: "p1-u3-t3", task_type: "lecture", delivery_mode: "self_paced", estimated_minutes: 40, required: true, knowledge_point: "一次函数", materials: [{ id: "m-3-3", title: "一次函数讲义.pdf" }] },
-          { id: "p1-u3-t4", task_type: "review", delivery_mode: "self_paced", estimated_minutes: 45, required: true, materials: [{ id: "m-3-4", title: "二次函数复习题.pdf" }] },
+        { id: "p1-u3", title: "第三章 存储系统", position: 2, topic_id: null, target_depth: "understand", estimated_minutes: 100, prerequisite_unit_ids: ["p1-u2"], priority: 1, tasks: [
+          { id: "p1-u3-t1", task_type: "lecture", delivery_mode: "self_paced", estimated_minutes: 30, required: true, knowledge_point: "主存储器与Cache", materials: [{ id: "m-3-1", title: "存储系统讲义.pdf" }] },
+          { id: "p1-u3-t2", task_type: "lecture", delivery_mode: "self_paced", estimated_minutes: 30, required: true, knowledge_point: "虚拟存储器", materials: [] },
+          { id: "p1-u3-t3", task_type: "exercise", delivery_mode: "self_paced", estimated_minutes: 40, required: true, materials: [{ id: "m-3-2", title: "存储系统练习.pdf" }] },
+        ] },
+        { id: "p1-u4", title: "第四章 指令系统", position: 3, topic_id: null, target_depth: "understand", estimated_minutes: 80, prerequisite_unit_ids: ["p1-u3"], priority: 1, tasks: [
+          { id: "p1-u4-t1", task_type: "lecture", delivery_mode: "self_paced", estimated_minutes: 30, required: true, knowledge_point: "指令格式与寻址方式", materials: [{ id: "m-4-1", title: "指令系统讲义.pdf" }] },
+          { id: "p1-u4-t2", task_type: "lecture", delivery_mode: "self_paced", estimated_minutes: 30, required: true, knowledge_point: "CISC与RISC", materials: [] },
+          { id: "p1-u4-t3", task_type: "exercise", delivery_mode: "self_paced", estimated_minutes: 20, required: true, materials: [{ id: "m-4-2", title: "指令系统练习.pdf" }] },
+        ] },
+        { id: "p1-u5", title: "第五章 中央处理器", position: 4, topic_id: null, target_depth: "understand", estimated_minutes: 100, prerequisite_unit_ids: ["p1-u4"], priority: 1, tasks: [
+          { id: "p1-u5-t1", task_type: "lecture", delivery_mode: "self_paced", estimated_minutes: 30, required: true, knowledge_point: "CPU数据通路", materials: [{ id: "m-5-1", title: "CPU讲义.pdf" }] },
+          { id: "p1-u5-t2", task_type: "lecture", delivery_mode: "self_paced", estimated_minutes: 30, required: true, knowledge_point: "指令流水线", materials: [] },
+          { id: "p1-u5-t3", task_type: "exercise", delivery_mode: "self_paced", estimated_minutes: 40, required: true, materials: [{ id: "m-5-2", title: "CPU练习.pdf" }] },
+        ] },
+        { id: "p1-u6", title: "第六章 总线", position: 5, topic_id: null, target_depth: "understand", estimated_minutes: 60, prerequisite_unit_ids: ["p1-u5"], priority: 1, tasks: [
+          { id: "p1-u6-t1", task_type: "lecture", delivery_mode: "self_paced", estimated_minutes: 20, required: true, knowledge_point: "总线标准与仲裁", materials: [{ id: "m-6-1", title: "总线讲义.pdf" }] },
+          { id: "p1-u6-t2", task_type: "exercise", delivery_mode: "self_paced", estimated_minutes: 40, required: true, materials: [{ id: "m-6-2", title: "总线练习.pdf" }] },
+        ] },
+        { id: "p1-u7", title: "第七章 输入输出系统", position: 6, topic_id: null, target_depth: "understand", estimated_minutes: 80, prerequisite_unit_ids: ["p1-u6"], priority: 1, tasks: [
+          { id: "p1-u7-t1", task_type: "lecture", delivery_mode: "self_paced", estimated_minutes: 30, required: true, knowledge_point: "I/O接口与方式", materials: [{ id: "m-7-1", title: "I/O系统讲义.pdf" }] },
+          { id: "p1-u7-t2", task_type: "lecture", delivery_mode: "self_paced", estimated_minutes: 30, required: true, knowledge_point: "中断与DMA", materials: [] },
+          { id: "p1-u7-t3", task_type: "exercise", delivery_mode: "self_paced", estimated_minutes: 20, required: true, materials: [{ id: "m-7-2", title: "I/O系统练习.pdf" }] },
         ] },
       ],
     },
     {
-      id: "p2", position: 1, title: "知识梳理",
-      objective: "系统学习教材，按章节深入梳理知识体系", estimated_minutes: 600,
+      id: "p2", position: 1, title: "重点突破",
+      objective: "按重要知识块深入，构建完整知识体系", estimated_minutes: 360,
       units: [
-        { id: "p2-u1", title: "数列与极限", position: 0, topic_id: null, target_depth: "apply", estimated_minutes: 300, prerequisite_unit_ids: [], priority: 1, tasks: [
-          { id: "p2-u1-t1", task_type: "lecture", delivery_mode: "self_paced", estimated_minutes: 60, required: true, knowledge_point: "数列的概念", materials: [{ id: "m-4-1", title: "数列概念讲义.pdf" }] },
-          { id: "p2-u1-t2", task_type: "exercise", delivery_mode: "self_paced", estimated_minutes: 60, required: true, materials: [{ id: "m-4-2", title: "数列求和练习.pdf" }] },
-          { id: "p2-u1-t3", task_type: "project", delivery_mode: "self_paced", estimated_minutes: 60, required: true, knowledge_point: "极限的探究", materials: [{ id: "m-4-3", title: "极限探究项目.pdf" }] },
+        { id: "p2-u1", title: "数据表示与运算体系", position: 0, topic_id: null, target_depth: "apply", estimated_minutes: 180, prerequisite_unit_ids: [], priority: 1, tasks: [
+          { id: "p2-u1-t1", task_type: "lecture", delivery_mode: "self_paced", estimated_minutes: 60, required: true, knowledge_point: "原码补码移码综合", materials: [{ id: "m-8-1", title: "数据表示重点讲义.pdf" }] },
+          { id: "p2-u1-t2", task_type: "lecture", delivery_mode: "self_paced", estimated_minutes: 60, required: true, knowledge_point: "ALU运算与溢出判断", materials: [] },
+          { id: "p2-u1-t3", task_type: "exercise", delivery_mode: "self_paced", estimated_minutes: 60, required: true, materials: [{ id: "m-8-2", title: "数据表示综合练习.pdf" }] },
         ] },
-        { id: "p2-u2", title: "三角函数", position: 1, topic_id: null, target_depth: "apply", estimated_minutes: 300, prerequisite_unit_ids: ["p2-u1"], priority: 1, tasks: [
-          { id: "p2-u2-t1", task_type: "lecture", delivery_mode: "self_paced", estimated_minutes: 60, required: true, knowledge_point: "三角函数定义", materials: [{ id: "m-5-1", title: "三角函数讲义.pdf" }] },
-          { id: "p2-u2-t2", task_type: "exercise", delivery_mode: "self_paced", estimated_minutes: 60, required: true, materials: [{ id: "m-5-2", title: "三角恒等变换练习.pdf" }] },
+        { id: "p2-u2", title: "存储与CPU体系", position: 1, topic_id: null, target_depth: "apply", estimated_minutes: 180, prerequisite_unit_ids: ["p2-u1"], priority: 1, tasks: [
+          { id: "p2-u2-t1", task_type: "lecture", delivery_mode: "self_paced", estimated_minutes: 60, required: true, knowledge_point: "Cache映射与替换策略", materials: [{ id: "m-9-1", title: "存储重点讲义.pdf" }] },
+          { id: "p2-u2-t2", task_type: "lecture", delivery_mode: "self_paced", estimated_minutes: 60, required: true, knowledge_point: "指令流水线冒险与冲突", materials: [] },
+          { id: "p2-u2-t3", task_type: "exercise", delivery_mode: "self_paced", estimated_minutes: 60, required: true, materials: [{ id: "m-9-2", title: "存储CPU综合练习.pdf" }] },
         ] },
       ],
     },
     {
       id: "p3", position: 2, title: "专项训练",
-      objective: "突破薄弱点，题型分类训练", estimated_minutes: 540,
+      objective: "按题型分类训练，提升解题熟练度", estimated_minutes: 360,
       units: [
-        { id: "p3-u1", title: "函数题型专项", position: 0, topic_id: null, target_depth: "apply", estimated_minutes: 270, prerequisite_unit_ids: [], priority: 1, tasks: [
-          { id: "p3-u1-t1", task_type: "exercise", delivery_mode: "self_paced", estimated_minutes: 90, required: true, materials: [{ id: "m-6-1", title: "函数题型专项训练.pdf" }] },
-          { id: "p3-u1-t2", task_type: "exercise", delivery_mode: "self_paced", estimated_minutes: 90, required: true, materials: [] },
-          { id: "p3-u1-t3", task_type: "review", delivery_mode: "self_paced", estimated_minutes: 90, required: true, materials: [{ id: "m-6-2", title: "函数易错题回顾.pdf" }] },
+        { id: "p3-u1", title: "选择题专项", position: 0, topic_id: null, target_depth: "apply", estimated_minutes: 120, prerequisite_unit_ids: [], priority: 1, tasks: [
+          { id: "p3-u1-t1", task_type: "exercise", delivery_mode: "self_paced", estimated_minutes: 60, required: true, materials: [{ id: "m-10-1", title: "选择题基础练习.pdf" }] },
+          { id: "p3-u1-t2", task_type: "exercise", delivery_mode: "self_paced", estimated_minutes: 60, required: true, materials: [{ id: "m-10-2", title: "选择题进阶练习.pdf" }] },
         ] },
-        { id: "p3-u2", title: "几何题型专项", position: 1, topic_id: null, target_depth: "apply", estimated_minutes: 270, prerequisite_unit_ids: ["p3-u1"], priority: 1, tasks: [
-          { id: "p3-u2-t1", task_type: "exercise", delivery_mode: "self_paced", estimated_minutes: 90, required: true, materials: [{ id: "m-7-1", title: "几何题型专项训练.pdf" }] },
-          { id: "p3-u2-t2", task_type: "exercise", delivery_mode: "self_paced", estimated_minutes: 90, required: true, materials: [] },
-          { id: "p3-u2-t3", task_type: "project", delivery_mode: "self_paced", estimated_minutes: 90, required: true, knowledge_point: "立体几何综合", materials: [{ id: "m-7-2", title: "立体几何综合项目.pdf" }] },
+        { id: "p3-u2", title: "计算题专项", position: 1, topic_id: null, target_depth: "apply", estimated_minutes: 120, prerequisite_unit_ids: [], priority: 1, tasks: [
+          { id: "p3-u2-t1", task_type: "exercise", delivery_mode: "self_paced", estimated_minutes: 60, required: true, materials: [{ id: "m-10-3", title: "计算题基础练习.pdf" }] },
+          { id: "p3-u2-t2", task_type: "exercise", delivery_mode: "self_paced", estimated_minutes: 60, required: true, materials: [{ id: "m-10-4", title: "计算题进阶练习.pdf" }] },
+        ] },
+        { id: "p3-u3", title: "分析题专项", position: 2, topic_id: null, target_depth: "apply", estimated_minutes: 120, prerequisite_unit_ids: [], priority: 1, tasks: [
+          { id: "p3-u3-t1", task_type: "exercise", delivery_mode: "self_paced", estimated_minutes: 60, required: true, materials: [{ id: "m-10-5", title: "分析题基础练习.pdf" }] },
+          { id: "p3-u3-t2", task_type: "exercise", delivery_mode: "self_paced", estimated_minutes: 60, required: true, materials: [{ id: "m-10-6", title: "分析题进阶练习.pdf" }] },
         ] },
       ],
     },
     {
       id: "p4", position: 3, title: "综合应用",
-      objective: "跨知识点实战，真题与综合项目", estimated_minutes: 480,
+      objective: "专门练习综合大题，先讲解思路再实战", estimated_minutes: 360,
       units: [
-        { id: "p4-u1", title: "综合真题训练", position: 0, topic_id: null, target_depth: "analyze", estimated_minutes: 240, prerequisite_unit_ids: [], priority: 1, tasks: [
-          { id: "p4-u1-t1", task_type: "project", delivery_mode: "self_paced", estimated_minutes: 120, required: true, knowledge_point: "高考真题实战", materials: [{ id: "m-8-1", title: "2025高考真题集.pdf" }] },
-          { id: "p4-u1-t2", task_type: "exercise", delivery_mode: "self_paced", estimated_minutes: 120, required: true, materials: [{ id: "m-8-2", title: "真题分类训练.pdf" }] },
+        { id: "p4-u1", title: "存储系统综合大题", position: 0, topic_id: null, target_depth: "analyze", estimated_minutes: 180, prerequisite_unit_ids: [], priority: 1, tasks: [
+          { id: "p4-u1-t1", task_type: "lecture", delivery_mode: "self_paced", estimated_minutes: 60, required: true, knowledge_point: "Cache+主存综合题解题思路", materials: [{ id: "m-11-1", title: "存储综合大题讲义.pdf" }] },
+          { id: "p4-u1-t2", task_type: "exercise", delivery_mode: "self_paced", estimated_minutes: 60, required: true, materials: [{ id: "m-11-2", title: "存储综合大题练习.pdf" }] },
+          { id: "p4-u1-t3", task_type: "exercise", delivery_mode: "self_paced", estimated_minutes: 60, required: true, materials: [] },
         ] },
-        { id: "p4-u2", title: "跨章节综合", position: 1, topic_id: null, target_depth: "analyze", estimated_minutes: 240, prerequisite_unit_ids: ["p4-u1"], priority: 1, tasks: [
-          { id: "p4-u2-t1", task_type: "project", delivery_mode: "self_paced", estimated_minutes: 80, required: true, knowledge_point: "跨章节综合", materials: [{ id: "m-9-1", title: "跨章节综合项目.pdf" }] },
-          { id: "p4-u2-t2", task_type: "exercise", delivery_mode: "self_paced", estimated_minutes: 80, required: true, materials: [] },
-          { id: "p4-u2-t3", task_type: "review", delivery_mode: "self_paced", estimated_minutes: 80, required: true, materials: [{ id: "m-9-2", title: "综合题解题思路.pdf" }] },
+        { id: "p4-u2", title: "CPU综合大题", position: 1, topic_id: null, target_depth: "analyze", estimated_minutes: 180, prerequisite_unit_ids: [], priority: 1, tasks: [
+          { id: "p4-u2-t1", task_type: "lecture", delivery_mode: "self_paced", estimated_minutes: 60, required: true, knowledge_point: "流水线+数据通路综合题解题思路", materials: [{ id: "m-11-3", title: "CPU综合大题讲义.pdf" }] },
+          { id: "p4-u2-t2", task_type: "exercise", delivery_mode: "self_paced", estimated_minutes: 60, required: true, materials: [{ id: "m-11-4", title: "CPU综合大题练习.pdf" }] },
+          { id: "p4-u2-t3", task_type: "exercise", delivery_mode: "self_paced", estimated_minutes: 60, required: true, materials: [] },
         ] },
       ],
     },
     {
-      id: "p5", position: 4, title: "考前冲刺",
-      objective: "考点回顾，临场策略与限时模拟", estimated_minutes: 360,
+      id: "p5", position: 4, title: "真题练习",
+      objective: "按真题套题完整模拟，分题型逐一练习", estimated_minutes: 360,
       units: [
-        { id: "p5-u1", title: "考点回顾", position: 0, topic_id: null, target_depth: "analyze", estimated_minutes: 180, prerequisite_unit_ids: [], priority: 1, tasks: [
-          { id: "p5-u1-t1", task_type: "review", delivery_mode: "self_paced", estimated_minutes: 90, required: true, materials: [{ id: "m-10-1", title: "考点全回顾.pdf" }] },
-          { id: "p5-u1-t2", task_type: "lecture", delivery_mode: "self_paced", estimated_minutes: 90, required: true, knowledge_point: "临场策略", materials: [{ id: "m-10-2", title: "临场策略讲义.pdf" }] },
+        { id: "p5-u1", title: "2024年真题", position: 0, topic_id: null, target_depth: "analyze", estimated_minutes: 180, prerequisite_unit_ids: [], priority: 1, tasks: [
+          { id: "p5-u1-t1", task_type: "exercise", delivery_mode: "self_paced", estimated_minutes: 45, required: true, materials: [{ id: "m-12-1", title: "选择题部分.pdf" }] },
+          { id: "p5-u1-t2", task_type: "exercise", delivery_mode: "self_paced", estimated_minutes: 45, required: true, materials: [{ id: "m-12-2", title: "计算题部分.pdf" }] },
+          { id: "p5-u1-t3", task_type: "exercise", delivery_mode: "self_paced", estimated_minutes: 45, required: true, materials: [{ id: "m-12-3", title: "分析题部分.pdf" }] },
+          { id: "p5-u1-t4", task_type: "exercise", delivery_mode: "self_paced", estimated_minutes: 45, required: true, materials: [{ id: "m-12-4", title: "综合题部分.pdf" }] },
         ] },
-        { id: "p5-u2", title: "限时模拟", position: 1, topic_id: null, target_depth: "analyze", estimated_minutes: 180, prerequisite_unit_ids: ["p5-u1"], priority: 1, tasks: [
-          { id: "p5-u2-t1", task_type: "project", delivery_mode: "self_paced", estimated_minutes: 120, required: true, knowledge_point: "限时模拟", materials: [{ id: "m-11-1", title: "限时模拟卷A.pdf" }, { id: "m-11-2", title: "限时模拟卷B.pdf" }] },
-          { id: "p5-u2-t2", task_type: "review", delivery_mode: "self_paced", estimated_minutes: 60, required: true, materials: [{ id: "m-11-3", title: "模拟卷讲评.pdf" }] },
+        { id: "p5-u2", title: "2023年真题", position: 1, topic_id: null, target_depth: "analyze", estimated_minutes: 180, prerequisite_unit_ids: [], priority: 1, tasks: [
+          { id: "p5-u2-t1", task_type: "exercise", delivery_mode: "self_paced", estimated_minutes: 45, required: true, materials: [{ id: "m-12-5", title: "选择题部分.pdf" }] },
+          { id: "p5-u2-t2", task_type: "exercise", delivery_mode: "self_paced", estimated_minutes: 45, required: true, materials: [{ id: "m-12-6", title: "计算题部分.pdf" }] },
+          { id: "p5-u2-t3", task_type: "exercise", delivery_mode: "self_paced", estimated_minutes: 45, required: true, materials: [{ id: "m-12-7", title: "分析题部分.pdf" }] },
+          { id: "p5-u2-t4", task_type: "exercise", delivery_mode: "self_paced", estimated_minutes: 45, required: true, materials: [{ id: "m-12-8", title: "综合题部分.pdf" }] },
         ] },
       ],
     },
+
   ],
 };
 
 /* 阶段池（编辑模式下可选添加） */
 interface PoolPhase { id: string; title: string; objective: string; }
 const MOCK_PHASE_POOL: PoolPhase[] = [
-  { id: "pool-k1", title: "知识衔接", objective: "补齐前置知识缺口" },
-  { id: "pool-k2", title: "习题强化", objective: "大量针对性练习，巩固薄弱环节" },
-  { id: "pool-k3", title: "阶段测评", objective: "定期检测学习效果，调整方向" },
-  { id: "pool-k4", title: "拓展阅读", objective: "拓展学科视野，了解实际应用" },
-  { id: "pool-k5", title: "思维训练", objective: "培养逻辑思维与解题策略" },
-  { id: "pool-k6", title: "实战模拟", objective: "全真模拟考试，训练应试能力" },
+  { id: "pool-1", title: "基础知识", objective: "按教材章节系统学习，知识点与练习结合" },
+  { id: "pool-2", title: "重点突破", objective: "按知识块划分，深入学习每个知识体系" },
+  { id: "pool-3", title: "专项训练", objective: "按题型分类训练，基础与进阶练习结合" },
+  { id: "pool-4", title: "综合应用", objective: "讲解解题思路，练习综合大题" },
+  { id: "pool-5", title: "真题练习", objective: "按真题套题划分，分题型练习" },
+  { id: "pool-6", title: "易错题", objective: "按考点划分，针对易错点专项训练" },
+  { id: "pool-7", title: "复习巩固", objective: "按教材章节回顾重点知识点并练习" },
+  { id: "pool-8", title: "错题再练", objective: "按教材章节重做错过的题目" },
 ];
 
 /* mock 学习档案 */
 interface ProfileItem { key: string; title: string; value: string; }
 const MOCK_PROFILE: ProfileItem[] = [
-  { key: "goal", title: "学习目标", value: "高中数学系统复习，备战高考" },
-  { key: "level", title: "当前基础", value: "中等偏上，函数部分薄弱" },
+  { key: "goal", title: "学习目标", value: "计算机组成原理系统复习，备战期末" },
+  { key: "level", title: "当前基础", value: "中等，存储系统部分薄弱" },
   { key: "pace", title: "推进方式", value: "按知识板块逐步推进" },
   { key: "timeBudget", title: "每日时长", value: "2~3 小时" },
   { key: "deadline", title: "目标日期", value: "2026-08-15" },
-  { key: "school", title: "学校/地区", value: "华南师大附中" },
+  { key: "school", title: "学校/地区", value: "华南理工大学" },
 ];
 
 /* ── 常量 / 辅助函数 ── */
 
 const TASK_TYPE_LABEL: Record<string, string> = { lecture: "讲解", exercise: "练习", project: "项目", review: "复习" };
-const DEPTH_LABEL: Record<string, string> = { understand: "理解", apply: "应用", analyze: "分析" };
+const DEPTH_LABEL: Record<string, string> = { understand: "理解", apply: "应用", analyze: "分析", review: "复习" };
 
 function formatMinutes(m: number): string {
   if (m >= 60) return `${Math.round(m / 60 * 10) / 10} 小时`;
@@ -350,6 +378,13 @@ export function ConfirmPlanPage() {
     setShowAddPhase(false);
   }, []);
 
+  const handleDeletePhase = useCallback((index: number) => {
+    setEditPhases((prev) => {
+      if (prev.length <= 1) return prev;
+      return prev.filter((_, i) => i !== index);
+    });
+  }, []);
+
   /* 是否有任何编辑变更 */
   const isDirty = profileChanged || planChanged;
 
@@ -361,8 +396,8 @@ export function ConfirmPlanPage() {
 
     const mockCourse: CourseSessionListItem = {
       id: mockId,
-      goal: profileMap.goal || "高中数学系统复习",
-      title: profileMap.goal?.slice(0, 12) || "高中数学系统复习",
+      goal: profileMap.goal || "计算机组成原理系统复习",
+      title: profileMap.goal?.slice(0, 12) || "计算机组成原理",
       status: "started",
       level: profileMap.level || "中等",
       pace: profileMap.pace || "按知识板块逐步推进",
@@ -526,17 +561,28 @@ export function ConfirmPlanPage() {
                   <span className="ps-plan-edit-cell ps-plan-edit-name">{ep.title}</span>
                   <span className="ps-plan-edit-cell ps-plan-edit-desc">{ep.objective}</span>
                   {!planChanged && (
-                    <button
-                      className="ps-plan-edit-grip"
-                      type="button"
-                      aria-label="拖拽排序"
-                      draggable
-                      onDragStart={(e) => handlePhaseDragStart(e, i)}
-                      onDragOver={(e) => handlePhaseDragOver(e, i)}
-                      onDragEnd={handlePhaseDragEnd}
-                    >
-                      <GripVertical size={14} />
-                    </button>
+                    <>
+                      <button
+                        className="ps-plan-edit-delete"
+                        type="button"
+                        aria-label="删除阶段"
+                        disabled={editPhases.length <= 1}
+                        onClick={() => handleDeletePhase(i)}
+                      >
+                        <X size={14} />
+                      </button>
+                      <button
+                        className="ps-plan-edit-grip"
+                        type="button"
+                        aria-label="拖拽排序"
+                        draggable
+                        onDragStart={(e) => handlePhaseDragStart(e, i)}
+                        onDragOver={(e) => handlePhaseDragOver(e, i)}
+                        onDragEnd={handlePhaseDragEnd}
+                      >
+                        <GripVertical size={14} />
+                      </button>
+                    </>
                   )}
                 </div>
               ))}
@@ -553,8 +599,8 @@ export function ConfirmPlanPage() {
                   {showAddPhase && (
                     <div className="ps-plan-edit-add-popup">
                       {(() => {
-                        const selectedIds = new Set(editPhases.map((ep) => ep.id));
-                        const available = MOCK_PHASE_POOL.filter((pp) => !selectedIds.has(pp.id));
+                        const selectedTitles = new Set(editPhases.map((ep) => ep.title));
+                        const available = MOCK_PHASE_POOL.filter((pp) => !selectedTitles.has(pp.title));
                         if (available.length === 0) {
                           return <div className="ps-plan-edit-add-empty">没有更多可选阶段</div>;
                         }
