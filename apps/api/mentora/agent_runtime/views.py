@@ -122,7 +122,7 @@ def _build_chat_task(body: dict) -> OrchestratorTask | None:
         context_sources=[],
         history_messages=_parse_history_messages(body.get("history")),
         model_id=_resolve_model_id(body.get("model_id")),
-        max_tool_rounds=3,
+        max_tool_rounds=20,
     )
 
 
@@ -223,7 +223,7 @@ def chat_api(request):
 
 @extend_schema(
     summary="AI 聊天（流式 SSE）",
-    description="发送消息给 AI 助教，通过 Server-Sent Events 流式返回回复内容。事件类型包括 chunk/status/citations/error/done。",
+    description="发送消息给 AI 助教，通过 Server-Sent Events 流式返回回复内容。事件类型包括 content/status/citations/error/done。",
     tags=["Agent 聊天"],
     request={
         "application/json": {

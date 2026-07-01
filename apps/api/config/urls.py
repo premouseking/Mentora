@@ -28,6 +28,7 @@ from mentora.courses.views import (
     plan_handler,
     session_delete,
     session_detail,
+    session_phases,
     session_list_or_create,
     session_start,
     session_update,
@@ -82,6 +83,7 @@ urlpatterns = [
     path("api/courses/sessions/<uuid:session_id>/start/", session_start, name="session-start"),
     path("api/courses/sessions/<uuid:session_id>/inquiry/", inquiry_next, name="inquiry-next"),
     path("api/courses/sessions/<uuid:session_id>/plan/", plan_handler, name="plan-handler"),
+    path("api/courses/sessions/<uuid:session_id>/phases/", session_phases, name="session-phases"),
     # 课程管理
     path("api/courses/", course_list, name="course-list"),
     path("api/courses/confirm/", course_confirm, name="course-confirm"),

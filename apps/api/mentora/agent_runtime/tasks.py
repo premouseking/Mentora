@@ -15,7 +15,6 @@ from django.conf import settings
 
 from mentora.agent_runtime.runtime import build_orchestrator
 from mentora.agent_runtime.schemas.task import OrchestratorTask
-from mentora.model_gateway.providers.fake import FakeProvider
 
 _orchestrator = None
 
@@ -23,17 +22,10 @@ _orchestrator = None
 def _get_orchestrator():
     global _orchestrator
     if _orchestrator is None:
-        if settings.LLM_API_KEY:
-            _orchestrator, _, _ = build_orchestrator()
-        else:
-            _orchestrator, _, _ = build_orchestrator(provider=FakeProvider())
+        if not settings.LLM_API_KEY:
+            raise RuntimeError("LLM_API_KEY 未配置，无法执行 Agent 任务")
+        _orchestrator, _, _ = build_orchestrator()
     return _orchestrator
-
-
-@shared_task(name="mentora.agent_runtime.tasks.run_workflow")
-def run_workflow(workflow_id: str) -> dict[str, str]:
-    """Celery bridge for the explicit workflow state machine."""
-    return {"workflow_id": workflow_id, "status": "accepted"}
 
 
 @shared_task(name="mentora.agent_runtime.tasks.run_agent")

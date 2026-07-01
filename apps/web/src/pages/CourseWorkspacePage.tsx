@@ -22,7 +22,7 @@ import {
   type SectionKey,
 } from "../components/FileExplorer";
 import { MistakeReviewPanel } from "../components/MistakeReviewPanel";
-import { PhaseSummary } from "../components/PhaseSummary";
+import { PhaseSummary, type ProfileItem } from "../components/PhaseSummary";
 import { QuizPracticeView } from "../components/QuizPracticeView";
 import type { FileNode } from "../data/files";
 interface MistakeSourceLink {
@@ -34,12 +34,12 @@ import {
   fetchSources,
   fetchSourceDetail,
   sourcesToFileNodes,
-  fetchCoursePhases,
+  fetchSessionPhases,
   type BundleRaw,
   type TreeNode,
   type CoursePhasesResponse,
 } from "../services/documentApi";
-import { getActivePlan, updateCourseSession, type ActivePlan } from "../services/courseApi";
+import { getActivePlan, getCourseSession, buildProfileItems, updateCourseSession, type ActivePlan } from "../services/courseApi";
 import {
   fetchExplanations,
   fetchMistakes,
@@ -545,6 +545,7 @@ export function CourseWorkspacePage() {
   const [aiItems, setAiItems] = useState<ExplanationItem[]>([]);
   const [mistakeItems, setMistakeItems] = useState<MistakeItem[]>([]);
   const [phases, setPhases] = useState<CoursePhasesResponse | null>(null);
+  const [profileItems, setProfileItems] = useState<ProfileItem[]>([]);
 
   const { courseId } = useParams<{ courseId: string }>();
   const activeTab = useMemo(
@@ -562,6 +563,9 @@ export function CourseWorkspacePage() {
       .then((plan) => setActivePlan(plan))
       .catch(() => setActivePlan(null))
       .finally(() => setPlanLoading(false));
+    getCourseSession(courseId)
+      .then((session) => setProfileItems(buildProfileItems(session)))
+      .catch(() => setProfileItems([]));
     // 更新最近学习时间
     updateCourseSession(courseId, {
       last_studied_at: new Date().toISOString(),
@@ -571,7 +575,7 @@ export function CourseWorkspacePage() {
     Promise.all([
       fetchExplanations(courseId).then((d) => setAiItems(d.items)).catch(() => {}),
       fetchMistakes(courseId).then((d) => setMistakeItems(d.items)).catch(() => {}),
-      fetchCoursePhases(courseId).then(setPhases).catch(() => {}),
+      fetchSessionPhases(courseId).then(setPhases).catch(() => {}),
     ]);
   }, [courseId]);
 
@@ -779,7 +783,7 @@ export function CourseWorkspacePage() {
     <AppShell
       aiChatContext={{
         files: fileNodes,
-        aiItems: aiExplanations,
+        aiItems,
         mistakeItems,
         selectedFileId: selectedFile,
         selectedAiId: selectedAi,
@@ -883,7 +887,13 @@ export function CourseWorkspacePage() {
             className={`phase-summary-overlay${phaseSummaryOpen ? " open" : ""}`}
           >
             {phaseSummaryOpen && (
-              <PhaseSummary onClose={() => setPhaseSummaryOpen(false)} />
+              <PhaseSummary
+                onClose={() => setPhaseSummaryOpen(false)}
+                plan={activePlan}
+                profileItems={profileItems}
+                loading={planLoading}
+                courseId={courseId ?? ""}
+              />
             )}
           </div>
 

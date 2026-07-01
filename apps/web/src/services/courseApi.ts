@@ -50,7 +50,7 @@ export interface InquiryResponse {
   summary?: string;
 }
 
-export interface PlanPhase {
+export interface PlanDraftPhase {
   name: string;
   goal: string;
   share: number;
@@ -59,7 +59,7 @@ export interface PlanPhase {
 
 export interface PlanResponse {
   title: string;
-  phases: PlanPhase[];
+  phases: PlanDraftPhase[];
   revision_id: string;
 }
 
@@ -78,6 +78,23 @@ export interface CourseSessionListItem {
   created_at: string;
   updated_at: string;
   last_studied_at: string | null;
+}
+
+export interface ProfileItem {
+  key: string;
+  title: string;
+  value: string;
+}
+
+export function buildProfileItems(session: SessionDetail): ProfileItem[] {
+  return [
+    { key: "goal", title: "学习目标", value: session.goal || "" },
+    { key: "level", title: "当前基础", value: session.level || "" },
+    { key: "pace", title: "推进方式", value: session.pace || "" },
+    { key: "timeBudget", title: "每日时长", value: session.time_budget || "" },
+    { key: "deadline", title: "目标日期", value: session.deadline || "" },
+    { key: "school", title: "学校/地区", value: session.school || "" },
+  ];
 }
 
 /* ── Session CRUD ── */

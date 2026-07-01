@@ -141,58 +141,76 @@ class ModelGateway:
         model: str | None = None,
     ) -> AsyncGenerator[ChatResponse, None]:
         candidates = self._router.resolve_candidates(task_type)
-        provider = candidates[0]
-        req = await self._create_request_audit(
-            task_type=task_type,
-            provider_name=provider.name,
-            messages=messages,
-            tools=tools,
-            output_schema_name="",
-            structured_output=False,
-        )
+        last_error: Exception | None = None
+        attempt_number = 0
 
-        accumulated: list[str] = []
-        last_chunk: ChatResponse | None = None
-        started = time.perf_counter()
-        try:
-            async for provider_resp in provider.chat_stream(messages=messages, tools=tools, model=model):
-                if provider_resp.content:
-                    accumulated.append(provider_resp.content)
-                last_chunk = self._build_chat_response(provider, provider_resp)
-                yield last_chunk
-        except Exception as exc:  # noqa: BLE001 - provider boundary
-            await self._create_attempt_audit(
-                req=req,
-                attempt_number=1,
-                provider_name=provider.name,
-                model_name=provider.default_model,
-                response_json=None,
-                usage_json=None,
-                latency_ms=self._elapsed_ms(started),
-                success=False,
-                error_code="provider_stream_error",
-                error_message=type(exc).__name__,
-            )
-            raise
+        for provider in candidates:
+            for _ in range(self._max_retries_per_attempt + 1):
+                attempt_number += 1
+                req = await self._create_request_audit(
+                    task_type=task_type,
+                    provider_name=provider.name,
+                    messages=messages,
+                    tools=tools,
+                    output_schema_name="",
+                    structured_output=False,
+                )
 
-        usage = (last_chunk.usage if last_chunk else None) or TokenUsage()
-        await self._create_attempt_audit(
-            req=req,
-            attempt_number=1,
-            provider_name=provider.name,
-            model_name=(last_chunk.model if last_chunk else "") or provider.default_model,
-            response_json={
-                "content": "".join(accumulated),
-                "tool_calls": (
-                    [tc.model_dump(mode="json") for tc in last_chunk.tool_calls]
-                    if last_chunk and last_chunk.tool_calls
-                    else None
-                ),
-            },
-            usage_json=usage.model_dump(mode="json"),
-            latency_ms=self._elapsed_ms(started),
-            success=True,
-        )
+                accumulated: list[str] = []
+                last_chunk: ChatResponse | None = None
+                started = time.perf_counter()
+                chunk_yielded = False
+
+                try:
+                    async for provider_resp in provider.chat_stream(
+                        messages=messages, tools=tools, model=model
+                    ):
+                        if provider_resp.content:
+                            accumulated.append(provider_resp.content)
+                        last_chunk = self._build_chat_response(provider, provider_resp)
+                        chunk_yielded = True
+                        yield last_chunk
+
+                    usage = (last_chunk.usage if last_chunk else None) or TokenUsage()
+                    await self._create_attempt_audit(
+                        req=req,
+                        attempt_number=attempt_number,
+                        provider_name=provider.name,
+                        model_name=(last_chunk.model if last_chunk else "") or provider.default_model,
+                        response_json={
+                            "content": "".join(accumulated),
+                            "tool_calls": (
+                                [tc.model_dump(mode="json") for tc in last_chunk.tool_calls]
+                                if last_chunk and last_chunk.tool_calls
+                                else None
+                            ),
+                        },
+                        usage_json=usage.model_dump(mode="json"),
+                        latency_ms=self._elapsed_ms(started),
+                        success=True,
+                    )
+                    self._router.mark_success(provider.name)
+                    return
+                except Exception as exc:  # noqa: BLE001 - provider boundary
+                    last_error = exc
+                    self._router.mark_failure(provider.name)
+                    await self._create_attempt_audit(
+                        req=req,
+                        attempt_number=attempt_number,
+                        provider_name=provider.name,
+                        model_name=provider.default_model,
+                        response_json=None,
+                        usage_json=None,
+                        latency_ms=self._elapsed_ms(started),
+                        success=False,
+                        error_code="provider_stream_error",
+                        error_message=type(exc).__name__,
+                    )
+                    if chunk_yielded:
+                        raise
+                    continue
+
+        raise ProviderError("All model candidates failed", transient=False) from last_error
 
     async def _create_request_audit(
         self,

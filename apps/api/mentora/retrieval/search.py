@@ -119,20 +119,20 @@ def search(
     source_version_ids: list[str] | None = None,
 ) -> SearchResultSet:
     """
-    混合检索入口。优先 PG 原生检索，DB 不可用时回退内存版。
+    混合检索入口（PostgreSQL）。
 
     mode="fts"（默认）：FTS + Trgm + Vector RRF 三路融合
     mode="grep"：PostgreSQL regex 精确匹配（数字/公式/符号）
+
+    约束：数据库异常直接抛出，不静默回退内存检索。
+    基准测试请 load_corpus 后调用 _search_memory。
     """
-    try:
-        connection.ensure_connection()
-        if mode == "grep":
-            return _grep_search(query, top_k, source_version_ids)
-        return _search_pg(
-            query, top_k, fts_weight, trgm_weight, vector_weight, source_version_ids,
-        )
-    except (Exception, RuntimeError):
-        return _search_memory(query, top_k, fts_weight, trgm_weight, vector_weight)
+    connection.ensure_connection()
+    if mode == "grep":
+        return _grep_search(query, top_k, source_version_ids)
+    return _search_pg(
+        query, top_k, fts_weight, trgm_weight, vector_weight, source_version_ids,
+    )
 
 
 # ── PG-native search ─────────────────────────────────
