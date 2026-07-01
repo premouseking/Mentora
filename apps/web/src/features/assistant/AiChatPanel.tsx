@@ -327,6 +327,8 @@ export function AiChatPanel({
   const listRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const [sending, setSending] = useState(false);
+  const manualInputHeightRef = useRef<number | null>(null);
+  const dragStateRef = useRef<{ startY: number; startHeight: number } | null>(null);
   const [selectedTextSnippets, setSelectedTextSnippets] = useState<SelectedTextSnippet[]>([]);
   const [selectionMenu, setSelectionMenu] = useState<SelectionMenuState | null>(null);
   const [mentions, setMentions] = useState<AiChatMention[]>([]);
@@ -507,9 +509,52 @@ export function AiChatPanel({
     inputRef.current?.focus();
   }
 
+  function handleInputDragStart(e: React.MouseEvent) {
+    e.preventDefault();
+    const el = inputRef.current;
+    if (!el) return;
+    const currentHeight = manualInputHeightRef.current ?? el.clientHeight;
+    dragStateRef.current = { startY: e.clientY, startHeight: currentHeight };
+    document.body.style.cursor = "row-resize";
+    document.body.style.userSelect = "none";
+  }
+
+  useEffect(() => {
+    function handleInputDragMove(e: MouseEvent) {
+      const state = dragStateRef.current;
+      if (!state) return;
+      const delta = state.startY - e.clientY;
+      const nextHeight = Math.max(
+        AI_CHAT_INPUT_MIN_HEIGHT,
+        Math.min(state.startHeight + delta, AI_CHAT_INPUT_MAX_HEIGHT),
+      );
+      manualInputHeightRef.current = nextHeight;
+      syncInputHeight();
+    }
+
+    function handleInputDragEnd() {
+      dragStateRef.current = null;
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    }
+
+    document.addEventListener("mousemove", handleInputDragMove);
+    document.addEventListener("mouseup", handleInputDragEnd);
+    return () => {
+      document.removeEventListener("mousemove", handleInputDragMove);
+      document.removeEventListener("mouseup", handleInputDragEnd);
+    };
+  }, []);
+
   function syncInputHeight() {
     const el = inputRef.current;
     if (!el) return;
+    const manualHeight = manualInputHeightRef.current;
+    if (manualHeight != null) {
+      el.style.height = `${manualHeight}px`;
+      el.style.overflowY = manualHeight >= AI_CHAT_INPUT_MAX_HEIGHT ? "auto" : "hidden";
+      return;
+    }
     if (!el.value) {
       el.style.height = `${AI_CHAT_INPUT_MIN_HEIGHT}px`;
       el.style.overflowY = "hidden";
@@ -541,6 +586,7 @@ export function AiChatPanel({
 
   function handleInputChange(event: React.ChangeEvent<HTMLTextAreaElement>) {
     const nextInput = event.target.value;
+    manualInputHeightRef.current = null;
     setInput(nextInput);
     syncMentionMenu(nextInput, event.target.selectionStart ?? null);
     window.setTimeout(syncInputHeight, 0);
@@ -1025,6 +1071,11 @@ export function AiChatPanel({
           </div>
 
           <div className="ai-chat-input-area">
+            <div
+              className="ai-chat-input-drag-handle"
+              onMouseDown={handleInputDragStart}
+              aria-label="拖拽调整输入框高度"
+            />
             {selectedTextSnippets.length > 0 && (
               <div className="ai-selected-text-wrap">
                 <button

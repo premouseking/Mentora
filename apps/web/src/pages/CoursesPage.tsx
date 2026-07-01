@@ -8,10 +8,9 @@ import {
   Search,
   Sparkles,
   Trash2,
-  X,
 } from "lucide-react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { AppShell } from "../components/AppShell";
 import { getMockCourses, removeMockCourse } from "../data/mockCourses";
@@ -141,6 +140,19 @@ const TASK_TYPE_LABEL: Record<string, string> = {
 
 function CourseList({ courses, onDelete }: { courses: CourseSessionListItem[]; onDelete: (id: string) => void }) {
   const [confirmId, setConfirmId] = useState<string | null>(null);
+  const popoverRef = useRef<HTMLDivElement>(null);
+
+  /* 点击 popover 外部关闭 */
+  useEffect(() => {
+    if (!confirmId) return;
+    function handleClick(e: MouseEvent) {
+      if (popoverRef.current && !popoverRef.current.contains(e.target as Node)) {
+        setConfirmId(null);
+      }
+    }
+    document.addEventListener("click", handleClick);
+    return () => document.removeEventListener("click", handleClick);
+  }, [confirmId]);
 
   return (
     <div className="course-list">
@@ -209,31 +221,31 @@ function CourseList({ courses, onDelete }: { courses: CourseSessionListItem[]; o
           {/* 删除按钮 — 仅 hover 显示 */}
           <button
             className="course-card-delete"
-            onClick={(e) => { e.preventDefault(); setConfirmId(course.id); }}
+            onClick={(e) => { e.preventDefault(); e.stopPropagation(); setConfirmId(course.id); }}
             title="删除课程"
             type="button"
           >
             <Trash2 size={14} />
           </button>
 
-          {/* 二次确认浮层 */}
+          {/* 二次确认 Popover */}
           {confirmId === course.id && (
-            <div className="course-delete-confirm">
-              <FileWarning size={15} />
-              <span>确定删除该课程？</span>
+            <div className="course-delete-popover" ref={popoverRef}>
+              <FileWarning size={15} className="course-delete-popover-icon" />
+              <span className="course-delete-popover-text">确定删除该课程？</span>
               <button
-                className="button primary danger small"
+                className="course-delete-popover-cancel"
+                onClick={(e) => { e.preventDefault(); setConfirmId(null); }}
+                type="button"
+              >
+                取消
+              </button>
+              <button
+                className="course-delete-popover-delete"
                 onClick={(e) => { e.preventDefault(); onDelete(course.id); setConfirmId(null); }}
                 type="button"
               >
                 删除
-              </button>
-              <button
-                className="button secondary small"
-                onClick={(e) => { e.preventDefault(); setConfirmId(null); }}
-                type="button"
-              >
-                <X size={13} />
               </button>
             </div>
           )}

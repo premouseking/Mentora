@@ -1047,6 +1047,18 @@ export function PhaseSummary({
     }
   }, [confirmTaskId]);
 
+  /* ESC 快捷返回：capture 阶段抢先处理，截断后外层 CourseWorkspacePage 的 bubble 监听不可见 */
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key !== "Escape") return;
+      e.stopImmediatePropagation();
+      if (adjustMode) setAdjustMode(false);
+      else onClose();
+    }
+    document.addEventListener("keydown", handleKeyDown, true);
+    return () => document.removeEventListener("keydown", handleKeyDown, true);
+  }, [adjustMode, onClose]);
+
   // ── 调整面板事件处理 ──
 
   const handleChatSend = useCallback(() => {

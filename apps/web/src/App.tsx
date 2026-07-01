@@ -9,6 +9,7 @@ import { HistoryPage } from "./pages/HistoryPage";
 import { LearningTaskPage } from "./pages/LearningTaskPage";
 import { LibraryPage } from "./pages/LibraryPage";
 import { ParsingLabPage } from "./pages/ParsingLabPage";
+import { SettingsPage } from "./pages/SettingsPage";
 import { StageSummaryPage } from "./pages/StageSummaryPage";
 import { ConfirmPlanPage } from "./pages/SetupContinuationPages";
 import { BuildProfilePage } from "./pages/SetupPages";
@@ -49,7 +50,7 @@ export function App() {
         <Route path="/history" element={<HistoryPage />} />
         <Route path="/lab/parsing" element={<ParsingLabPage />} />
         <Route path="/notifications" element={<PlaceholderPage title="通知" />} />
-        <Route path="/settings" element={<PlaceholderPage title="设置" />} />
+        <Route path="/settings" element={<SettingsPage />} />
         <Route path="*" element={<Navigate replace to="/courses" />} />
       </Route>
     </Routes>

@@ -15,4 +15,11 @@
     stroke-linejoin="round"
     stroke-width="72"
   />
+  <path
+    d="M362 732h300"
+    fill="none"
+    stroke="#fff"
+    stroke-linecap="round"
+    stroke-width="85"
+  />
 </svg>
