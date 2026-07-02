@@ -85,6 +85,7 @@ async def _execute_tool(
     task_id: str,
     agent_role: str,
     emitter: EventEmitter | None,
+    tool_metadata: dict | None = None,
 ) -> tuple[ToolInvocationRecord, str, list[dict]]:
     """执行单个工具调用，返回 (记录, tool message 内容, 引文列表)。"""
     try:
@@ -95,7 +96,12 @@ async def _execute_tool(
     if emitter:
         emitter.tool_call(task_id, tc.function.name, args)
 
-    ctx = ToolContext(task_id=task_id, agent_role=agent_role, run_id="")
+    ctx = ToolContext(
+        task_id=task_id,
+        agent_role=agent_role,
+        run_id="",
+        metadata=tool_metadata or {},
+    )
     result = await registry.execute(tc.function.name, args, ctx)
     content = _format_tool_message_content(result)
     citations = _extract_tool_citations(result)
@@ -105,6 +111,8 @@ async def _execute_tool(
         arguments=args,
         success=result.success,
         duration_ms=result.duration_ms,
+        result=result.result if isinstance(result.result, dict) else None,
+        error=result.error or "",
     )
 
     if emitter:
@@ -171,6 +179,7 @@ async def run_tool_loop(
                 task_id=agent_input.task_id,
                 agent_role=agent_role,
                 emitter=emitter,
+                tool_metadata=agent_input.tool_metadata,
             )
             tool_records.append(record)
             for c in citations:
@@ -260,6 +269,7 @@ async def run_tool_loop_stream(
                 task_id=agent_input.task_id,
                 agent_role=agent_role,
                 emitter=emitter,
+                tool_metadata=agent_input.tool_metadata,
             )
             tool_records.append(record)
             for c in citations:

@@ -232,6 +232,12 @@ class CourseSource(models.Model):
         help_text="关联的资料版本",
     )
     added_at = models.DateTimeField(auto_now_add=True)
+    archived_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        db_index=True,
+        help_text="从课程内隐藏该资料关联，不删除资源库中的 Source",
+    )
 
     class Meta:
         db_table = "knowledge_course_source"

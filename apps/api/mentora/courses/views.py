@@ -28,9 +28,11 @@ from mentora.courses.scope_planning import (
     assess_scope_coverage,
     build_source_evidence_context,
     build_source_scope_summary,
+    get_allowed_evidence_ids,
     get_scoped_evidence_for_planner,
     get_session_source_version_ids,
     get_source_titles,
+    sanitize_plan_evidence_ids,
     validate_plan_evidence_ids,
 )
 from mentora.courses.schemas import (
@@ -88,6 +90,20 @@ def _rebuild_profile_supplement(session: CourseCreationSession) -> None:
     session.profile_supplement = supplement
 
 
+def _clear_session_scope_state(session: CourseCreationSession) -> None:
+    """学习目标变化后丢弃旧追问、资料绑定与方案缓存，避免串课。"""
+    from mentora.knowledge.models import CourseSource
+
+    session.inquiry_history = []
+    session.profile_supplement = {}
+    session.status = SessionStatus.COLLECTING
+    extra = dict(session.extra or {})
+    extra.pop("source_version_ids", None)
+    extra.pop("plan_revision_id", None)
+    session.extra = extra
+    CourseSource.objects.filter(course_session_id=str(session.id)).delete()
+
+
 def _format_history(inquiry_history: list[dict]) -> str:
     """将追问历史格式化为可读文本，供 prompt 变量使用。"""
     if not inquiry_history:
@@ -135,6 +151,7 @@ def _serialize_session_list_item(
         "created_at": session.created_at.isoformat(),
         "updated_at": session.updated_at.isoformat(),
         "last_studied_at": session.last_studied_at.isoformat() if session.last_studied_at else None,
+        "archived_at": session.archived_at.isoformat() if session.archived_at else None,
     }
 
 
@@ -150,13 +167,27 @@ def session_list_or_create(request):
     """
     if request.method == "GET":
         try:
-            sessions = list(CourseCreationSession.objects.all().order_by("-updated_at"))
+            limit = min(max(int(request.GET.get("limit", 100)), 1), 500)
+            offset = max(int(request.GET.get("offset", 0)), 0)
+            archived_param = request.GET.get("archived", "").strip().lower()
+            qs = CourseCreationSession.objects.all().order_by("-updated_at")
+            if archived_param in ("1", "true", "yes"):
+                qs = qs.filter(archived_at__isnull=False)
+            else:
+                qs = qs.filter(archived_at__isnull=True)
+            sessions = list(qs[offset: offset + limit])
+            total = qs.count()
             course_by_session = _course_ids_by_session_id([str(session.id) for session in sessions])
             data = [
                 _serialize_session_list_item(session, course_by_session)
                 for session in sessions
             ]
-            return Response(data)
+            return Response({
+                "items": data,
+                "count": total,
+                "limit": limit,
+                "offset": offset,
+            })
         except DatabaseError as exc:
             return Response(
                 {"error": f"课程数据不可用，请确认数据库已启动并已执行 migrate：{exc}"},
@@ -235,11 +266,25 @@ def session_update(request, session_id):
     except ValueError as exc:
         return Response({"error": str(exc)}, status=400)
 
+    old_goal = (session.goal or "").strip()
+
     serializer = SessionUpdateSerializer(session, data=body, partial=True)
     if not serializer.is_valid():
         return Response({"error": serializer.errors}, status=400)
 
     serializer.save()
+    new_goal = (session.goal or "").strip()
+    if old_goal and new_goal and old_goal != new_goal:
+        _clear_session_scope_state(session)
+        session.save(
+            update_fields=[
+                "inquiry_history",
+                "profile_supplement",
+                "status",
+                "extra",
+                "updated_at",
+            ]
+        )
     if "inquiry_history" in body:
         _rebuild_profile_supplement(session)
         session.save(update_fields=["profile_supplement", "updated_at"])
@@ -553,7 +598,7 @@ def _plan_generate(request, session_id):
     scope_constrained = len(source_version_ids) > 0
     source_titles = get_source_titles(source_version_ids) if scope_constrained else {}
     evidence_units = get_scoped_evidence_for_planner(source_version_ids) if scope_constrained else []
-    allowed_evidence_ids = {str(unit.id) for unit in evidence_units}
+    allowed_evidence_ids = get_allowed_evidence_ids(source_version_ids) if scope_constrained else set()
 
     if scope_constrained:
         sufficient, coverage_gaps = assess_scope_coverage(
@@ -626,18 +671,22 @@ def _plan_generate(request, session_id):
         )
 
     plan_output: dict = resp.parsed_output  # type: ignore[assignment]
+    sanitized_evidence_ids: list[str] = []
 
     if scope_constrained:
         invalid_ids = validate_plan_evidence_ids(plan_output, allowed_evidence_ids)
         if invalid_ids:
-            return Response(
-                {
-                    "error": "生成方案引用了资料范围外的证据，请重试。",
-                    "code": "invalid_scope_evidence",
-                    "invalid_evidence_ids": invalid_ids,
-                },
-                status=502,
-            )
+            sanitized_evidence_ids = sanitize_plan_evidence_ids(plan_output, allowed_evidence_ids)
+            still_invalid = validate_plan_evidence_ids(plan_output, allowed_evidence_ids)
+            if still_invalid:
+                return Response(
+                    {
+                        "error": "生成方案引用了资料范围外的证据，请重试。",
+                        "code": "invalid_scope_evidence",
+                        "invalid_evidence_ids": still_invalid,
+                    },
+                    status=502,
+                )
 
     # 存储 LLM 生成的标题
     course_title = plan_output.get("title", "").strip()
@@ -653,6 +702,7 @@ def _plan_generate(request, session_id):
             "scope_constrained": scope_constrained,
             "allow_partial_plan": allow_partial_plan,
             "coverage_gaps": plan_output.get("coverage_gaps") or [],
+            **({"sanitized_evidence_ids": sanitized_evidence_ids} if sanitized_evidence_ids else {}),
         }
         snapshot = _plan_to_learning_snapshot(plan_output)
         revision = create_plan_revision(
@@ -750,20 +800,17 @@ def session_start(request, session_id):
     session.save(update_fields=["status", "updated_at"])
 
     # 写入学习历史
-    try:
-        from mentora.learning.services import write_history_event
+    from mentora.learning.services import write_history_event
 
-        write_history_event(
-            course_id=str(session.id),
-            course_title=session.title or session.goal,
-            event_type="course_started",
-            title="开始学习课程",
-            detail=session.goal or "",
-            result="started",
-            task_id=str(session.id),
-        )
-    except Exception:
-        pass
+    write_history_event(
+        course_id=course_id,
+        course_title=session.title or session.goal,
+        event_type="course_started",
+        title="开始学习课程",
+        detail=session.goal or "",
+        result="started",
+        task_id=str(session.id),
+    )
 
     return JsonResponse({
         "status": "started",
@@ -835,7 +882,7 @@ def course_sources_manage(request, session_id):
     POST body: { "source_version_ids": ["uuid1", "uuid2", ...] }
     注意：为幂等安全，先删后建，而非增量合并。
     """
-    from mentora.knowledge.models import CourseSource, SourceVersion
+    from mentora.knowledge.models import CourseSource, Source, SourceStatus, SourceVersion
 
     try:
         _get_session(session_id)
@@ -843,9 +890,12 @@ def course_sources_manage(request, session_id):
         return JsonResponse({"error": str(exc)}, status=404)
 
     if request.method == "GET":
+        include_archived = request.GET.get("includeArchived", "").lower() in ("1", "true", "yes")
         links = CourseSource.objects.filter(
             course_session_id=session_id,
         ).select_related("source_version__source")
+        if not include_archived:
+            links = links.filter(archived_at__isnull=True)
         items = []
         for link in links:
             sv = link.source_version
@@ -856,6 +906,7 @@ def course_sources_manage(request, session_id):
                 "originalFilename": sv.original_filename,
                 "processingStatus": sv.processing_status,
                 "addedAt": link.added_at.isoformat(),
+                "archivedAt": link.archived_at.isoformat() if link.archived_at else None,
             })
         return JsonResponse({"items": items, "count": len(items)})
 
@@ -875,8 +926,10 @@ def course_sources_manage(request, session_id):
     created = 0
     for vid in version_ids:
         try:
-            sv = SourceVersion.objects.get(id=vid)
+            sv = SourceVersion.objects.select_related("source").get(id=vid)
         except SourceVersion.DoesNotExist:
+            continue
+        if sv.source.status == SourceStatus.ARCHIVED:
             continue
         CourseSource.objects.get_or_create(
             course_session_id=session_id,
@@ -890,6 +943,78 @@ def course_sources_manage(request, session_id):
     session.save(update_fields=["extra", "updated_at"])
 
     return JsonResponse({"status": "ok", "source_count": created})
+
+
+@csrf_exempt
+@require_http_methods(["PATCH"])
+def course_source_archive(request, session_id, source_version_id):
+    """PATCH /api/courses/sessions/<id>/sources/<source_version_id>/archive/"""
+    from django.utils import timezone
+
+    from mentora.knowledge.models import CourseSource
+
+    try:
+        _get_session(session_id)
+    except ValueError as exc:
+        return JsonResponse({"error": str(exc)}, status=404)
+
+    updated = CourseSource.objects.filter(
+        course_session_id=session_id,
+        source_version_id=source_version_id,
+    ).update(archived_at=timezone.now())
+    if not updated:
+        return JsonResponse({"error": "课程资料关联不存在"}, status=404)
+    return JsonResponse({"status": "archived"})
+
+
+@csrf_exempt
+@require_http_methods(["PATCH"])
+def course_source_unarchive(request, session_id, source_version_id):
+    """PATCH /api/courses/sessions/<id>/sources/<source_version_id>/unarchive/"""
+    from mentora.knowledge.models import CourseSource
+
+    try:
+        _get_session(session_id)
+    except ValueError as exc:
+        return JsonResponse({"error": str(exc)}, status=404)
+
+    updated = CourseSource.objects.filter(
+        course_session_id=session_id,
+        source_version_id=source_version_id,
+    ).update(archived_at=None)
+    if not updated:
+        return JsonResponse({"error": "课程资料关联不存在"}, status=404)
+    return JsonResponse({"status": "active"})
+
+
+@csrf_exempt
+@require_http_methods(["PATCH"])
+def session_archive(request, session_id):
+    """PATCH /api/courses/sessions/<id>/archive/ — 软归档，保留数据。"""
+    from django.utils import timezone
+
+    try:
+        session = _get_session(session_id)
+    except ValueError as exc:
+        return JsonResponse({"error": str(exc)}, status=404)
+
+    session.archived_at = timezone.now()
+    session.save(update_fields=["archived_at", "updated_at"])
+    return JsonResponse({"status": "archived", "archived_at": session.archived_at.isoformat()})
+
+
+@csrf_exempt
+@require_http_methods(["PATCH"])
+def session_unarchive(request, session_id):
+    """PATCH /api/courses/sessions/<id>/unarchive/"""
+    try:
+        session = _get_session(session_id)
+    except ValueError as exc:
+        return JsonResponse({"error": str(exc)}, status=404)
+
+    session.archived_at = None
+    session.save(update_fields=["archived_at", "updated_at"])
+    return JsonResponse({"status": "active"})
 
 
 # ── 删除课程 ──
@@ -1292,20 +1417,17 @@ def course_activate(request, course_id):
         return Response({"error": str(exc)}, status=500)
 
     # 写入学习历史
-    try:
-        from mentora.learning.services import write_history_event
+    from mentora.learning.services import write_history_event
 
-        write_history_event(
-            course_id=str(session.id),
-            course_title=session.title or session.goal,
-            event_type="plan_adjusted",
-            title="学习计划已激活",
-            detail=f"阶段数: {len(plan_output.get('phases', []))}",
-            result="activated",
-            task_id=str(session.id),
-        )
-    except Exception:
-        pass
+    write_history_event(
+        course_id=course_id,
+        course_title=session.title or session.goal,
+        event_type="plan_adjusted",
+        title="学习计划已激活",
+        detail=f"阶段数: {len(plan_output.get('phases', []))}",
+        result="activated",
+        task_id=str(session.id),
+    )
 
     return Response({
         **result,
@@ -1337,6 +1459,7 @@ def course_files(request, course_id):
     # 课程关联的资料来源
     source_links = CourseSource.objects.filter(
         course_session_id=session_id,
+        archived_at__isnull=True,
     ).select_related("source_version__source")
 
     source_map: dict[str, str] = {}

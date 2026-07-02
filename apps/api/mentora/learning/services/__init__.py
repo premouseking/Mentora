@@ -436,6 +436,16 @@ def activate_revision(revision_id: str) -> dict:
 
 def get_active_plan(course_session_id: str) -> dict | None:
     """获取课程当前生效的学习计划。"""
+    from django.db.models import Prefetch
+
+    from mentora.learning.models import (
+        LearningPlan,
+        LearningPlanPhase,
+        LearningPlanRevision,
+        LearningPlanTaskTemplate,
+        LearningPlanUnit,
+    )
+
     try:
         plan = LearningPlan.objects.get(course_session_id=course_session_id)
     except LearningPlan.DoesNotExist:
@@ -445,7 +455,20 @@ def get_active_plan(course_session_id: str) -> dict | None:
         return None
 
     try:
-        revision = LearningPlanRevision.objects.get(id=plan.active_revision_id)
+        revision = LearningPlanRevision.objects.prefetch_related(
+            Prefetch(
+                "phases",
+                queryset=LearningPlanPhase.objects.order_by("position"),
+            ),
+            Prefetch(
+                "units",
+                queryset=LearningPlanUnit.objects.order_by("position"),
+            ),
+            Prefetch(
+                "task_templates",
+                queryset=LearningPlanTaskTemplate.objects.order_by("position", "id"),
+            ),
+        ).get(id=plan.active_revision_id)
     except LearningPlanRevision.DoesNotExist:
         return None
 
@@ -455,38 +478,70 @@ def get_active_plan(course_session_id: str) -> dict | None:
         and _supports_structured_plan_tables()
     ):
         ensure_structured_plan_from_snapshot(str(revision.id))
+        revision = LearningPlanRevision.objects.prefetch_related(
+            Prefetch(
+                "phases",
+                queryset=LearningPlanPhase.objects.order_by("position"),
+            ),
+            Prefetch(
+                "units",
+                queryset=LearningPlanUnit.objects.order_by("position"),
+            ),
+            Prefetch(
+                "task_templates",
+                queryset=LearningPlanTaskTemplate.objects.order_by("position", "id"),
+            ),
+        ).get(id=plan.active_revision_id)
 
     try:
-        phases = list(
-            revision.phases.order_by("position").values(
-                "id", "position", "title", "objective", "estimated_minutes",
-            )
-        )
+        phases = [
+            {
+                "id": str(phase.id),
+                "position": phase.position,
+                "title": phase.title,
+                "objective": phase.objective,
+                "estimated_minutes": phase.estimated_minutes,
+            }
+            for phase in revision.phases.all()
+        ]
         if not phases:
             return _build_plan_from_snapshot(str(plan.id), revision)
+
+        units_by_phase: dict[str, list[LearningPlanUnit]] = {}
+        for unit in revision.units.all():
+            units_by_phase.setdefault(str(unit.phase_id), []).append(unit)
+
+        tasks_by_unit: dict[str, list[dict]] = {}
+        for task in revision.task_templates.all():
+            task_payload = {
+                "id": str(task.id),
+                "position": task.position,
+                "title": task.title,
+                "knowledge_point": task.knowledge_point,
+                "task_type": task.task_type,
+                "delivery_mode": task.delivery_mode,
+                "estimated_minutes": task.estimated_minutes,
+                "required": task.required,
+                "materials": [],
+            }
+            tasks_by_unit.setdefault(str(task.unit_id), []).append(task_payload)
+
         for phase in phases:
-            units = list(
-                revision.units.filter(phase_id=phase["id"])
-                .order_by("position")
-                .values(
-                    "id", "title", "position", "topic_id", "target_depth",
-                    "estimated_minutes", "prerequisite_unit_ids", "priority",
-                )
-            )
-            for unit in units:
-                unit["title"] = unit.get("title") or phase.get("title", "")
-                tasks = list(
-                    revision.task_templates.filter(unit_id=unit["id"])
-                    .order_by("position", "id")
-                    .values(
-                        "id", "position", "title", "knowledge_point", "task_type",
-                        "delivery_mode", "estimated_minutes", "required",
-                    )
-                )
-                for t in tasks:
-                    t.setdefault("materials", [])
-                unit["tasks"] = tasks
+            units = []
+            for unit in units_by_phase.get(phase["id"], []):
+                units.append({
+                    "id": str(unit.id),
+                    "title": unit.title or phase.get("title", ""),
+                    "position": unit.position,
+                    "topic_id": str(unit.topic_id) if unit.topic_id else None,
+                    "target_depth": unit.target_depth,
+                    "estimated_minutes": unit.estimated_minutes,
+                    "prerequisite_unit_ids": unit.prerequisite_unit_ids or [],
+                    "priority": unit.priority,
+                    "tasks": tasks_by_unit.get(str(unit.id), []),
+                })
             phase["units"] = units
+
         return {
             "plan_id": str(plan.id),
             "revision_id": str(revision.id),
@@ -749,10 +804,14 @@ def complete_task(task_id: str) -> dict:
     task.save(update_fields=["status", "completed_at"])
 
     # 写入学习记录
+    course_session_id = ""
     try:
-        course_id = str(task.unit.revision.learning_plan.course_session_id) if task.unit.revision.learning_plan.course_session_id else ""
+        plan = task.unit.revision.learning_plan
+        if plan and plan.course_session_id:
+            course_session_id = str(plan.course_session_id)
     except Exception:
-        course_id = ""
+        course_session_id = ""
+    course_id = resolve_course_id_for_history(course_session_id=course_session_id)
     write_history_event(
         course_id=course_id,
         event_type="task_completed",
@@ -769,6 +828,76 @@ def complete_task(task_id: str) -> dict:
     }
 
 
+def resolve_course_id_for_history(
+    *,
+    course_id: str = "",
+    course_session_id: str = "",
+) -> str:
+    """将 Course.id 或建课 session_id 规范化为 Course.id（无课程实体时回退 session_id）。"""
+    from mentora.courses.models import Course
+
+    raw = (course_id or course_session_id or "").strip()
+    if not raw:
+        return ""
+
+    course = Course.objects.filter(id=raw).first()
+    if course is not None:
+        return str(course.id)
+
+    course = Course.objects.filter(session_id=raw).first()
+    if course is not None:
+        return str(course.id)
+
+    return raw
+
+
+def _history_course_titles(course_ids: set[str]) -> dict[str, str]:
+    """批量解析 course_id → 展示标题。"""
+    if not course_ids:
+        return {}
+
+    from mentora.courses.models import Course, CourseCreationSession, CourseProfileRevision
+
+    titles: dict[str, str] = {}
+    courses = Course.objects.filter(id__in=course_ids).select_related("session")
+    for course in courses:
+        title = ""
+        if course.active_profile_revision_id:
+            profile = CourseProfileRevision.objects.filter(id=course.active_profile_revision_id).first()
+            if profile and profile.goal:
+                title = profile.goal[:80]
+        if not title and course.session:
+            title = course.session.title or course.session.goal or ""
+        titles[str(course.id)] = title
+
+    # 兼容旧数据：course_id 存的是 session_id
+    session_ids = course_ids - set(titles.keys())
+    if session_ids:
+        sessions = CourseCreationSession.objects.filter(id__in=session_ids)
+        for session in sessions:
+            titles[str(session.id)] = session.title or session.goal or ""
+    return titles
+
+
+def _history_course_filter_ids(course_id: str) -> list[str]:
+    """查询时同时匹配 Course.id 与关联 session_id（兼容历史写入）。"""
+    course_id = course_id.strip()
+    if not course_id:
+        return []
+
+    from mentora.courses.models import Course
+
+    ids = {course_id}
+    course = Course.objects.filter(id=course_id).first()
+    if course is not None:
+        ids.add(str(course.session_id))
+    else:
+        linked = Course.objects.filter(session_id=course_id).first()
+        if linked is not None:
+            ids.add(str(linked.id))
+    return sorted(ids)
+
+
 def write_history_event(
     course_id: str,
     event_type: str,
@@ -778,12 +907,14 @@ def write_history_event(
     result: str = "",
     task_id: str = "",
     phase_id: str = "",
+    course_title: str = "",
 ) -> dict:
     """写入一条学习记录事件。"""
     from mentora.learning.models import LearningHistoryEvent
 
+    normalized_course_id = resolve_course_id_for_history(course_id=course_id)
     event = LearningHistoryEvent.objects.create(
-        course_id=course_id,
+        course_id=normalized_course_id,
         event_type=event_type,
         title=title,
         detail=detail,
@@ -795,33 +926,42 @@ def write_history_event(
         "id": str(event.id),
         "event_type": event.event_type,
         "title": event.title,
+        "course_id": event.course_id,
+        "course_title": course_title,
         "created_at": event.created_at.isoformat(),
     }
 
 
-def get_history(course_id: str, *, limit: int = 50) -> list[dict]:
-    """获取课程学习记录，按时间倒序。"""
+def get_history(course_id: str = "", *, limit: int = 50) -> dict:
+    """获取学习记录，按时间倒序；返回前端 HistoryEvent 契约。"""
     from mentora.learning.models import LearningHistoryEvent
 
-    events = LearningHistoryEvent.objects.filter(
-        course_id=course_id,
-    ).order_by("-created_at")[:limit]
+    qs = LearningHistoryEvent.objects.all()
+    if course_id:
+        filter_ids = _history_course_filter_ids(course_id)
+        qs = qs.filter(course_id__in=filter_ids)
 
-    return [
+    events = qs.order_by("-created_at")[:limit]
+    title_map = _history_course_titles({e.course_id for e in events if e.course_id})
+
+    items = [
         {
             "id": str(e.id),
-            "type": e.event_type,
-            "date": e.created_at.strftime("%Y-%m-%d"),
-            "time": e.created_at.strftime("%H:%M"),
-            "courseId": e.course_id,
-            "title": e.title,
-            "detail": e.detail,
-            "result": e.result,
-            "taskId": e.task_id,
-            "phaseId": e.phase_id,
+            "event_type": e.event_type,
+            "task_id": e.task_id or None,
+            "task_title": e.title,
+            "course_id": e.course_id or None,
+            "course_title": title_map.get(e.course_id, ""),
+            "description": e.detail,
+            "metadata": {
+                "result": e.result,
+                "phase_id": e.phase_id,
+            },
+            "created_at": e.created_at.isoformat(),
         }
         for e in events
     ]
+    return {"items": items, "total": len(items)}
 
 
 def get_task_detail(task_id: str) -> dict | None:

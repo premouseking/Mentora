@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect, useRef, useState } from "react";
+import { type ReactNode, lazy, Suspense, useEffect, useRef, useState } from "react";
 import {
   Beaker,
   Bell,
@@ -16,7 +16,11 @@ import { Link, NavLink } from "react-router-dom";
 
 import { DesktopTitleBar } from "./DesktopTitleBar";
 import { CourseInfoBar } from "./CourseInfoBar";
-import { AssistantPanel } from "../features/assistant/AssistantPanel";
+import { PageSkeleton } from "./PageSkeleton";
+
+const AssistantPanel = lazy(() =>
+  import("../features/assistant/AssistantPanel").then((m) => ({ default: m.AssistantPanel })),
+);
 
 const navItems = [
   { to: "/courses", label: "课程", icon: BookOpen },
@@ -261,10 +265,12 @@ export function AppShell({ children }: { children: ReactNode }) {
                 setPanelWidth((w) => clamp(w - d, MIN_PANEL, MAX_PANEL))
               }
             />
-            <AssistantPanel
-              width={panelWidth}
-              onClose={() => setAiPanelOpen(false)}
-            />
+            <Suspense fallback={<PageSkeleton />}>
+              <AssistantPanel
+                width={panelWidth}
+                onClose={() => setAiPanelOpen(false)}
+              />
+            </Suspense>
           </>
         )}
       </div>

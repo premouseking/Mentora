@@ -61,6 +61,12 @@ class CourseCreationSession(models.Model):
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    archived_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        db_index=True,
+        help_text="归档时间；非空表示会话已从课程列表隐藏",
+    )
 
     class Meta:
         db_table = "courses_session"

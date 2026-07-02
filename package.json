@@ -28,8 +28,10 @@
     "dist:desktop": "pnpm --dir apps/desktop dist",
     "infra:up": "docker compose -f infra/docker/docker-compose.dev.yml up -d",
     "infra:down": "docker compose -f infra/docker/docker-compose.dev.yml down",
-    "api:docker:build": "docker compose -f infra/docker/docker-compose.dev.yml --profile app build api",
-    "api:docker:up": "docker compose -f infra/docker/docker-compose.dev.yml --profile app up -d api",
+    "api:docker:build": "bash infra/docker/scripts/build_api_image.sh",
+    "api:docker:check": "python3 infra/docker/scripts/check_api_image.py --require-container",
+    "api:docker:sync": "bash infra/docker/scripts/sync_api_to_container.sh",
+    "api:docker:up": "bash infra/docker/scripts/start_api.sh",
     "api:migrate": "bash -lc 'cd apps/api && source .venv/bin/activate && set -a && source ../../.env && set +a && python manage.py migrate --noinput'",
     "api:seed": "cd apps/api && python manage.py seed_dev",
     "api:smoke:upload": "cd apps/api && python manage.py smoke_upload_resource --fixture normal.pdf"

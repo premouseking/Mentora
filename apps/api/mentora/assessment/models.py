@@ -167,3 +167,38 @@ class ItemProvenance(models.Model):
     import_batch = models.CharField(max_length=64, blank=True, default="", help_text="批量导入批次")
     note = models.CharField(max_length=256, blank=True, default="")
     created_at = models.DateTimeField(auto_now_add=True)
+
+
+class QuizGenerationJob(models.Model):
+    """后台出题任务——大题量或 Agent 模式异步生成。"""
+
+    class Status(models.TextChoices):
+        PENDING = "pending", "等待中"
+        RUNNING = "running", "生成中"
+        SUCCEEDED = "succeeded", "已完成"
+        FAILED = "failed", "失败"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    status = models.CharField(
+        max_length=16,
+        choices=Status.choices,
+        default=Status.PENDING,
+        db_index=True,
+    )
+    progress = models.CharField(max_length=128, blank=True, default="")
+    progress_pct = models.IntegerField(default=0)
+    error_message = models.TextField(blank=True, default="")
+    error_code = models.CharField(max_length=64, blank=True, default="")
+    generation_cache_key = models.CharField(max_length=64, blank=True, default="", db_index=True)
+    request_payload = models.JSONField(default=dict)
+    result_session_id = models.UUIDField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "assessment_generation_job"
+        verbose_name = "出题任务"
+        verbose_name_plural = verbose_name
+        indexes = [
+            models.Index(fields=["generation_cache_key", "-updated_at"]),
+        ]

@@ -13,6 +13,7 @@ import {
   type ParsedElementRaw,
   type ParsedBundle,
 } from "./parsedBundleContract";
+import { DEV_OWNER_ID } from "./devOwner";
 
 const API = "/api";
 
@@ -30,12 +31,16 @@ export interface SourceItem {
   id: string;
   displayTitle: string;
   status: string;
+  tags?: string[];
+  folderId?: string | null;
+  updatedAt?: string | null;
   latestVersion: {
     id: string;
     versionNumber: number;
     processingStatus: string;
     byteSize: number;
     originalFilename: string;
+    mediaType?: string;
   } | null;
 }
 
@@ -48,6 +53,7 @@ export interface SourceDetail {
     byteSize: number;
     originalFilename: string;
     mediaType: string;
+    objectKey: string;
     parserName: string;
     parserVersion: string;
     errorCode: string;
@@ -58,12 +64,17 @@ export interface SourceDetail {
 
 /* ── API functions ─────────────────────────────────── */
 
-export async function fetchSources(courseId?: string): Promise<SourceItem[]> {
-  const params = new URLSearchParams();
+export async function fetchSources(
+  courseId?: string,
+  options?: { limit?: number; offset?: number; signal?: AbortSignal; status?: "active" | "archived" },
+): Promise<SourceItem[]> {
+  const params = new URLSearchParams({ ownerId: DEV_OWNER_ID });
   if (courseId) params.set("courseId", courseId);
-  const qs = params.toString();
-  const url = qs ? `${API}/library/sources/?${qs}` : `${API}/library/sources/`;
-  const res = await fetch(url);
+  if (options?.limit != null) params.set("limit", String(options.limit));
+  if (options?.offset != null) params.set("offset", String(options.offset));
+  if (options?.status) params.set("status", options.status);
+  const url = `${API}/library/sources/?${params.toString()}`;
+  const res = await fetch(url, { signal: options?.signal });
   if (!res.ok) throw new Error(`获取资料列表失败: ${res.status}`);
   const data = await res.json();
   return data.items ?? [];
@@ -72,6 +83,18 @@ export async function fetchSources(courseId?: string): Promise<SourceItem[]> {
 export function buildLibraryAssetUrl(sourceVersionId: string, artifactRef: string): string {
   const params = new URLSearchParams({ key: artifactRef });
   return `${API}/library/sources/${sourceVersionId}/assets/?${params}`;
+}
+
+/** 原始上传文件 URL，供 pdf.js 阅读器加载。 */
+export function buildSourceOriginalAssetUrl(sourceVersionId: string): string {
+  const params = new URLSearchParams({ kind: "original" });
+  return `${API}/library/sources/${sourceVersionId}/assets/?${params}`;
+}
+
+export function isPdfMediaType(mediaType: string, filename?: string): boolean {
+  if (mediaType === "application/pdf") return true;
+  const lower = (filename ?? "").toLowerCase();
+  return lower.endsWith(".pdf");
 }
 
 export async function fetchSourceDetail(sourceVersionId: string): Promise<SourceDetail> {
@@ -108,6 +131,46 @@ export async function deleteSource(sourceId: string): Promise<void> {
   if (!res.ok) throw new Error("删除失败");
 }
 
+export async function archiveSource(sourceId: string): Promise<void> {
+  const params = new URLSearchParams({ ownerId: DEV_OWNER_ID });
+  const res = await fetch(
+    `${API}/library/sources/${encodeURIComponent(sourceId)}/archive/?${params.toString()}`,
+    { method: "PATCH" },
+  );
+  if (!res.ok) throw new Error("归档失败");
+}
+
+export async function unarchiveSource(sourceId: string): Promise<void> {
+  const params = new URLSearchParams({ ownerId: DEV_OWNER_ID });
+  const res = await fetch(
+    `${API}/library/sources/${encodeURIComponent(sourceId)}/unarchive/?${params.toString()}`,
+    { method: "PATCH" },
+  );
+  if (!res.ok) throw new Error("取消归档失败");
+}
+
+export async function archiveCourseSource(
+  sessionId: string,
+  sourceVersionId: string,
+): Promise<void> {
+  const res = await fetch(
+    `${API}/courses/sessions/${encodeURIComponent(sessionId)}/sources/${encodeURIComponent(sourceVersionId)}/archive/`,
+    { method: "PATCH" },
+  );
+  if (!res.ok) throw new Error("归档课程资料失败");
+}
+
+export async function unarchiveCourseSource(
+  sessionId: string,
+  sourceVersionId: string,
+): Promise<void> {
+  const res = await fetch(
+    `${API}/courses/sessions/${encodeURIComponent(sessionId)}/sources/${encodeURIComponent(sourceVersionId)}/unarchive/`,
+    { method: "PATCH" },
+  );
+  if (!res.ok) throw new Error("恢复课程资料失败");
+}
+
 /* ── 课程资料关联 ── */
 
 export interface CourseSourceItem {
@@ -117,6 +180,7 @@ export interface CourseSourceItem {
   originalFilename: string;
   processingStatus: string;
   addedAt: string;
+  archivedAt?: string | null;
 }
 
 export async function getCourseSources(courseId: string): Promise<CourseSourceItem[]> {
@@ -158,7 +222,8 @@ export interface FolderItem {
 }
 
 export async function fetchFolders(): Promise<FolderItem[]> {
-  const res = await fetch(`${API}/library/folders/`);
+  const params = new URLSearchParams({ ownerId: DEV_OWNER_ID });
+  const res = await fetch(`${API}/library/folders/?${params.toString()}`);
   if (!res.ok) throw new Error(`获取文件夹列表失败: ${res.status}`);
   const data = await res.json();
   return data.items ?? data ?? [];
@@ -168,7 +233,7 @@ export async function createFolder(name: string): Promise<FolderItem> {
   const res = await fetch(`${API}/library/folders/create/`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ name }),
+    body: JSON.stringify({ name, ownerId: DEV_OWNER_ID }),
   });
   if (!res.ok) throw new Error("创建文件夹失败");
   return res.json();
@@ -197,7 +262,8 @@ export async function deleteFolder(folderId: string): Promise<void> {
 /* ── 标签 ── */
 
 export async function fetchTags(): Promise<string[]> {
-  const res = await fetch(`${API}/library/tags/`);
+  const params = new URLSearchParams({ ownerId: DEV_OWNER_ID });
+  const res = await fetch(`${API}/library/tags/?${params.toString()}`);
   if (!res.ok) throw new Error(`获取标签列表失败: ${res.status}`);
   const data = await res.json();
   return data.tags ?? data.items ?? [];

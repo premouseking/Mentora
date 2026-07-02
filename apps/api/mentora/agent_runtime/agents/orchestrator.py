@@ -214,6 +214,7 @@ class Orchestrator:
             context=ctx,
             model_id=task.model_id,
             max_tool_rounds=task.max_tool_rounds,
+            tool_metadata=task.tool_metadata,
         )
 
         output = await agent.run(agent_input)
@@ -258,6 +259,7 @@ class Orchestrator:
                     context=ctx,
                     model_id=task.model_id,
                     max_tool_rounds=step.max_tool_rounds,
+                    tool_metadata=task.tool_metadata,
                 )
 
                 output = await agent.run(agent_input)

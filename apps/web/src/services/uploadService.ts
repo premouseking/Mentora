@@ -4,6 +4,8 @@
  * 后端 API：/api/uploads/ → /api/uploads/complete/
  */
 
+import { DEV_OWNER_ID } from "./devOwner";
+
 const API = "/api";
 
 export interface UploadCreateResult {
@@ -60,6 +62,7 @@ export async function uploadFile(
       filename: file.name,
       size: file.size,
       mediaType: getMediaType(file.name),
+      ownerId: DEV_OWNER_ID,
     }),
   });
   if (!createRes.ok) {
@@ -90,6 +93,7 @@ export async function uploadFile(
       sha256,
       size: file.size,
       sync: true,
+      ownerId: DEV_OWNER_ID,
     }),
   });
   if (!completeRes.ok) {

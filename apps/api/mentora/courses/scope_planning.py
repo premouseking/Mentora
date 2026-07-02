@@ -74,6 +74,21 @@ def get_scoped_evidence_for_planner(source_version_ids: list[str]):
     return units[:MAX_PLANNER_EVIDENCE]
 
 
+def get_allowed_evidence_ids(source_version_ids: list[str]) -> set[str]:
+    """资料范围内全部 EvidenceUnit ID，供输出校验（prompt 仍只采样前 N 条）。"""
+    if not source_version_ids:
+        return set()
+
+    from mentora.retrieval.models import EvidenceUnit
+
+    return {
+        str(eid)
+        for eid in EvidenceUnit.objects.filter(
+            source_version_id__in=source_version_ids,
+        ).values_list("id", flat=True)
+    }
+
+
 def build_source_scope_summary(
     source_version_ids: list[str],
     source_titles: dict[str, str],
@@ -158,24 +173,80 @@ def _extract_goal_keywords(goal: str) -> list[str]:
     return keywords[:12]
 
 
+def _normalize_evidence_id(raw: object) -> str | None:
+    if raw is None:
+        return None
+    token = str(raw).strip()
+    if not token:
+        return None
+    if token.startswith("evidence_id="):
+        token = token.split("=", 1)[1].strip()
+    return token
+
+
 def collect_plan_evidence_ids(plan_output: dict[str, Any]) -> set[str]:
     ids: set[str] = set()
     for topic in plan_output.get("topics") or []:
         for eid in topic.get("evidence_ids") or []:
-            if str(eid).strip():
-                ids.add(str(eid).strip())
+            normalized = _normalize_evidence_id(eid)
+            if normalized:
+                ids.add(normalized)
 
     for phase in plan_output.get("phases") or []:
         for unit in phase.get("units") or []:
             for eid in unit.get("source_evidence_ids") or []:
-                if str(eid).strip():
-                    ids.add(str(eid).strip())
+                normalized = _normalize_evidence_id(eid)
+                if normalized:
+                    ids.add(normalized)
             for task in unit.get("tasks") or []:
                 if isinstance(task, dict):
                     for eid in task.get("source_evidence_ids") or []:
-                        if str(eid).strip():
-                            ids.add(str(eid).strip())
+                        normalized = _normalize_evidence_id(eid)
+                        if normalized:
+                            ids.add(normalized)
     return ids
+
+
+def _filter_evidence_id_list(raw_ids: list[Any] | None, allowed_ids: set[str]) -> tuple[list[str], list[str]]:
+    kept: list[str] = []
+    removed: list[str] = []
+    for raw in raw_ids or []:
+        normalized = _normalize_evidence_id(raw)
+        if not normalized:
+            continue
+        if normalized in allowed_ids:
+            if normalized not in kept:
+                kept.append(normalized)
+        else:
+            removed.append(normalized)
+    return kept, removed
+
+
+def sanitize_plan_evidence_ids(
+    plan_output: dict[str, Any],
+    allowed_ids: set[str],
+) -> list[str]:
+    """剔除白名单外的 evidence 引用，返回被移除的 ID 列表。"""
+    removed: list[str] = []
+
+    for topic in plan_output.get("topics") or []:
+        kept, dropped = _filter_evidence_id_list(topic.get("evidence_ids"), allowed_ids)
+        topic["evidence_ids"] = kept
+        removed.extend(dropped)
+
+    for phase in plan_output.get("phases") or []:
+        for unit in phase.get("units") or []:
+            kept, dropped = _filter_evidence_id_list(unit.get("source_evidence_ids"), allowed_ids)
+            unit["source_evidence_ids"] = kept
+            removed.extend(dropped)
+            for task in unit.get("tasks") or []:
+                if not isinstance(task, dict):
+                    continue
+                kept, dropped = _filter_evidence_id_list(task.get("source_evidence_ids"), allowed_ids)
+                task["source_evidence_ids"] = kept
+                removed.extend(dropped)
+
+    return sorted(set(removed))
 
 
 def validate_plan_evidence_ids(

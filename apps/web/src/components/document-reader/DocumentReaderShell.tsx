@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type { BundleRaw } from "../../services/documentApi";
 import { ParsedDocumentRenderer } from "./ParsedDocumentRenderer";
+import { ReaderLoadingProgress } from "./ReaderLoadingProgress";
 import { ReaderToolbar } from "./ReaderToolbar";
 import { ReaderToc } from "./ReaderToc";
 import {
@@ -86,14 +87,27 @@ export function DocumentReaderShell({
 
     container.addEventListener("scroll", handleScroll, { passive: true });
     handleScroll();
+
+    const resizeObserver = new ResizeObserver(handleScroll);
+    resizeObserver.observe(container);
+
     return () => {
       container.removeEventListener("scroll", handleScroll);
+      resizeObserver.disconnect();
       if (rafId !== null) window.cancelAnimationFrame(rafId);
     };
   }, [bundle, pageNumbers, tocItems]);
 
   if (loading) {
-    return <p className="cw-preview-text reader-shell-message">加载中...</p>;
+    return (
+      <div className="document-reader-shell reader-loading-shell">
+        <ReaderLoadingProgress
+          progress={62}
+          label="加载文档内容…"
+          indeterminate
+        />
+      </div>
+    );
   }
   if (error) {
     return <p className="cw-preview-text reader-shell-message">{error}</p>;

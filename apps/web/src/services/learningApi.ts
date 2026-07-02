@@ -118,8 +118,17 @@ export async function completeLearningTask(taskId: string): Promise<{ task_id: s
   );
 }
 
-export async function fetchHistory(limit = 50): Promise<{ items: HistoryEvent[] }> {
-  return apiClient.get<{ items: HistoryEvent[] }>(`/api/history/?limit=${limit}`);
+export async function fetchHistory(
+  options: { limit?: number; courseId?: string } = {},
+): Promise<{ items: HistoryEvent[]; total?: number }> {
+  const params = new URLSearchParams();
+  params.set("limit", String(options.limit ?? 50));
+  if (options.courseId) {
+    params.set("courseId", options.courseId);
+  }
+  return apiClient.get<{ items: HistoryEvent[]; total?: number }>(
+    `/api/history/?${params.toString()}`,
+  );
 }
 
 /* ── 错题 & 讲解 ── */
@@ -148,9 +157,22 @@ export interface ExplanationItem {
   created_at: string;
 }
 
-export async function fetchMistakes(courseId: string): Promise<{ items: MistakeItem[] }> {
+export async function fetchMistakes(
+  courseId: string,
+  options?: { includeArchived?: boolean },
+): Promise<{ items: MistakeItem[] }> {
+  const params = new URLSearchParams({ course_id: courseId });
+  if (options?.includeArchived) params.set("include_archived", "true");
   return apiClient.get<{ items: MistakeItem[] }>(
-    `/api/learning/mistakes/?course_id=${encodeURIComponent(courseId)}`,
+    `/api/learning/mistakes/?${params.toString()}`,
+  );
+}
+
+export async function archiveMistake(courseId: string, itemId: string): Promise<void> {
+  const params = new URLSearchParams({ course_id: courseId });
+  await apiClient.patch(
+    `/api/learning/mistakes/${encodeURIComponent(itemId)}/archive/?${params.toString()}`,
+    {},
   );
 }
 

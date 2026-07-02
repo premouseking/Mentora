@@ -92,6 +92,7 @@ export interface CourseSessionListItem {
   created_at: string;
   updated_at: string;
   last_studied_at: string | null;
+  archived_at?: string | null;
 }
 
 export interface CourseSessionUpdatePayload {
@@ -123,8 +124,17 @@ export interface CourseDetail {
 
 export async function listCourseSessions(
   signal?: AbortSignal,
+  options?: { limit?: number; offset?: number; archived?: boolean },
 ): Promise<CourseSessionListItem[]> {
-  return apiClient.get<CourseSessionListItem[]>(`${BASE}/`, { signal });
+  const params = new URLSearchParams();
+  if (options?.limit != null) params.set("limit", String(options.limit));
+  if (options?.offset != null) params.set("offset", String(options.offset));
+  if (options?.archived) params.set("archived", "true");
+  const qs = params.toString();
+  const data = await apiClient.get<
+    CourseSessionListItem[] | { items: CourseSessionListItem[] }
+  >(`${BASE}/${qs ? `?${qs}` : ""}`, { signal });
+  return Array.isArray(data) ? data : (data.items ?? []);
 }
 
 export async function createCourseSession(
@@ -292,6 +302,14 @@ export async function getCourseDetail(
 
 export async function deleteCourseSession(id: string): Promise<void> {
   await apiClient.delete(`${BASE}/${encodeURIComponent(id)}/delete/`);
+}
+
+export async function archiveCourseSession(id: string): Promise<void> {
+  await apiClient.patch(`${BASE}/${encodeURIComponent(id)}/archive/`, {});
+}
+
+export async function unarchiveCourseSession(id: string): Promise<void> {
+  await apiClient.patch(`${BASE}/${encodeURIComponent(id)}/unarchive/`, {});
 }
 
 /* ── 开始学习 ── */

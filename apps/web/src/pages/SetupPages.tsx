@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useRef, useState, type DragEvent } from "react";
+import { useCallback, useEffect, useLayoutEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { Check, Circle, FileWarning, FolderOpen, Folders, Globe, Loader, Plus, Upload, X } from "lucide-react";
+import { Check, Circle, ExternalLink, Eye, FileWarning, FolderOpen, Loader, Plus, Upload, X } from "lucide-react";
 
 import { SetupShell } from "../components/AppShell";
 import { useCourseCreation } from "../components/CourseCreationContext";
@@ -16,9 +16,18 @@ import {
   type InquiryEntry,
   type InquiryQuestion,
 } from "../services/courseApi";
-import { fetchSources, type SourceItem } from "../services/documentApi";
-import { uploadFile, type UploadProgress } from "../services/uploadService";
+import { useLibrarySourcesQuery } from "../hooks/useLibrarySourcesQuery";
+import { SourceUploadModal } from "../components/upload/SourceUploadModal";
+import { type SourceItem } from "../services/documentApi";
+import { buildLibraryReaderPath } from "../services/resourceCompat";
 import { buildAdjustmentSupplement } from "./courseFlowHelpers";
+import {
+  clearCourseCreationStorage,
+  COURSE_GOAL_KEY,
+  COURSE_SESSION_ID_KEY,
+  readStoredCourseGoal,
+  shouldCreateFreshCourseSession,
+} from "../lib/courseCreationStorage";
 
 /* ── 子步骤定义 ── */
 
@@ -54,7 +63,7 @@ const SUB_STEPS: SubStep[] = [
 export function BuildProfilePage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const { addItem, setSessionId, sessionId } = useCourseCreation();
+  const { addItem, setSessionId, sessionId, resetCreation } = useCourseCreation();
 
   const isAdjust = searchParams.get("adjust") === "true";
   const [phase, setPhase] = useState<SetupPhase>("profile");
@@ -67,9 +76,6 @@ export function BuildProfilePage() {
 
   /* ── 上传弹窗 ── */
   const [showUpload, setShowUpload] = useState(false);
-  const [uploadDragOver, setUploadDragOver] = useState(false);
-  const [uploadProgress, setUploadProgress] = useState<UploadProgress | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
   /* ── 追问状态 ── */
   const [inquiryActive, setInquiryActive] = useState(false);
@@ -81,26 +87,35 @@ export function BuildProfilePage() {
   const [inquirySessionId, setInquirySessionId] = useState<string | null>(null);
 
   /* ── 资料库数据 ── */
-  const [librarySources, setLibrarySources] = useState<SourceItem[]>([]);
+  const { data: librarySources = [], isLoading: sourcesLoading, refetch: reloadLibrarySources } = useLibrarySourcesQuery();
   const [uploadedVersionIds, setUploadedVersionIds] = useState<string[]>([]);
-  const [sourcesLoading, setSourcesLoading] = useState(true);
-
-  const loadLibrarySources = useCallback(async () => {
-    try {
-      const sources = await fetchSources();
-      setLibrarySources(sources);
-    } catch {
-      // 静默降级
-    } finally {
-      setSourcesLoading(false);
-    }
-  }, []);
-
-  useEffect(() => { loadLibrarySources(); }, [loadLibrarySources]);
 
   const step = SUB_STEPS[stepIndex];
   const isGoalStep = stepIndex === 0;
   const isMaterialsStep = stepIndex === 1;
+
+  function resetLocalSetupState() {
+    setPhase("profile");
+    setStepIndex(0);
+    setInputValue("");
+    setSelectedMaterials(new Set());
+    setUploadedVersionIds([]);
+    setCoveragePreview(null);
+    setInquiryActive(false);
+    setInquiryQuestions(null);
+    setInquiryHistory([]);
+    setInquiryAnswer("");
+    setInquirySummary(null);
+    setInquirySessionId(null);
+  }
+
+  // 新建建课入口必须隔离上一门课的 session / 追问 / 资料作用域
+  useLayoutEffect(() => {
+    if (isAdjust) return;
+    resetCreation();
+    clearCourseCreationStorage();
+    resetLocalSetupState();
+  }, [isAdjust, resetCreation]);
 
   function getSourceVersionId(source: SourceItem): string {
     return source.latestVersion?.id ?? source.id;
@@ -155,18 +170,33 @@ export function BuildProfilePage() {
 
   async function ensureSessionForGoal(): Promise<string> {
     const goal = inputValue.trim();
-    let sid = sessionId || sessionStorage.getItem("mentora-session-id");
-    if (!sid) {
+    const storedGoal = readStoredCourseGoal();
+    let sid = sessionId || sessionStorage.getItem(COURSE_SESSION_ID_KEY);
+    const needsFresh = shouldCreateFreshCourseSession(sid, storedGoal, goal);
+
+    if (needsFresh) {
       const session = await createCourseSession(goal);
       sid = session.id;
-      sessionStorage.setItem("mentora-session-id", sid);
+      sessionStorage.setItem(COURSE_SESSION_ID_KEY, sid);
       setSessionId(sid);
-    } else {
+      if (storedGoal && storedGoal !== goal) {
+        setSelectedMaterials(new Set());
+        setUploadedVersionIds([]);
+        setCoveragePreview(null);
+        setInquiryActive(false);
+        setInquiryQuestions(null);
+        setInquiryHistory([]);
+        setInquiryAnswer("");
+        setInquirySummary(null);
+        setInquirySessionId(null);
+      }
+    } else if (sid) {
       await updateCourseSession(sid, { goal });
     }
-    sessionStorage.setItem("mentora-course-goal", goal);
+
+    sessionStorage.setItem(COURSE_GOAL_KEY, goal);
     addItem({ key: "goal", title: "你想学习什么？", value: goal, source: "你的输入" });
-    return sid;
+    return sid!;
   }
 
   async function handleContinueFromGoal() {
@@ -304,45 +334,6 @@ export function BuildProfilePage() {
     setCoveragePreview(null);
   }
 
-  /* ── 上传资料 ── */
-  function pickFile() {
-    fileInputRef.current?.click();
-  }
-
-  async function handleUploadFile(file: File) {
-    setUploadProgress({ step: "create", message: "正在创建上传会话…" });
-    try {
-      const result = await uploadFile(file, (p) => setUploadProgress(p));
-      // 记录上传的 sourceVersionId，后续绑定到课程
-      setUploadedVersionIds((prev) => [...prev, result.sourceVersionId]);
-      // 刷新资料列表
-      loadLibrarySources();
-      setUploadProgress({ step: "done", message: "上传完成，解析中…" });
-      setTimeout(() => {
-        setShowUpload(false);
-        setUploadProgress(null);
-      }, 800);
-    } catch (err: unknown) {
-      setUploadProgress({
-        step: "error",
-        message: err instanceof Error ? err.message : "上传失败",
-      });
-    }
-  }
-
-  function onFileChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const f = e.target.files?.[0];
-    if (f) handleUploadFile(f);
-    e.target.value = "";
-  }
-
-  function onUploadDrop(e: DragEvent<HTMLDivElement>) {
-    e.preventDefault();
-    setUploadDragOver(false);
-    const f = e.dataTransfer.files[0];
-    if (f) handleUploadFile(f);
-  }
-
   /* ── 渲染内容区 ── */
   function renderCoveragePanel() {
     if (!isMaterialsStep || getSelectedSourceIds().length === 0) return null;
@@ -416,25 +407,38 @@ export function BuildProfilePage() {
                     : `${Math.round(s.latestVersion.byteSize / 1024)} KB`
                   : "";
                 return (
-                  <button
-                    key={vid}
-                    className={`material-row${checked ? " selected" : ""}${completed ? "" : " material-row--disabled"}`}
-                    disabled={!completed}
-                    onClick={() => completed && toggleMaterial(vid)}
-                    type="button"
-                  >
-                    <div className="material-row-left">
-                      <FolderOpen size={16} />
-                      <span className="material-name">{name}</span>
-                      {size && <span className="bp-material-size">{size}</span>}
-                      {!completed && <span className="bp-material-status">解析中</span>}
-                    </div>
-                  <div className={`material-check${checked ? " selected" : ""}`}>
-                    {checked ? <Check size={14} /> : <Circle size={18} />}
+                  <div className="material-row-wrap" key={vid}>
+                    <button
+                      className={`material-row${checked ? " selected" : ""}${completed ? "" : " material-row--disabled"}`}
+                      disabled={!completed}
+                      onClick={() => completed && toggleMaterial(vid)}
+                      type="button"
+                    >
+                      <div className="material-row-left">
+                        <FolderOpen size={16} />
+                        <span className="material-name">{name}</span>
+                        {size && <span className="bp-material-size">{size}</span>}
+                        {!completed && <span className="bp-material-status">解析中，完成后可预览</span>}
+                      </div>
+                      <div className={`material-check${checked ? " selected" : ""}`}>
+                        {checked ? <Check size={14} /> : <Circle size={18} />}
+                      </div>
+                    </button>
+                    {completed ? (
+                      <button
+                        className="button secondary compact material-preview-btn"
+                        onClick={() => navigate(buildLibraryReaderPath(vid, { returnTo: "/courses/new/profile" }))}
+                        title="预览资料"
+                        type="button"
+                      >
+                        <Eye size={14} />
+                        <ExternalLink size={12} />
+                      </button>
+                    ) : null}
                   </div>
-                </button>
-              );
-            }))}
+                );
+              })
+            )}
             {renderCoveragePanel()}
           </div>
         );
@@ -602,69 +606,14 @@ export function BuildProfilePage() {
 
       {/* ── 上传资料弹窗 ── */}
       {showUpload && (
-        <>
-          <input
-            ref={fileInputRef}
-            accept=".pdf,.docx,.pptx,.xlsx,.png,.jpg,.jpeg,.mp4,.mp3"
-            style={{ display: "none" }}
-            type="file"
-            onChange={onFileChange}
-          />
-          <div className="library-modal-overlay" onClick={() => setShowUpload(false)}>
-            <div className="library-modal" onClick={(e) => e.stopPropagation()}>
-              {uploadProgress ? (
-                uploadProgress.step === "error" ? (
-                  <>
-                    <header className="library-modal-header">
-                      <strong>上传失败</strong>
-                      <button aria-label="关闭" onClick={() => setShowUpload(false)} type="button"><X size={17} /></button>
-                    </header>
-                    <div className="library-upload-zone" style={{ textAlign: "center", padding: "40px 24px" }}>
-                      <FileWarning size={32} color="#e74c3c" />
-                      <p style={{ color: "#e74c3c", marginTop: 12 }}>{uploadProgress.message}</p>
-                      <button className="button secondary" onClick={() => setUploadProgress(null)} style={{ marginTop: 12 }}>重新上传</button>
-                    </div>
-                  </>
-                ) : (
-                  <>
-                    <header className="library-modal-header">
-                      <strong>正在上传</strong>
-                      <button aria-label="关闭" onClick={() => setShowUpload(false)} type="button"><X size={17} /></button>
-                    </header>
-                    <div className="library-upload-zone" style={{ textAlign: "center", padding: "40px 24px" }}>
-                      <Loader size={32} className="spin" />
-                      <p style={{ marginTop: 12 }}>{uploadProgress.message}</p>
-                    </div>
-                  </>
-                )
-              ) : (
-                <>
-                  <header className="library-modal-header">
-                    <strong>添加资料</strong>
-                    <button aria-label="关闭" onClick={() => setShowUpload(false)} type="button"><X size={17} /></button>
-                  </header>
-                  <div
-                    className={`library-upload-zone${uploadDragOver ? " drag-over" : ""}`}
-                    onDragEnter={() => setUploadDragOver(true)}
-                    onDragLeave={() => setUploadDragOver(false)}
-                    onDragOver={(e) => e.preventDefault()}
-                    onDrop={onUploadDrop}
-                  >
-                    <Upload size={28} />
-                    <strong>拖拽文件到此处上传</strong>
-                    <span>支持 PDF、Word、PPT、图片、视频、音频</span>
-                  </div>
-                  <div className="library-modal-separator"><span>或者</span></div>
-                  <div className="library-add-options">
-                    <button className="button secondary" type="button" onClick={pickFile}><Folders size={16} />从本地选择文件</button>
-                    <button className="button secondary" type="button" onClick={() => {}}><Globe size={16} />添加网页链接</button>
-                  </div>
-                  <p className="library-upload-note">上传资料仅进入资源库，不会自动授权任何课程访问。</p>
-                </>
-              )}
-            </div>
-          </div>
-        </>
+        <SourceUploadModal
+          showLibraryNote={false}
+          onClose={() => setShowUpload(false)}
+          onUploaded={(result) => {
+            setUploadedVersionIds((prev) => [...prev, result.sourceVersionId]);
+            reloadLibrarySources();
+          }}
+        />
       )}
     </SetupShell>
   );

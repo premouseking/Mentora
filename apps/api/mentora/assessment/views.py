@@ -2,25 +2,36 @@
 
 from __future__ import annotations
 
-import asyncio
 import json
+import logging
+import time
 
 from django.conf import settings
 from rest_framework.response import Response
 from rest_framework.decorators import api_view
-from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiResponse
+from drf_spectacular.utils import extend_schema, OpenApiParameter
 
-from mentora.assessment.models import AssessmentItem, AssessmentSession
-from mentora.assessment.schemas import GeneratedQuizPaper
-from mentora.assessment.services import (
-    complete_session,
-    create_item,
-    create_session,
-    submit_attempt,
+from mentora.assessment.models import AssessmentSession
+from mentora.assessment.services import complete_session, submit_attempt
+from mentora.assessment.services.quiz_evidence import get_scoped_evidence, get_source_titles
+from mentora.assessment.services.quiz_generation import (
+    QuizGenerationError,
+    QuizGenerationRequest,
+    build_generation_cache_key,
+    find_reusable_session_id,
+    run_quiz_generation_fast_sync,
+    should_use_async_generation,
 )
-from mentora.model_gateway.schemas import Message
+from mentora.assessment.services.quiz_generation_jobs import (
+    create_generation_job,
+    enqueue_generation_job,
+    get_generation_job,
+)
 
-MAX_CONTEXT_EVIDENCE = 18
+logger = logging.getLogger(__name__)
+
+DEFAULT_TASK_QUIZ_COUNT = 5
+DEFAULT_QUIZ_COUNT = 5
 
 
 def _parse_json(request) -> dict:
@@ -32,8 +43,28 @@ def _parse_json(request) -> dict:
         raise ValueError("无效 JSON")
 
 
-def _json_error(message: str, status: int = 400) -> Response:
-    return Response({"error": message}, status=status)
+def _json_error(message: str, status: int = 400, *, code: str | None = None) -> Response:
+    payload: dict = {"error": message}
+    if code:
+        payload["code"] = code
+    return Response(payload, status=status)
+
+
+def _resolve_task_unit_id(task_id: str, course_session_id: str) -> tuple[str, Response | None]:
+    if not task_id:
+        return "", None
+
+    from mentora.learning.services.task_sources import resolve_learning_task
+
+    task = resolve_learning_task(task_id)
+    if task is None:
+        return "", _json_error("任务不存在", 400)
+
+    plan = getattr(task.revision, "learning_plan", None)
+    if plan is None or str(plan.course_session_id) != str(course_session_id):
+        return "", _json_error("任务不属于当前课程会话", 400)
+
+    return str(task.unit_id), None
 
 
 def _resolve_course_session_id(body: dict) -> tuple[str | None, Response | None]:
@@ -43,82 +74,6 @@ def _resolve_course_session_id(body: dict) -> tuple[str | None, Response | None]
     if settings.DEBUG and settings.DEV_COURSE_SESSION_ID:
         return settings.DEV_COURSE_SESSION_ID, None
     return None, _json_error("缺少 course_session_id", 400)
-
-
-def _get_source_titles(source_version_ids: list[str]) -> dict[str, str]:
-    from mentora.knowledge.models import SourceVersion
-
-    versions = SourceVersion.objects.select_related("source").filter(id__in=source_version_ids)
-    titles: dict[str, str] = {}
-    for version in versions:
-        titles[str(version.id)] = (
-            version.source.display_title
-            or version.original_filename
-            or f"资料 {str(version.id)[:8]}"
-        )
-    return titles
-
-
-def _get_scoped_evidence(source_version_ids: list[str], *, evidence_ids: list[str] | None = None):
-    from mentora.retrieval.models import EvidenceUnit
-
-    if evidence_ids:
-        units = list(
-            EvidenceUnit.objects.filter(id__in=evidence_ids)
-            .order_by("source_version_id", "page_number", "created_at")
-        )
-        if source_version_ids:
-            allowed = set(source_version_ids)
-            units = [unit for unit in units if unit.source_version_id in allowed]
-        return units[:MAX_CONTEXT_EVIDENCE]
-
-    return list(
-        EvidenceUnit.objects.filter(source_version_id__in=source_version_ids)
-        .order_by("source_version_id", "page_number", "created_at")[:MAX_CONTEXT_EVIDENCE]
-    )
-
-
-def _build_generation_prompt(
-    *,
-    evidence_units,
-    source_titles: dict[str, str],
-    count: int,
-    difficulty: str,
-) -> list[Message]:
-    evidence_lines = []
-    for idx, unit in enumerate(evidence_units, 1):
-        title = source_titles.get(unit.source_version_id, unit.source_version_id)
-        content = unit.content.strip().replace("\n", " ")
-        evidence_lines.append(
-            f"{idx}. evidence_id={unit.id} source={title} page={unit.page_number}\n{content}"
-        )
-
-    system = (
-        "你是 Mentora 的课程刷题出题助手。请只基于用户提供的课程资料证据生成单选题，"
-        "不得编造资料外知识。每题必须有 4 个选项，正确答案只能是 A/B/C/D，"
-        "解析要说明依据，并尽量引用 evidence_id。"
-    )
-    user = (
-        f"请生成 {count} 道单选题，难度要求：{difficulty or '综合'}。\n"
-        "返回结构必须符合 schema；source_evidence_ids 只允许使用下面列出的 evidence_id。\n\n"
-        "课程资料证据：\n" + "\n\n".join(evidence_lines)
-    )
-    return [Message(role="system", content=system), Message(role="user", content=user)]
-
-
-def _normalize_options(raw_options: list[dict]) -> list[dict]:
-    labels = ["A", "B", "C", "D"]
-    options: list[dict] = []
-    for idx, option in enumerate(raw_options[:4]):
-        label = str(option.get("label") or labels[idx]).strip().upper()[:1]
-        if label not in labels:
-            label = labels[idx]
-        text = str(option.get("text") or "").strip()
-        options.append({"label": label, "text": text})
-    while len(options) < 4:
-        label = labels[len(options)]
-        options.append({"label": label, "text": "以上说法不正确"})
-    return options
 
 
 def _serialize_session(session_id: str) -> dict | None:
@@ -150,7 +105,7 @@ def _serialize_session(session_id: str) -> dict | None:
         str(unit.id): unit
         for unit in EvidenceUnit.objects.filter(id__in=evidence_ids)
     }
-    source_titles_by_version = _get_source_titles(
+    source_titles_by_version = get_source_titles(
         list({unit.source_version_id for unit in evidence_map.values()})
     )
 
@@ -198,21 +153,79 @@ def _serialize_session(session_id: str) -> dict | None:
     }
 
 
+def _parse_reuse_query_params(request) -> tuple[QuizGenerationRequest | None, Response | None]:
+    """与 generate 共用 cache key 构造，复用查找须解析 task 对应 unit_id。"""
+    course_session_id = str(request.GET.get("course_session_id") or "").strip()
+    if not course_session_id:
+        return None, _json_error("缺少 course_session_id", 400)
+
+    task_id = str(request.GET.get("task_id") or "").strip()
+    unit_id = str(request.GET.get("unit_id") or "").strip()
+    if task_id and not unit_id:
+        unit_id, task_error = _resolve_task_unit_id(task_id, course_session_id)
+        if task_error is not None:
+            return None, task_error
+
+    req = QuizGenerationRequest(
+        course_session_id=course_session_id,
+        count=int(request.GET.get("count") or DEFAULT_TASK_QUIZ_COUNT),
+        difficulty=str(request.GET.get("difficulty") or "综合"),
+        source_version_ids=[
+            str(v).strip()
+            for v in (request.GET.get("source_version_ids") or "").split(",")
+            if str(v).strip()
+        ],
+        source_evidence_ids=[
+            str(v).strip()
+            for v in (request.GET.get("source_evidence_ids") or "").split(",")
+            if str(v).strip()
+        ],
+        evidence_units=[],
+        source_titles={},
+        task_id=task_id,
+        unit_id=unit_id,
+    )
+    return req, None
+
+
+def _build_generation_request(
+    body: dict,
+    *,
+    course_session_id: str,
+    source_version_ids: list[str],
+    source_evidence_ids: list[str],
+    count: int,
+    difficulty: str,
+    task_id: str,
+    unit_id: str,
+    unit_title: str,
+    evidence_units,
+    source_titles: dict[str, str],
+) -> QuizGenerationRequest:
+    mode = str(body.get("mode") or "fast").strip().lower()
+    if mode not in {"fast", "agent"}:
+        mode = "fast"
+    return QuizGenerationRequest(
+        course_session_id=course_session_id,
+        count=count,
+        difficulty=difficulty,
+        source_version_ids=source_version_ids,
+        source_evidence_ids=source_evidence_ids,
+        evidence_units=evidence_units,
+        source_titles=source_titles,
+        unit_id=unit_id,
+        unit_title=unit_title,
+        task_id=task_id,
+        mode=mode,
+        force_regenerate=bool(body.get("force_regenerate")),
+    )
+
+
 @extend_schema(
     summary="生成测验试卷",
     description="LLM 根据课程资料自动生成题目并创建测验会话",
-    request={"application/json": {"type": "object", "properties": {
-        "course_session_id": {"type": "string"},
-        "source_version_ids": {"type": "array", "items": {"type": "string"}},
-        "source_evidence_ids": {"type": "array", "items": {"type": "string"}},
-        "task_id": {"type": "string"},
-        "count": {"type": "integer", "default": 5},
-        "difficulty": {"type": "string", "default": "综合"},
-    }}},
-    responses={201: OpenApiParameter("session_id", str)},
 )
 @api_view(["POST"])
-@extend_schema(summary="Generate Quiz Session")
 def generate_quiz_session(request):
     if not settings.LLM_API_KEY:
         return _json_error("LLM_API_KEY 未配置，无法生成题目", 503)
@@ -231,20 +244,24 @@ def generate_quiz_session(request):
     if not source_version_ids and not source_evidence_ids:
         return _json_error("请至少选择一个课程文件或指定任务证据", 400)
 
-    count = body.get("count", 10)
+    default_count = DEFAULT_TASK_QUIZ_COUNT if task_id else DEFAULT_QUIZ_COUNT
+    count = body.get("count", default_count)
     try:
         count = max(1, min(int(count), 20))
     except (TypeError, ValueError):
-        count = 10
+        count = default_count
     difficulty = str(body.get("difficulty") or "综合").strip()
     course_session_id, error_response = _resolve_course_session_id(body)
     if error_response is not None:
         return error_response
 
-    evidence_units = _get_scoped_evidence(
+    evidence_started = time.perf_counter()
+    evidence_units = get_scoped_evidence(
         source_version_ids,
         evidence_ids=source_evidence_ids or None,
     )
+    evidence_ms = (time.perf_counter() - evidence_started) * 1000
+
     if source_evidence_ids:
         found_ids = {str(unit.id) for unit in evidence_units}
         missing = [eid for eid in source_evidence_ids if eid not in found_ids]
@@ -255,64 +272,141 @@ def generate_quiz_session(request):
     if not evidence_units:
         return _json_error("所选资料还没有可用于出题的解析证据，请先完成文件解析", 400)
 
-    source_titles = _get_source_titles(source_version_ids)
-    messages = _build_generation_prompt(
-        evidence_units=evidence_units,
-        source_titles=source_titles,
+    source_titles = get_source_titles(source_version_ids)
+    unit_id, task_error = _resolve_task_unit_id(task_id, course_session_id)
+    if task_error is not None:
+        return task_error
+
+    unit_title = ""
+    if unit_id:
+        from mentora.learning.models import LearningPlanUnit
+
+        unit = LearningPlanUnit.objects.filter(id=unit_id).first()
+        if unit:
+            unit_title = unit.title or ""
+
+    req = _build_generation_request(
+        body,
+        course_session_id=course_session_id,
+        source_version_ids=source_version_ids,
+        source_evidence_ids=source_evidence_ids,
         count=count,
         difficulty=difficulty,
+        task_id=task_id,
+        unit_id=unit_id,
+        unit_title=unit_title,
+        evidence_units=evidence_units,
+        source_titles=source_titles,
+    )
+    cache_key = build_generation_cache_key(req)
+
+    if not req.force_regenerate:
+        reused_session_id = find_reusable_session_id(cache_key)
+        if reused_session_id:
+            data = _serialize_session(reused_session_id)
+            if data is not None:
+                data["reused"] = True
+                logger.info(
+                    "quiz generation reused session=%s cache_key=%s evidence_ms=%.0f",
+                    reused_session_id,
+                    cache_key[:12],
+                    evidence_ms,
+                )
+                return Response(data, status=201)
+
+    async_requested = should_use_async_generation(
+        req,
+        async_flag=bool(body.get("async")),
     )
 
-    try:
-        from mentora.agent_runtime.views import get_gateway
-
-        resp = asyncio.run(
-            get_gateway().chat(
-                task_type="assessment_generate",
-                messages=messages,
-                structured_output_schema=GeneratedQuizPaper,
-            )
+    if async_requested:
+        job = create_generation_job(req)
+        enqueue_generation_job(str(job.id), req)
+        return Response(
+            {
+                "job_id": str(job.id),
+                "status": job.status,
+                "progress": job.progress,
+                "progress_pct": job.progress_pct,
+            },
+            status=202,
         )
-    except Exception as exc:
-        return _json_error(f"LLM 出题失败: {str(exc)}", 502)
 
-    if resp.parsed_output is None:
-        return _json_error("LLM 返回格式异常，请重试", 502)
-
-    allowed_evidence_ids = {str(unit.id) for unit in evidence_units}
-    fallback_evidence_ids = [str(unit.id) for unit in evidence_units[:3]]
-    item_ids: list[str] = []
-
+    started = time.perf_counter()
     try:
-        for raw_item in resp.parsed_output.get("items", [])[:count]:
-            options = _normalize_options(raw_item.get("options") or [])
-            correct_answer = str(raw_item.get("correct_answer") or "A").strip().upper()[:1]
-            if correct_answer not in {"A", "B", "C", "D"}:
-                correct_answer = "A"
-            evidence_ids = [
-                str(eid)
-                for eid in raw_item.get("source_evidence_ids", [])
-                if str(eid) in allowed_evidence_ids
-            ] or fallback_evidence_ids
-            created = create_item(
-                course_session_id=course_session_id,
-                question_type=AssessmentItem.QuestionType.SINGLE_CHOICE,
-                question_text=str(raw_item.get("question_text") or "").strip(),
-                correct_answer=correct_answer,
-                difficulty=int(raw_item.get("difficulty") or 3),
-                options_json=options,
-                explanation=str(raw_item.get("explanation") or "").strip(),
-                source_evidence_ids=evidence_ids,
-            )
-            item_ids.append(created["item_id"])
-        if not item_ids:
-            return _json_error("LLM 没有生成有效题目，请重试", 502)
-        session = create_session(course_session_id=course_session_id, item_ids=item_ids)
-    except Exception as exc:
-        return _json_error(f"保存题目失败: {str(exc)}", 500)
+        if req.mode == "agent":
+            from mentora.assessment.services.agent_generation import run_assessor_quiz_generation_sync
 
-    data = _serialize_session(session["session_id"])
-    return Response(data or session, status=201)
+            session_id = run_assessor_quiz_generation_sync(
+                course_session_id=req.course_session_id,
+                count=req.count,
+                difficulty=req.difficulty,
+                source_version_ids=req.source_version_ids,
+                source_evidence_ids=req.source_evidence_ids,
+                evidence_units=req.evidence_units,
+                source_titles=req.source_titles,
+                unit_id=req.unit_id,
+                unit_title=req.unit_title,
+            )
+        else:
+            session_id, metrics = run_quiz_generation_fast_sync(req)
+            logger.info(
+                "quiz generation fast path session=%s evidence_ms=%.0f llm_ms=%.0f total_ms=%.0f",
+                session_id,
+                evidence_ms,
+                metrics.llm_ms,
+                metrics.total_ms,
+            )
+    except QuizGenerationError as exc:
+        logger.warning("quiz generation failed code=%s msg=%s", exc.code, exc)
+        return _json_error(str(exc), 502, code=exc.code)
+    except Exception as exc:
+        logger.exception("quiz generation unexpected failure")
+        return _json_error(f"出题失败: {str(exc)}", 502, code="generation_failed")
+
+    total_ms = (time.perf_counter() - started) * 1000
+    logger.info(
+        "quiz generation done session=%s mode=%s count=%s total_ms=%.0f",
+        session_id,
+        req.mode,
+        req.count,
+        total_ms,
+    )
+
+    from mentora.assessment.models import QuizGenerationJob
+
+    QuizGenerationJob.objects.create(
+        status=QuizGenerationJob.Status.SUCCEEDED,
+        progress="生成完成",
+        progress_pct=100,
+        generation_cache_key=cache_key,
+        request_payload={
+            "course_session_id": req.course_session_id,
+            "count": req.count,
+            "task_id": req.task_id,
+            "mode": req.mode,
+        },
+        result_session_id=session_id,
+    )
+
+    data = _serialize_session(session_id)
+    if data is None:
+        return _json_error("生成测验成功但无法读取会话", 500)
+    data["reused"] = False
+    return Response(data, status=201)
+
+
+@api_view(["GET"])
+@extend_schema(summary="Quiz Generation Job Detail")
+def quiz_generation_job_detail(request, job_id):
+    data = get_generation_job(str(job_id))
+    if data is None:
+        return _json_error("出题任务不存在", 404)
+    if data.get("session_id"):
+        session = _serialize_session(data["session_id"])
+        if session:
+            data["session"] = session
+    return Response(data)
 
 
 @api_view(["GET"])
@@ -322,6 +416,22 @@ def quiz_session_detail(request, session_id):
     if data is None:
         return _json_error("测验不存在", 404)
     return Response(data)
+
+
+@api_view(["GET"])
+@extend_schema(summary="Find Reusable Quiz Session")
+def find_quiz_session(request):
+    """按 cache key 参数查找可复用测验（任务练习预加载）。"""
+    req, error_response = _parse_reuse_query_params(request)
+    if error_response is not None:
+        return error_response
+
+    cache_key = build_generation_cache_key(req)
+    session_id = find_reusable_session_id(cache_key)
+    if not session_id:
+        return Response({"session": None})
+    session = _serialize_session(session_id)
+    return Response({"session": session, "reused": True})
 
 
 @api_view(["POST"])
@@ -346,24 +456,6 @@ def submit_quiz_attempt(request, session_id):
         )
     except Exception as exc:
         return _json_error(f"提交答案失败: {str(exc)}", 400)
-
-    # 写入学习历史
-    try:
-        from mentora.assessment.models import AssessmentSession
-        from mentora.learning.services import write_history_event
-
-        sess = AssessmentSession.objects.only("course_session_id").get(id=session_id)
-        write_history_event(
-            course_id=str(sess.course_session_id),
-            course_title="",
-            event_type="quiz_attempted",
-            title="测验作答",
-            detail=f"题目 {item_id}",
-            result="correct" if result.get("is_correct") else "incorrect",
-            task_id=item_id,
-        )
-    except Exception:
-        pass
 
     return Response(result)
 

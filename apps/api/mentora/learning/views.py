@@ -9,14 +9,14 @@ from rest_framework.decorators import api_view
 from drf_spectacular.utils import extend_schema, OpenApiParameter
 
 from mentora.learning.services import complete_task, get_history, get_task_detail
-from mentora.learning.services.mistakes import get_explanations, get_mistake_items
+from mentora.learning.services.mistakes import archive_mistake, get_explanations, get_mistake_items, unarchive_mistake
 
 
 @extend_schema(
     summary="获取学习记录",
     description="按课程获取学习事件时间线，倒序排列。",
     parameters=[
-        OpenApiParameter(name="courseId", type=str, description="课程 ID", required=True),
+        OpenApiParameter(name="courseId", type=str, description="课程 ID（Course.id 或建课 session_id），省略则返回全部", required=False),
         OpenApiParameter(name="limit", type=int, description="返回条数，默认 50"),
     ],
     responses={200: {"description": "学习事件列表"}},
@@ -30,8 +30,6 @@ def history_list(request):
     except ValueError:
         limit = 50
 
-    if not course_id:
-        return Response({"items": [], "total": 0})
     return Response(get_history(course_id, limit=limit))
 
 
@@ -53,7 +51,8 @@ def mistake_list(request):
     if not course_id:
         return Response({"error": "缺少 course_id 参数"}, status=400)
 
-    items = get_mistake_items(course_id)
+    include_archived = request.GET.get("include_archived", "").lower() in ("1", "true", "yes")
+    items = get_mistake_items(course_id, include_archived=include_archived)
     return Response({"items": items})
 
 
@@ -115,3 +114,34 @@ def task_complete(request, task_id):
         return Response({"error": "任务不存在"}, status=404)
     result = complete_task(str(task.id))
     return Response(result)
+
+
+@extend_schema(
+    summary="归档错题",
+    description="将错题从默认错题集隐藏，不影响历史作答记录。",
+    tags=["学习记录"],
+    parameters=[
+        OpenApiParameter(name="course_id", type=str, description="课程 ID", required=True),
+    ],
+)
+@api_view(["PATCH"])
+def mistake_archive(request, item_id):
+    course_id = request.GET.get("course_id", "").strip()
+    if not course_id:
+        return Response({"error": "缺少 course_id 参数"}, status=400)
+    return Response(archive_mistake(course_id, str(item_id)))
+
+
+@extend_schema(
+    summary="取消归档错题",
+    tags=["学习记录"],
+    parameters=[
+        OpenApiParameter(name="course_id", type=str, description="课程 ID", required=True),
+    ],
+)
+@api_view(["PATCH"])
+def mistake_unarchive(request, item_id):
+    course_id = request.GET.get("course_id", "").strip()
+    if not course_id:
+        return Response({"error": "缺少 course_id 参数"}, status=400)
+    return Response(unarchive_mistake(course_id, str(item_id)))

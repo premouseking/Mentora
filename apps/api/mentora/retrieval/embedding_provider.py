@@ -65,7 +65,8 @@ class DoubaoEmbeddingProvider:
         endpoint_id: str = "",
     ):
         self._api_key = api_key
-        self._model = model
+        # 火山方舟推理接入点优先于模型名
+        self._model = endpoint_id.strip() if endpoint_id and endpoint_id.strip() else model
         self._api_dimensions = api_dimensions
         self._dimensions = target_dimensions
         self._base_url = base_url.rstrip("/")

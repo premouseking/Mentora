@@ -47,13 +47,13 @@ services:
     profiles: ["app"]
     build:
       context: ../../apps/api
+      args:
+        MENTORA_API_SOURCE_HASH: ${MENTORA_API_SOURCE_HASH:-}
+    image: mentora-api
     env_file:
       - ../../.env
     environment:
       DJANGO_DEBUG: "true"
-      POSTGRES_DB: ${POSTGRES_DB:-mentora}
-      POSTGRES_USER: ${POSTGRES_USER:-mentora}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-mentora}
       POSTGRES_HOST: postgres
       POSTGRES_PORT: "5432"
       REDIS_URL: redis://redis:6379/0

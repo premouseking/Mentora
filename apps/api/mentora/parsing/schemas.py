@@ -80,6 +80,10 @@ class Page(BaseModel):
 
     page_number: int = Field(ge=1, description="物理页码，从 1 开始")
     original_label: str | None = Field(default=None, description="原文件页码标注")
+    page_size: tuple[float, float] | None = Field(
+        default=None,
+        description="页面尺寸 [width, height]，单位 pt；旧 artifact 可能缺失",
+    )
     elements: list[ParsedElement] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
 

@@ -33,6 +33,10 @@ class AgentInput(BaseModel):
         description="本次可用的工具定义",
     )
     max_tool_rounds: int = Field(default=5, description="最大工具调用轮次")
+    tool_metadata: dict = Field(
+        default_factory=dict,
+        description="注入 ToolContext.metadata 的任务级元数据",
+    )
 
 
 class Agent(ABC):

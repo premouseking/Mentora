@@ -213,6 +213,14 @@ export function ConfirmPlanPage() {
         });
         return false;
       }
+      if (
+        genErr instanceof ApiError
+        && genErr.code === "invalid_scope_evidence"
+        && !allowPartial
+      ) {
+        // LLM 偶发引用无效 evidence ID，自动重试一次
+        return runPlanGeneration(true);
+      }
       setError(genErr instanceof Error ? genErr.message : "方案生成失败");
       return false;
     } finally {

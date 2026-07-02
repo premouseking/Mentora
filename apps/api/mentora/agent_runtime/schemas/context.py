@@ -42,3 +42,7 @@ class ToolContext(BaseModel):
     run_id: str = Field(description="SubAgentRun ID")
     owner_id: str = Field(default="", description="用户 ID")
     course_id: str | None = Field(default=None, description="当前课程 ID，供工具自动限定作用域")
+    metadata: dict = Field(
+        default_factory=dict,
+        description="本次任务注入的工具元数据，如 allowed_evidence_ids、unit_id",
+    )

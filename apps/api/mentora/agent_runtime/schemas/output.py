@@ -34,6 +34,8 @@ class ToolInvocationRecord(BaseModel):
     arguments: dict = Field(default_factory=dict)
     success: bool = False
     duration_ms: float = 0.0
+    result: dict | None = Field(default=None, description="工具成功时的结构化结果")
+    error: str = Field(default="", description="工具失败时的错误信息")
 
 
 class AgentOutput(BaseModel):

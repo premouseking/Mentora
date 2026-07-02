@@ -177,6 +177,7 @@ GENERATE_ITEM_DEFINITION = ToolDefinition(
         "required": ["course_session_id", "items"],
     },
     agent_roles={"assessor"},
+    timeout_seconds=300.0,
 )
 
 SUBMIT_ANSWER_DEFINITION = ToolDefinition(

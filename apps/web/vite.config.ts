@@ -13,6 +13,23 @@ export default defineConfig(({ mode }) => {
     base: "./",
     envDir: repoRoot,
     plugins: [react()],
+    build: {
+      rollupOptions: {
+        output: {
+          manualChunks(id) {
+            if (id.includes("node_modules/pdfjs-dist")) return "vendor-pdfjs";
+            if (id.includes("node_modules/katex") || id.includes("node_modules/react-markdown")) {
+              return "vendor-markdown";
+            }
+            if (id.includes("node_modules/@tanstack/react-query")) return "vendor-query";
+            if (id.includes("node_modules/react-router")) return "vendor-router";
+            if (id.includes("node_modules/react-dom") || id.includes("node_modules/react/")) {
+              return "vendor-react";
+            }
+          },
+        },
+      },
+    },
     server: {
       port: 5173,
       strictPort: true,

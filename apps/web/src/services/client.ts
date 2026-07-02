@@ -147,7 +147,11 @@ async function request<T>(
   const { body, signal: externalSignal, timeoutMs = DEFAULT_TIMEOUT_MS, skipAuth } = opts;
 
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  let timedOut = false;
+  const timeoutId = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, timeoutMs);
   const signal = externalSignal
     ? combineSignals(externalSignal, controller.signal)
     : controller.signal;
@@ -210,7 +214,7 @@ async function request<T>(
   } catch (err: unknown) {
     if (err instanceof ApiError) throw err;
     if (err instanceof DOMException && err.name === "AbortError") {
-      throw new ApiError(0, "请求已取消或超时");
+      throw new ApiError(0, timedOut ? "请求超时，请稍后重试" : "请求已取消");
     }
     throw new ApiError(0, err instanceof Error ? err.message : "网络错误");
   } finally {

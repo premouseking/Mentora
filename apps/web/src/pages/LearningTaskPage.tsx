@@ -8,22 +8,19 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { DesktopTitleBar } from "../components/DesktopTitleBar";
 import { QuizPracticeView } from "../components/QuizPracticeView";
 import { ReferenceEvidenceBlock } from "../components/ReferenceEvidenceBlock";
+import { PageSkeleton } from "../components/PageSkeleton";
+import { useLearningTaskData } from "../hooks/useLearningTaskData";
 import { resolveTaskLearningMode } from "./courseFlowHelpers";
-import { getCourseDetail } from "../services/courseApi";
-import { fetchSources, sourcesToFileNodes } from "../services/documentApi";
 import {
   completeLearningTask,
-  fetchTask,
   type CalloutBlock,
   type CitationBlock,
   type ContentBlock,
   type DiagramBlock,
   type HeadingBlock,
-  type LearningTaskDetail,
   type ParagraphBlock,
   type QuizBlock,
 } from "../services/learningApi";
-import type { FileNode } from "../data/files";
 
 /* ── 辅助面板 ── */
 
@@ -133,53 +130,23 @@ export function LearningTaskPage() {
   const { courseId, taskId } = useParams<{ courseId: string; taskId: string }>();
   const navigate = useNavigate();
 
-  const [task, setTask] = useState<LearningTaskDetail | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [courseSessionId, setCourseSessionId] = useState<string | undefined>();
-  const [fileNodes, setFileNodes] = useState<FileNode[]>([]);
+  const {
+    task,
+    courseSessionId,
+    fileNodes,
+    isInitialLoading,
+    error: loadError,
+  } = useLearningTaskData(courseId, taskId);
 
-  /* 切换段落解释模式 */
   const [paraMode, setParaMode] = useState<"standard" | "simple" | "example">("standard");
-
-  /* 侧栏高亮 */
   const [activeSection, setActiveSection] = useState<string | null>(null);
   const [helperPanel, setHelperPanel] = useState<HelperPanel>(null);
   const [citationSource, setCitationSource] = useState<CitationBlock | null>(null);
 
-  useEffect(() => {
-    if (!taskId) {
-      setError("缺少任务 ID");
-      setLoading(false);
-      return;
-    }
-
-    let cancelled = false;
-    fetchTask(taskId)
-      .then((data) => { if (!cancelled) setTask(data); })
-      .catch((err) => { if (!cancelled) setError(err instanceof Error ? err.message : "加载失败"); })
-      .finally(() => { if (!cancelled) setLoading(false); });
-
-    return () => { cancelled = true; };
-  }, [taskId]);
-
-  useEffect(() => {
-    if (!courseId) return;
-    let cancelled = false;
-    getCourseDetail(courseId)
-      .then((course) => {
-        if (!cancelled) setCourseSessionId(course?.session_id || courseId);
-      })
-      .catch(() => {
-        if (!cancelled) setCourseSessionId(courseId);
-      });
-    fetchSources(courseId)
-      .then((items) => { if (!cancelled) setFileNodes(sourcesToFileNodes(items)); })
-      .catch(() => { if (!cancelled) setFileNodes([]); });
-    return () => { cancelled = true; };
-  }, [courseId]);
-
-  const learningMode = task ? resolveTaskLearningMode(task.task_type) : "content";
+  const learningMode = useMemo(
+    () => (task ? resolveTaskLearningMode(task.task_type) : null),
+    [task],
+  );
   const taskSourceVersionIds = useMemo(
     () => [...new Set(task?.sources.map((source) => source.source_version_id) ?? [])],
     [task],
@@ -188,8 +155,6 @@ export function LearningTaskPage() {
     () => task?.sources.map((source) => source.evidence_id) ?? [],
     [task],
   );
-
-  /* 提取标题块作为侧栏导航 */
   const headings = useMemo<HeadingBlock[]>(() => {
     if (!task) return [];
     return task.content_blocks.filter(
@@ -197,13 +162,11 @@ export function LearningTaskPage() {
     );
   }, [task]);
 
-  /* 滚动到指定 id */
   const scrollTo = useCallback((id: string) => {
     setActiveSection(id);
     document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
   }, []);
 
-  /* 渲染内容块 */
   const renderBlock = useCallback((block: ContentBlock) => {
     switch (block.type) {
       case "heading":
@@ -223,24 +186,22 @@ export function LearningTaskPage() {
     }
   }, [activeSection, paraMode, scrollTo]);
 
-  /* ── 加载态 / 错误态 ── */
-  if (loading) {
+  if (!taskId) {
     return (
-      <div className="learning-shell">
-        <DesktopTitleBar />
-        <div className="loading-container"><span>正在加载任务内容…</span></div>
+      <div className="learning-task-page">
+        <p className="reader-shell-message">缺少任务 ID</p>
       </div>
     );
   }
 
-  if (error || !task) {
+  if (isInitialLoading) {
+    return <PageSkeleton />;
+  }
+
+  if (loadError || !task) {
     return (
-      <div className="learning-shell">
-        <DesktopTitleBar />
-        <div className="error-container">
-          <p>{error ?? "任务不存在"}</p>
-          <Link to={courseId ? `/courses/${courseId}` : "/courses"}>返回课程</Link>
-        </div>
+      <div className="learning-task-page">
+        <p className="reader-shell-message">{loadError || "加载失败"}</p>
       </div>
     );
   }

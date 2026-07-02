@@ -238,21 +238,12 @@ def _execute_processing(
         evidence_units = split_evidence(bundle)
         count = persist_evidence_units(evidence_units, str(source_version.id))
 
-        # 解析完成后自动构建 Chunk 并异步生成 embedding
-        from mentora.retrieval.chunk_builder import build_chunks
-        from mentora.retrieval.models import EvidenceUnit as ORMEvidenceUnit
+        from mentora.retrieval.index_builder import build_retrieval_projections, enqueue_embeddings
 
-        units = list(
-            ORMEvidenceUnit.objects.filter(
-                source_version_id=str(source_version.id)
-            ).order_by("page_number")
-        )
-        for chunk in build_chunks(units):
-            chunk.save()
-
-        from mentora.retrieval.tasks import generate_chunk_embeddings, generate_sentence_embeddings
-        generate_chunk_embeddings.delay(str(source_version.id))
-        generate_sentence_embeddings.delay(str(source_version.id))
+        projection_stats = build_retrieval_projections(str(source_version.id))
+        if projection_stats["evidence"] == 0:
+            raise ParsingError("解析未产生任何证据单元")
+        enqueue_embeddings(str(source_version.id))
 
         source_version.processing_status = ProcessingStatus.COMPLETED
         source_version.artifact_ref = artifact_key

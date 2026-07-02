@@ -81,6 +81,7 @@ class PyMuPDFAdapter:
                     Page(
                         page_number=page_idx + 1,
                         original_label=None,
+                        page_size=(page_width, page_height),
                         elements=elements,
                         warnings=page_warnings,
                     )

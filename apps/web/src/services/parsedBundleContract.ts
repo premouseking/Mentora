@@ -25,6 +25,8 @@ export interface ParsedElement {
 export interface ParsedPage {
   page_number: number;
   original_label?: string | null;
+  /** PDF 页面尺寸 [width, height]，单位 pt；旧 artifact 可能缺失 */
+  page_size?: [number, number] | null;
   elements: ParsedElement[];
   warnings: string[];
 }
@@ -81,6 +83,16 @@ function asRecord(value: unknown): Record<string, unknown> | null {
   return value as Record<string, unknown>;
 }
 
+function normalizePageSize(value: unknown): [number, number] | null {
+  if (!Array.isArray(value) || value.length < 2) return null;
+  const width = Number(value[0]);
+  const height = Number(value[1]);
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+    return null;
+  }
+  return [width, height];
+}
+
 function normalizePages(rawPages: unknown): ParsedPage[] {
   if (!Array.isArray(rawPages)) return [];
   return rawPages.map((pageValue) => {
@@ -119,6 +131,7 @@ function normalizePages(rawPages: unknown): ParsedPage[] {
         page.original_label === null || page.original_label === undefined
           ? null
           : String(page.original_label),
+      page_size: normalizePageSize(page.page_size),
       elements,
       warnings: Array.isArray(page.warnings)
         ? page.warnings.map((item) => String(item))

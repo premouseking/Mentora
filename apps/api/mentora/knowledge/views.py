@@ -41,6 +41,18 @@ def _resolve_owner_id(value: object | None) -> tuple[str | None, Response | None
     return None, Response({"error": "缺少 ownerId"}, status=400)
 
 
+def _parse_pagination(request) -> tuple[int, int]:
+    try:
+        limit = int(request.GET.get("limit", 100))
+    except (TypeError, ValueError):
+        limit = 100
+    try:
+        offset = int(request.GET.get("offset", 0))
+    except (TypeError, ValueError):
+        offset = 0
+    return min(max(limit, 1), 500), max(offset, 0)
+
+
 @extend_schema(
     summary="创建上传会话",
     description="创建上传会话，返回对象存储键和上传 ID。客户端应携带 uploadId 以便 complete 关联。",
@@ -189,51 +201,85 @@ def list_sources(request):
 
     if status_filter in ("active", "archived"):
         qs = qs.filter(status=status_filter)
-
-    if course_id:
-        # 优先读正式课程作用域，没有则回退到临时关联记录
+    elif course_id:
+        # 课程 scope 仍默认只看可用资料
+        qs = qs.filter(status=SourceStatus.ACTIVE)
+        # 支持 Course.id 与 session_id 两种传参；找不到 scope 时返回空集而非全库
         from mentora.courses.services import get_course_scope
         from mentora.courses.models import Course
 
         linked_version_ids = None
+        session_id_for_links = course_id
+        course_obj = None
         try:
-            course = Course.objects.get(session_id=course_id)
-            linked_version_ids = get_course_scope(str(course.id))
-        except Course.DoesNotExist:
-            pass
+            course_obj = Course.objects.get(id=course_id)
+            linked_version_ids = get_course_scope(str(course_obj.id))
+            session_id_for_links = str(course_obj.session_id)
+        except (Course.DoesNotExist, ValueError):
+            try:
+                course_obj = Course.objects.get(session_id=course_id)
+                linked_version_ids = get_course_scope(str(course_obj.id))
+                session_id_for_links = str(course_obj.session_id)
+            except Course.DoesNotExist:
+                pass
 
         if not linked_version_ids:
             linked_version_ids = list(
                 CourseSource.objects.filter(
-                    course_session_id=course_id,
+                    course_session_id=session_id_for_links,
                 ).values_list("source_version_id", flat=True)
             )
 
         if linked_version_ids:
             qs = qs.filter(latest_version__id__in=linked_version_ids)
+            # 课程资料视图默认排除已从课程内归档的关联
+            if request.GET.get("includeArchived", "").lower() not in ("1", "true", "yes"):
+                archived_ids = CourseSource.objects.filter(
+                    course_session_id=session_id_for_links,
+                    archived_at__isnull=False,
+                ).values_list("source_version_id", flat=True)
+                if archived_ids:
+                    qs = qs.exclude(latest_version__id__in=list(archived_ids))
+        else:
+            qs = qs.none()
+
+    limit, offset = _parse_pagination(request)
+    qs = qs.order_by("-created_at")
+
+    for tag in tags_filter:
+        qs = qs.filter(tags__contains=[tag])
+
+    total = qs.count()
+    page_sources = list(qs[offset: offset + limit])
 
     items = []
-    for source in qs.order_by("-created_at"):
+    for source in page_sources:
         latest = source.latest_version
-        # 标签过滤：交集匹配
-        if tags_filter and not set(tags_filter).issubset(set(source.tags or [])):
-            continue
         items.append(
             {
                 "id": str(source.id),
                 "displayTitle": source.display_title,
                 "status": source.status,
-                "tags": source.tags,
+                "tags": source.tags or [],
+                "folderId": str(source.folder_id) if source.folder_id else None,
+                "updatedAt": latest.created_at.isoformat() if latest and latest.created_at else None,
                 "latestVersion": None if latest is None else {
                     "id": str(latest.id),
                     "versionNumber": latest.version_number,
                     "processingStatus": latest.processing_status,
                     "byteSize": latest.byte_size,
                     "originalFilename": latest.original_filename,
+                    "mediaType": latest.media_type,
                 },
             }
         )
-    return Response({"items": items, "count": len(items)})
+
+    return Response({
+        "items": items,
+        "count": total,
+        "limit": limit,
+        "offset": offset,
+    })
 
 
 @extend_schema(
@@ -276,6 +322,7 @@ def source_detail(request, source_version_id):
             "byteSize": version.byte_size,
             "originalFilename": version.original_filename,
             "mediaType": version.media_type,
+            "objectKey": version.object_key,
             "parserName": version.parser_name,
             "parserVersion": version.parser_version,
             "errorCode": version.error_code,
@@ -285,56 +332,38 @@ def source_detail(request, source_version_id):
     })
 
 
-_IMAGE_CONTENT_TYPES = {
-    "png": "image/png",
-    "jpeg": "image/jpeg",
-    "jpg": "image/jpeg",
-    "webp": "image/webp",
-    "gif": "image/gif",
-}
-
-
 @extend_schema(
-    summary="获取资料版本内嵌图片",
-    description="按对象存储键流式返回 PDF 解析提取的图片资源。",
+    summary="获取资料版本对象资源",
+    description="按对象存储键流式返回解析图片；kind=original 时返回原始上传文件。",
     parameters=[
-        OpenApiParameter(name="key", type=str, description="对象存储键", required=True),
+        OpenApiParameter(name="key", type=str, description="对象存储键（解析图片）"),
+        OpenApiParameter(name="kind", type=str, description="original 表示原始文件"),
     ],
     responses={
-        200: {"description": "图片二进制流"},
-        400: {"description": "key 无效或缺失"},
+        200: {"description": "二进制流"},
+        400: {"description": "参数无效"},
         404: {"description": "资料版本或对象不存在"},
     },
 )
 @api_view(["GET"])
 def source_asset(request, source_version_id):
-    from django.http import HttpResponse
-
-    from mentora.common.storage import ObjectStorageError, ObjectStorageService
+    from mentora.knowledge.asset_streaming import stream_source_version_asset
     from mentora.knowledge.models import SourceVersion
 
     try:
-        SourceVersion.objects.get(id=source_version_id)
+        version = SourceVersion.objects.get(id=source_version_id)
     except SourceVersion.DoesNotExist:
         return Response({"error": "资料版本不存在"}, status=404)
 
+    kind = (request.GET.get("kind") or "").strip().lower()
     key = (request.GET.get("key") or "").strip()
-    if not key:
-        return Response({"error": "缺少 key 参数"}, status=400)
-
-    prefix = f"images/{source_version_id}/"
-    if not key.startswith(prefix) or ".." in key or key.startswith("/") or "\\" in key:
-        return Response({"error": "无效的对象键"}, status=400)
-
-    ext = key.rsplit(".", 1)[-1].lower() if "." in key else ""
-    content_type = _IMAGE_CONTENT_TYPES.get(ext, "application/octet-stream")
-
-    try:
-        data = ObjectStorageService().get_object_bytes(key)
-    except ObjectStorageError:
-        return Response({"error": "对象不存在"}, status=404)
-
-    return HttpResponse(data, content_type=content_type)
+    return stream_source_version_asset(
+        version,
+        str(source_version_id),
+        kind=kind,
+        key=key,
+        request=request,
+    )
 
 
 @extend_schema(
@@ -381,7 +410,13 @@ def source_reparse(request, source_id):
 
     # 清理旧解析数据
     ProcessingRun.objects.filter(source_version=version).delete()
-    from mentora.retrieval.models import ChunkProjection, EvidenceUnit
+    from mentora.retrieval.models import ChunkProjection, EvidenceUnit, SentenceProjection
+
+    evidence_ids = list(
+        EvidenceUnit.objects.filter(source_version_id=str(version.id)).values_list("id", flat=True)
+    )
+    if evidence_ids:
+        SentenceProjection.objects.filter(evidence_unit_id__in=evidence_ids).delete()
     EvidenceUnit.objects.filter(source_version_id=str(version.id)).delete()
     ChunkProjection.objects.filter(source_version_id=str(version.id)).delete()
 
@@ -462,8 +497,11 @@ def list_tags(request):
 )
 @api_view(["PATCH"])
 def source_archive(request, source_id):
+    owner_id, error_response = _resolve_owner_id(request.GET.get("ownerId"))
+    if error_response is not None:
+        return error_response
     try:
-        source = Source.objects.get(id=source_id)
+        source = Source.objects.get(id=source_id, owner_id=owner_id)
     except Source.DoesNotExist:
         return Response({"error": "资料不存在"}, status=404)
     source.status = SourceStatus.ARCHIVED
@@ -478,8 +516,11 @@ def source_archive(request, source_id):
 )
 @api_view(["PATCH"])
 def source_unarchive(request, source_id):
+    owner_id, error_response = _resolve_owner_id(request.GET.get("ownerId"))
+    if error_response is not None:
+        return error_response
     try:
-        source = Source.objects.get(id=source_id)
+        source = Source.objects.get(id=source_id, owner_id=owner_id)
     except Source.DoesNotExist:
         return Response({"error": "资料不存在"}, status=404)
     source.status = SourceStatus.ACTIVE
@@ -540,18 +581,26 @@ def folder_create(request):
 )
 @api_view(["GET"])
 def folder_list(request):
+    from django.db.models import Count
+
     owner_id, error_response = _resolve_owner_id(request.GET.get("ownerId"))
     if error_response is not None:
         return error_response
-    folders = LibraryFolder.objects.filter(owner_id=owner_id)
+    folders = (
+        LibraryFolder.objects.filter(owner_id=owner_id)
+        .annotate(
+            childCount=Count("children", distinct=True),
+            sourceCount=Count("sources", distinct=True),
+        )
+    )
     items = []
     for f in folders:
         items.append({
             "id": str(f.id),
             "name": f.name,
             "parentId": str(f.parent_id) if f.parent_id else None,
-            "childCount": f.children.count(),
-            "sourceCount": f.sources.count(),
+            "childCount": f.childCount,
+            "sourceCount": f.sourceCount,
             "position": f.position,
         })
     return Response({"items": items, "count": len(items)})

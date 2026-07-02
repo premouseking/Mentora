@@ -326,3 +326,23 @@ class LearningHistoryEvent(models.Model):
         indexes = [
             models.Index(fields=["course_id", "-created_at"]),
         ]
+
+
+class MistakeArchive(models.Model):
+    """错题归档记录：用户主动隐藏已掌握的错题。"""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    course_id = models.CharField(max_length=128, db_index=True)
+    item_id = models.UUIDField(db_index=True)
+    archived_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "learning_mistake_archive"
+        verbose_name = "错题归档"
+        verbose_name_plural = verbose_name
+        constraints = [
+            models.UniqueConstraint(
+                fields=["course_id", "item_id"],
+                name="learning_mistake_archive_uc",
+            ),
+        ]
