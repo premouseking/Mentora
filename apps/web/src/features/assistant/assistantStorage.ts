@@ -1,7 +1,7 @@
 export interface ChatCitation {
+  content?: string;
   content_preview: string;
   page_number?: number | null;
-  evidence_id?: string;
   source_title?: string;
 }
 
@@ -34,6 +34,7 @@ export interface ConversationSnapshot {
   title: string;
   updatedAt: number;
   messages: ChatMessage[];
+  agentSessionId?: string | null;
 }
 
 export function sanitizeConversationsForStorage(conversations: ConversationSnapshot[]): ConversationSnapshot[] {

@@ -60,10 +60,10 @@ def _parse_json(request) -> dict:
         raise ValueError("无效 JSON")
 
 
-def _get_session(session_id: str) -> CourseCreationSession:
+def _get_session(session_id: str, owner) -> CourseCreationSession:
     """按 UUID 获取会话，不存在时抛 ValueError。"""
     try:
-        return CourseCreationSession.objects.get(id=session_id)
+        return CourseCreationSession.objects.get(id=session_id, owner=owner)
     except CourseCreationSession.DoesNotExist:
         raise ValueError(f"会话 {session_id} 不存在")
 
@@ -116,7 +116,7 @@ def _format_history(inquiry_history: list[dict]) -> str:
     return "\n".join(lines)
 
 
-def _course_ids_by_session_id(session_ids: list[str]) -> dict[str, str]:
+def _course_ids_by_session_id(session_ids: list[str], owner) -> dict[str, str]:
     """按 session_id 批量查 course_id；表未迁移时降级为空映射。"""
     if not session_ids:
         return {}
@@ -125,7 +125,7 @@ def _course_ids_by_session_id(session_ids: list[str]) -> dict[str, str]:
 
         return {
             str(course.session_id): str(course.id)
-            for course in Course.objects.filter(session_id__in=session_ids).only("id", "session_id")
+            for course in Course.objects.filter(session_id__in=session_ids, owner=owner).only("id", "session_id")
         }
     except DatabaseError:
         return {}
@@ -170,14 +170,16 @@ def session_list_or_create(request):
             limit = min(max(int(request.GET.get("limit", 100)), 1), 500)
             offset = max(int(request.GET.get("offset", 0)), 0)
             archived_param = request.GET.get("archived", "").strip().lower()
-            qs = CourseCreationSession.objects.all().order_by("-updated_at")
+            qs = CourseCreationSession.objects.filter(owner=request.user).order_by("-updated_at")
             if archived_param in ("1", "true", "yes"):
                 qs = qs.filter(archived_at__isnull=False)
             else:
                 qs = qs.filter(archived_at__isnull=True)
             sessions = list(qs[offset: offset + limit])
             total = qs.count()
-            course_by_session = _course_ids_by_session_id([str(session.id) for session in sessions])
+            course_by_session = _course_ids_by_session_id(
+                [str(session.id) for session in sessions], request.user,
+            )
             data = [
                 _serialize_session_list_item(session, course_by_session)
                 for session in sessions
@@ -204,7 +206,7 @@ def session_list_or_create(request):
     if not serializer.is_valid():
         return Response({"error": serializer.errors}, status=400)
 
-    session = serializer.save()
+    session = serializer.save(owner=request.user)
     return Response(
         {
             "id": str(session.id),
@@ -225,7 +227,7 @@ def session_detail(request, session_id):
     返回：{ "id", "goal", "level", "pace", "inquiry_history", "status", ... }
     """
     try:
-        session = _get_session(session_id)
+        session = _get_session(session_id, request.user)
     except ValueError as exc:
         return Response({"error": str(exc)}, status=404)
 
@@ -257,7 +259,7 @@ def session_update(request, session_id):
     返回：{ "status": "ok" }
     """
     try:
-        session = _get_session(session_id)
+        session = _get_session(session_id, request.user)
     except ValueError as exc:
         return Response({"error": str(exc)}, status=404)
 
@@ -298,7 +300,7 @@ def session_update(request, session_id):
 @api_view(["DELETE"])
 def session_delete(request, session_id):
     try:
-        session = _get_session(session_id)
+        session = _get_session(session_id, request.user)
     except ValueError as exc:
         return Response({"error": str(exc)}, status=404)
     session.delete()
@@ -325,7 +327,7 @@ def inquiry_next(request, session_id):
     - 追问超过 MAX_INQUIRY_ROUNDS 轮后强制 ready=true
     """
     try:
-        session = _get_session(session_id)
+        session = _get_session(session_id, request.user)
     except ValueError as exc:
         return Response({"error": str(exc)}, status=404)
 
@@ -556,7 +558,7 @@ def plan_handler(request, session_id):
 def _plan_detail(request, session_id):
     """返回当前生效的学习方案（阶段、单元、任务）。"""
     try:
-        _get_session(session_id)
+        _get_session(session_id, request.user)
     except ValueError as exc:
         return Response({"error": str(exc)}, status=404)
 
@@ -583,7 +585,7 @@ def _plan_generate(request, session_id):
     - 方案同步持久化到 learning 模块（status=draft）
     """
     try:
-        session = _get_session(session_id)
+        session = _get_session(session_id, request.user)
     except ValueError as exc:
         return Response({"error": str(exc)}, status=404)
 
@@ -764,7 +766,7 @@ def session_start(request, session_id):
     返回：{ "status": "started", "revision_id": "...", "course_id": "..." }
     """
     try:
-        session = _get_session(session_id)
+        session = _get_session(session_id, request.user)
     except ValueError as exc:
         return Response({"error": str(exc)}, status=404)
 
@@ -781,7 +783,7 @@ def session_start(request, session_id):
     course = Course.objects.filter(session=session).first()
     if course is None:
         try:
-            result = confirm_course_from_session(session_id)
+            result = confirm_course_from_session(session_id, owner=request.user)
             course = Course.objects.get(session=session)
         except Exception as exc:
             return Response({"error": f"课程确认失败: {exc}"}, status=500)
@@ -833,7 +835,7 @@ def session_source_coverage_preview(request, session_id):
     返回：{ "sufficient", "gaps", "sources" }
     """
     try:
-        session = _get_session(session_id)
+        session = _get_session(session_id, request.user)
     except ValueError as exc:
         return Response({"error": str(exc)}, status=404)
 
@@ -872,8 +874,7 @@ def session_source_coverage_preview(request, session_id):
     })
 
 
-@csrf_exempt
-@require_http_methods(["GET", "POST"])
+@api_view(["GET", "POST"])
 def course_sources_manage(request, session_id):
     """
     GET  /api/courses/sessions/<uuid:id>/sources/  → 查课程已关联资料
@@ -885,7 +886,7 @@ def course_sources_manage(request, session_id):
     from mentora.knowledge.models import CourseSource, Source, SourceStatus, SourceVersion
 
     try:
-        _get_session(session_id)
+        _get_session(session_id, request.user)
     except ValueError as exc:
         return JsonResponse({"error": str(exc)}, status=404)
 
@@ -893,6 +894,7 @@ def course_sources_manage(request, session_id):
         include_archived = request.GET.get("includeArchived", "").lower() in ("1", "true", "yes")
         links = CourseSource.objects.filter(
             course_session_id=session_id,
+            source_version__source__owner=request.user,
         ).select_related("source_version__source")
         if not include_archived:
             links = links.filter(archived_at__isnull=True)
@@ -920,17 +922,19 @@ def course_sources_manage(request, session_id):
     if not isinstance(version_ids, list):
         return JsonResponse({"error": "source_version_ids 必须是数组"}, status=400)
 
-    # 幂等：先删后建
+    owned_versions = list(SourceVersion.objects.select_related("source").filter(
+        id__in=version_ids,
+        source__owner=request.user,
+        source__status=SourceStatus.ACTIVE,
+    ))
+    if len(owned_versions) != len(set(version_ids)):
+        return JsonResponse({"error": "资料不存在或无权访问"}, status=404)
+
+    # 完整验证后再替换，避免失败时丢失原关联。
     CourseSource.objects.filter(course_session_id=session_id).delete()
 
     created = 0
-    for vid in version_ids:
-        try:
-            sv = SourceVersion.objects.select_related("source").get(id=vid)
-        except SourceVersion.DoesNotExist:
-            continue
-        if sv.source.status == SourceStatus.ARCHIVED:
-            continue
+    for sv in owned_versions:
         CourseSource.objects.get_or_create(
             course_session_id=session_id,
             source_version=sv,
@@ -938,15 +942,15 @@ def course_sources_manage(request, session_id):
         created += 1
 
     # 同步写入 session.extra，供 course_confirm 创建作用域时使用
-    session = _get_session(session_id)
-    session.extra = {**(session.extra or {}), "source_version_ids": version_ids}
+    session = _get_session(session_id, request.user)
+    persisted_ids = [str(sv.id) for sv in owned_versions]
+    session.extra = {**(session.extra or {}), "source_version_ids": persisted_ids}
     session.save(update_fields=["extra", "updated_at"])
 
     return JsonResponse({"status": "ok", "source_count": created})
 
 
-@csrf_exempt
-@require_http_methods(["PATCH"])
+@api_view(["PATCH"])
 def course_source_archive(request, session_id, source_version_id):
     """PATCH /api/courses/sessions/<id>/sources/<source_version_id>/archive/"""
     from django.utils import timezone
@@ -954,7 +958,7 @@ def course_source_archive(request, session_id, source_version_id):
     from mentora.knowledge.models import CourseSource
 
     try:
-        _get_session(session_id)
+        _get_session(session_id, request.user)
     except ValueError as exc:
         return JsonResponse({"error": str(exc)}, status=404)
 
@@ -967,14 +971,13 @@ def course_source_archive(request, session_id, source_version_id):
     return JsonResponse({"status": "archived"})
 
 
-@csrf_exempt
-@require_http_methods(["PATCH"])
+@api_view(["PATCH"])
 def course_source_unarchive(request, session_id, source_version_id):
     """PATCH /api/courses/sessions/<id>/sources/<source_version_id>/unarchive/"""
     from mentora.knowledge.models import CourseSource
 
     try:
-        _get_session(session_id)
+        _get_session(session_id, request.user)
     except ValueError as exc:
         return JsonResponse({"error": str(exc)}, status=404)
 
@@ -987,14 +990,13 @@ def course_source_unarchive(request, session_id, source_version_id):
     return JsonResponse({"status": "active"})
 
 
-@csrf_exempt
-@require_http_methods(["PATCH"])
+@api_view(["PATCH"])
 def session_archive(request, session_id):
     """PATCH /api/courses/sessions/<id>/archive/ — 软归档，保留数据。"""
     from django.utils import timezone
 
     try:
-        session = _get_session(session_id)
+        session = _get_session(session_id, request.user)
     except ValueError as exc:
         return JsonResponse({"error": str(exc)}, status=404)
 
@@ -1003,12 +1005,11 @@ def session_archive(request, session_id):
     return JsonResponse({"status": "archived", "archived_at": session.archived_at.isoformat()})
 
 
-@csrf_exempt
-@require_http_methods(["PATCH"])
+@api_view(["PATCH"])
 def session_unarchive(request, session_id):
     """PATCH /api/courses/sessions/<id>/unarchive/"""
     try:
-        session = _get_session(session_id)
+        session = _get_session(session_id, request.user)
     except ValueError as exc:
         return JsonResponse({"error": str(exc)}, status=404)
 
@@ -1020,8 +1021,7 @@ def session_unarchive(request, session_id):
 # ── 删除课程 ──
 
 
-@csrf_exempt
-@require_http_methods(["DELETE"])
+@api_view(["DELETE"])
 def session_delete(request, session_id):
     """
     DELETE /api/courses/sessions/<uuid:id>/
@@ -1029,7 +1029,7 @@ def session_delete(request, session_id):
     删除建课会话及其课程资料关联。
     """
     try:
-        session = _get_session(session_id)
+        session = _get_session(session_id, request.user)
     except ValueError as exc:
         return JsonResponse({"error": str(exc)}, status=404)
 
@@ -1054,7 +1054,7 @@ def course_list(request):
     返回课程列表（按创建时间倒序）。
     """
     from mentora.courses.models import Course, CourseProfileRevision
-    courses = Course.objects.order_by("-created_at").values(
+    courses = Course.objects.filter(owner=request.user).order_by("-created_at").values(
         "id", "active_profile_revision_id", "active_scope_revision_id", "created_at",
     )
     result = []
@@ -1098,7 +1098,8 @@ def course_confirm(request):
     from mentora.courses.services import confirm_course_from_session
 
     try:
-        result = confirm_course_from_session(session_id)
+        _get_session(session_id, request.user)
+        result = confirm_course_from_session(session_id, owner=request.user)
         return Response(result, status=201)
     except CourseCreationSession.DoesNotExist:
         return Response({"error": f"会话 {session_id} 不存在"}, status=404)
@@ -1118,7 +1119,7 @@ def course_detail(request, course_id):
     from mentora.courses.services import get_course_scope
 
     try:
-        course = Course.objects.get(id=course_id)
+        course = Course.objects.get(id=course_id, owner=request.user)
     except Course.DoesNotExist:
         return Response({"error": "课程不存在"}, status=404)
 
@@ -1138,7 +1139,7 @@ def course_detail(request, course_id):
         "school": profile.school if profile else "",
         "status": profile.status if profile else "",
         "plan_revision_id": str(profile.plan_revision_id) if profile and profile.plan_revision_id else None,
-        "source_version_ids": get_course_scope(course_id),
+        "source_version_ids": get_course_scope(course_id, owner=request.user),
         "created_at": course.created_at.isoformat(),
     })
 
@@ -1165,7 +1166,7 @@ def course_profile_revise(request, course_id):
         return Response({"error": "无有效字段"}, status=400)
 
     try:
-        result = revise_profile(course_id, **kwargs)
+        result = revise_profile(course_id, owner=request.user, **kwargs)
         return Response(result)
     except Course.DoesNotExist:
         return Response({"error": "课程不存在"}, status=404)
@@ -1195,7 +1196,7 @@ def course_scope_extend(request, course_id):
 
     role = body.get("role", "reference")
     try:
-        result = extend_scope(course_id, sv_ids, role=role)
+        result = extend_scope(course_id, sv_ids, role=role, owner=request.user)
         return Response(result)
     except Course.DoesNotExist:
         return Response({"error": "课程不存在"}, status=404)
@@ -1214,7 +1215,7 @@ def course_scope_suggest(request, course_id):
     from mentora.courses.services import suggest_scope_updates
 
     try:
-        result = suggest_scope_updates(course_id)
+        result = suggest_scope_updates(course_id, owner=request.user)
         return Response(result)
     except Exception as exc:
         return Response({"error": str(exc)}, status=500)
@@ -1237,7 +1238,7 @@ def course_phases(request, course_id):
 
     # 统一路径 A：先有 Course 记录
     try:
-        course = Course.objects.get(id=course_id)
+        course = Course.objects.get(id=course_id, owner=request.user)
     except Course.DoesNotExist:
         return Response({"error": "课程不存在"}, status=404)
     session_id = str(course.session.id)
@@ -1339,7 +1340,7 @@ def course_activate(request, course_id):
     from mentora.courses.services import activate_course, get_course_scope
 
     try:
-        course = Course.objects.get(id=course_id)
+        course = Course.objects.get(id=course_id, owner=request.user)
     except Course.DoesNotExist:
         return Response({"error": "课程不存在"}, status=404)
 
@@ -1412,7 +1413,7 @@ def course_activate(request, course_id):
     profile.save(update_fields=["status"])
 
     try:
-        result = activate_course(course_id)
+        result = activate_course(course_id, owner=request.user)
     except Exception as exc:
         return Response({"error": str(exc)}, status=500)
 
@@ -1451,7 +1452,7 @@ def course_files(request, course_id):
     from mentora.knowledge.models import CourseSource
 
     try:
-        course = Course.objects.get(id=course_id)
+        course = Course.objects.get(id=course_id, owner=request.user)
     except Course.DoesNotExist:
         return Response({"error": "课程不存在"}, status=404)
     session_id = str(course.session.id)

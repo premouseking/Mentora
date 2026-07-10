@@ -19,6 +19,9 @@ class LearningPlan(models.Model):
     """学习计划，1门课1个计划。"""
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    owner = models.ForeignKey(
+        "users.User", null=True, on_delete=models.PROTECT, related_name="learning_plans",
+    )
     course_session_id = models.UUIDField(
         db_index=True,
         help_text="关联的 CourseCreationSession ID。等 courses 模块补充 Course model 后迁移为 FK。",
@@ -309,6 +312,9 @@ class LearningHistoryEvent(models.Model):
         COURSE_PAUSED = "course_paused", "暂停课程"
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    owner = models.ForeignKey(
+        "users.User", null=True, on_delete=models.PROTECT, related_name="learning_history_events",
+    )
     course_id = models.CharField(max_length=128, db_index=True, help_text="关联课程 ID")
     event_type = models.CharField(max_length=20, choices=EventType.choices)
     title = models.CharField(max_length=512)
@@ -332,6 +338,9 @@ class MistakeArchive(models.Model):
     """错题归档记录：用户主动隐藏已掌握的错题。"""
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    owner = models.ForeignKey(
+        "users.User", null=True, on_delete=models.PROTECT, related_name="mistake_archives",
+    )
     course_id = models.CharField(max_length=128, db_index=True)
     item_id = models.UUIDField(db_index=True)
     archived_at = models.DateTimeField(auto_now_add=True)
@@ -342,7 +351,7 @@ class MistakeArchive(models.Model):
         verbose_name_plural = verbose_name
         constraints = [
             models.UniqueConstraint(
-                fields=["course_id", "item_id"],
+                fields=["owner", "course_id", "item_id"],
                 name="learning_mistake_archive_uc",
             ),
         ]

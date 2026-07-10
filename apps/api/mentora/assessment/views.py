@@ -76,9 +76,11 @@ def _resolve_course_session_id(body: dict) -> tuple[str | None, Response | None]
     return None, _json_error("缺少 course_session_id", 400)
 
 
-def _serialize_session(session_id: str) -> dict | None:
+def _serialize_session(session_id: str, *, owner=None) -> dict | None:
     try:
-        session = AssessmentSession.objects.get(id=session_id)
+        session = AssessmentSession.objects.get(
+            id=session_id, **({"owner": owner} if owner is not None else {}),
+        )
     except AssessmentSession.DoesNotExist:
         return None
 
@@ -254,6 +256,16 @@ def generate_quiz_session(request):
     course_session_id, error_response = _resolve_course_session_id(body)
     if error_response is not None:
         return error_response
+    from mentora.courses.models import CourseCreationSession
+    if not CourseCreationSession.objects.filter(
+        id=course_session_id, owner=request.user,
+    ).exists():
+        return _json_error("课程会话不存在", 404)
+    from mentora.knowledge.models import SourceVersion
+    if SourceVersion.objects.filter(
+        id__in=source_version_ids, source__owner=request.user,
+    ).count() != len(set(source_version_ids)):
+        return _json_error("课程资料不存在或无权访问", 404)
 
     evidence_started = time.perf_counter()
     evidence_units = get_scoped_evidence(
@@ -303,7 +315,7 @@ def generate_quiz_session(request):
     if not req.force_regenerate:
         reused_session_id = find_reusable_session_id(cache_key)
         if reused_session_id:
-            data = _serialize_session(reused_session_id)
+            data = _serialize_session(reused_session_id, owner=request.user)
             if data is not None:
                 data["reused"] = True
                 logger.info(
@@ -320,7 +332,7 @@ def generate_quiz_session(request):
     )
 
     if async_requested:
-        job = create_generation_job(req)
+        job = create_generation_job(req, owner=request.user)
         enqueue_generation_job(str(job.id), req)
         return Response(
             {
@@ -376,6 +388,7 @@ def generate_quiz_session(request):
     from mentora.assessment.models import QuizGenerationJob
 
     QuizGenerationJob.objects.create(
+        owner=request.user,
         status=QuizGenerationJob.Status.SUCCEEDED,
         progress="生成完成",
         progress_pct=100,
@@ -389,7 +402,7 @@ def generate_quiz_session(request):
         result_session_id=session_id,
     )
 
-    data = _serialize_session(session_id)
+    data = _serialize_session(session_id, owner=request.user)
     if data is None:
         return _json_error("生成测验成功但无法读取会话", 500)
     data["reused"] = False
@@ -399,11 +412,11 @@ def generate_quiz_session(request):
 @api_view(["GET"])
 @extend_schema(summary="Quiz Generation Job Detail")
 def quiz_generation_job_detail(request, job_id):
-    data = get_generation_job(str(job_id))
+    data = get_generation_job(str(job_id), owner=request.user)
     if data is None:
         return _json_error("出题任务不存在", 404)
     if data.get("session_id"):
-        session = _serialize_session(data["session_id"])
+        session = _serialize_session(data["session_id"], owner=request.user)
         if session:
             data["session"] = session
     return Response(data)
@@ -412,7 +425,7 @@ def quiz_generation_job_detail(request, job_id):
 @api_view(["GET"])
 @extend_schema(summary="Quiz Session Detail")
 def quiz_session_detail(request, session_id):
-    data = _serialize_session(str(session_id))
+    data = _serialize_session(str(session_id), owner=request.user)
     if data is None:
         return _json_error("测验不存在", 404)
     return Response(data)
@@ -430,13 +443,15 @@ def find_quiz_session(request):
     session_id = find_reusable_session_id(cache_key)
     if not session_id:
         return Response({"session": None})
-    session = _serialize_session(session_id)
+    session = _serialize_session(session_id, owner=request.user)
     return Response({"session": session, "reused": True})
 
 
 @api_view(["POST"])
 @extend_schema(summary="Submit Quiz Attempt")
 def submit_quiz_attempt(request, session_id):
+    if not AssessmentSession.objects.filter(id=session_id, owner=request.user).exists():
+        return _json_error("测验不存在", 404)
     try:
         body = _parse_json(request)
     except ValueError as exc:
@@ -463,9 +478,11 @@ def submit_quiz_attempt(request, session_id):
 @api_view(["POST"])
 @extend_schema(summary="Complete Quiz Session")
 def complete_quiz_session(request, session_id):
+    if not AssessmentSession.objects.filter(id=session_id, owner=request.user).exists():
+        return _json_error("测验不存在", 404)
     try:
         result = complete_session(str(session_id))
     except Exception as exc:
         return _json_error(f"完成测验失败: {str(exc)}", 400)
-    data = _serialize_session(result["session_id"])
+    data = _serialize_session(result["session_id"], owner=request.user)
     return Response(data or result)

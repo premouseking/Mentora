@@ -4979,10 +4979,50 @@ p {
   background: #fff;
 }
 
+.ai-chat-header-main {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.ai-chat-course-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.ai-chat-course-tag {
+  display: inline-flex;
+  max-width: 100%;
+  align-items: center;
+  border-radius: 999px;
+  background: #eef5f3;
+  color: #1f5d52;
+  font-size: 11px;
+  line-height: 1.2;
+  padding: 2px 8px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ai-chat-course-tag.bound {
+  background: #e8f1fb;
+  color: #245f9d;
+}
+
 .ai-chat-header-title {
   display: flex;
   align-items: center;
   gap: 10px;
+  min-width: 0;
+  flex: 1;
+}
+
+.ai-chat-header-title .ai-chat-header-main {
+  min-width: 0;
 }
 
 .ai-chat-header-icon {
@@ -5396,8 +5436,7 @@ p {
 }
 
 .ai-chat-citation {
-  display: flex;
-  align-items: flex-start;
+  display: grid;
   gap: 6px;
   padding: 7px 8px;
   border: 1px solid rgba(58, 91, 78, 0.14);
@@ -5409,10 +5448,49 @@ p {
   overflow-wrap: anywhere;
 }
 
-.ai-chat-citation svg {
-  flex: 0 0 auto;
-  margin-top: 2px;
+.ai-chat-citation-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--green-800);
+  font: inherit;
+  font-weight: 650;
+  text-align: left;
+  cursor: pointer;
+}
+
+.ai-chat-citation-toggle:hover {
   color: var(--green-700);
+}
+
+.ai-chat-citation-chevron {
+  display: inline-flex;
+  flex: 0 0 auto;
+  color: #6a7f75;
+}
+
+.ai-chat-citation-toggle > svg {
+  flex: 0 0 auto;
+  color: var(--green-700);
+}
+
+.ai-chat-citation-label {
+  flex: 1;
+  min-width: 0;
+}
+
+.ai-chat-citation blockquote {
+  margin: 0;
+  padding: 8px 9px;
+  border-left: 3px solid rgba(25, 115, 103, 0.28);
+  border-radius: 6px;
+  background: rgba(247, 250, 248, 0.92);
+  color: #33433d;
+  white-space: pre-wrap;
 }
 
 .ai-chat-input-area {

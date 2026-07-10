@@ -6,12 +6,15 @@ import json
 import uuid
 from unittest.mock import patch
 
-from django.test import Client, TestCase, override_settings
+from django.contrib.auth import get_user_model
+from django.test import TestCase, override_settings
+from rest_framework.test import APIClient
 
 from mentora.agent_runtime.schemas.output import AgentOutput, ToolInvocationRecord
 from mentora.assessment.services.agent_generation import extract_generate_item_session_id
 from mentora.knowledge.models import ProcessingStatus, Source, SourceVersion
 from mentora.retrieval.models import EvidenceUnit
+from mentora.courses.models import CourseCreationSession
 
 
 class ExtractSessionIdTests(TestCase):
@@ -37,9 +40,15 @@ class ExtractSessionIdTests(TestCase):
 
 @override_settings(LLM_API_KEY="test-key")
 class AssessmentApiTests(TestCase):
+    def setUp(self):
+        self.user = get_user_model().objects.create_user(
+            email="assessment@example.com", password="test-pass-123",
+        )
+        self.client = APIClient()
+        self.client.force_authenticate(user=self.user)
+
     def test_generate_requires_source_ids(self):
-        client = Client()
-        response = client.post(
+        response = self.client.post(
             "/api/assessment/sessions/generate/",
             data=json.dumps({"source_version_ids": []}),
             content_type="application/json",
@@ -50,8 +59,7 @@ class AssessmentApiTests(TestCase):
 
     @override_settings(DEBUG=False, DEV_COURSE_SESSION_ID=None)
     def test_generate_requires_course_session_id_outside_debug(self):
-        client = Client()
-        response = client.post(
+        response = self.client.post(
             "/api/assessment/sessions/generate/",
             data=json.dumps({"source_version_ids": [str(uuid.uuid4())]}),
             content_type="application/json",
@@ -60,7 +68,7 @@ class AssessmentApiTests(TestCase):
         self.assertEqual(response.json(), {"error": "缺少 course_session_id"})
 
     def test_generate_submit_and_complete_quiz_session(self):
-        source = Source.objects.create(owner_id="dev", display_title="Cache 讲义")
+        source = Source.objects.create(owner=self.user, display_title="Cache 讲义")
         version = SourceVersion.objects.create(
             source=source,
             content_sha256="a" * 64,
@@ -109,8 +117,9 @@ class AssessmentApiTests(TestCase):
 
             return session["session_id"], QuizGenerationMetrics(item_count=1)
 
-        client = Client()
-        course_session_id = str(uuid.uuid4())
+        client = self.client
+        course_session = CourseCreationSession.objects.create(owner=self.user, goal="Cache")
+        course_session_id = str(course_session.id)
         with patch(
             "mentora.assessment.views.run_quiz_generation_fast_sync",
             side_effect=fake_fast_generation,

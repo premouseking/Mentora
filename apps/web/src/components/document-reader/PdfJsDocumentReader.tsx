@@ -32,9 +32,10 @@ import { PdfTextSearch } from "./PdfTextSearch";
 import { buildReaderPageWindow, READER_PAGE_WINDOW_RADIUS } from "./readerPageWindow";
 import { readReaderPrefs, writeReaderPrefs } from "./readerPrefsStorage";
 import { logReaderPerf } from "./readerPerf";
+import { resolveEvidenceFlashRects } from "./resourceReaderUtils";
 import { ReaderSelectionToolbar } from "./ReaderSelectionToolbar";
 import { ReaderToolbar } from "./ReaderToolbar";
-import { pageSizeMap, usePdfReaderState } from "./pdfReaderStateStore";
+import { pageSizeMap, usePdfReaderState, type FlashRect } from "./pdfReaderStateStore";
 import type { OutlineItem } from "./pdfReaderUtils";
 import type { EvidenceHighlight } from "./types";
 
@@ -69,6 +70,7 @@ export function PdfJsDocumentReader({
   const pdfViewerRef = useRef<InstanceType<Awaited<ReturnType<typeof loadPdfJsViewer>>["PDFViewer"]> | null>(null);
   const pdfDocumentRef = useRef<Awaited<ReturnType<typeof loadPdfDocumentFromUrls>> | null>(null);
   const layoutUpdateRafRef = useRef<number | null>(null);
+  const flashTimeoutRef = useRef<number | null>(null);
   const loadStartedAtRef = useRef<number>(performance.now());
   const savedPrefs = useMemo(() => readReaderPrefs(resourceId), [resourceId]);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(savedPrefs.sidebarCollapsed ?? false);
@@ -102,23 +104,60 @@ export function PdfJsDocumentReader({
     setSearchQuery,
     toggleSearch,
     setActiveBlock,
-    setFlashRect,
+    setFlashRects,
   } = usePdfReaderState(initialTotal);
+
+  const showFlashRects = useCallback((rects: FlashRect[]) => {
+    if (flashTimeoutRef.current !== null) {
+      window.clearTimeout(flashTimeoutRef.current);
+      flashTimeoutRef.current = null;
+    }
+    setFlashRects(rects);
+    if (rects.length === 0) return;
+    flashTimeoutRef.current = window.setTimeout(() => {
+      setFlashRects([]);
+      flashTimeoutRef.current = null;
+    }, 2400);
+  }, [setFlashRects]);
 
   const pageSizes = useMemo(() => pageSizeMap(readerDoc.pages), [readerDoc.pages]);
 
-  const pagesToLoad = useMemo(
-    () => buildReaderPageWindow(state.currentPage, state.totalPages, READER_PAGE_WINDOW_RADIUS),
-    [state.currentPage, state.totalPages],
-  );
+  const pagesToLoad = useMemo(() => {
+    const base = buildReaderPageWindow(state.currentPage, state.totalPages, READER_PAGE_WINDOW_RADIUS);
+    if (!evidenceHighlight?.pageNumber) return base;
+    const evidenceWindow = buildReaderPageWindow(
+      evidenceHighlight.pageNumber,
+      state.totalPages,
+      READER_PAGE_WINDOW_RADIUS,
+    );
+    return [...new Set([...base, ...evidenceWindow])].sort((a, b) => a - b);
+  }, [evidenceHighlight?.pageNumber, state.currentPage, state.totalPages]);
 
   const prefetchBlocks = usePrefetchReaderBlocks(resourceId);
 
-  const { data: pagedBlocks = [] } = useResourceReaderBlocks(
+  const {
+    data: pagedBlocks = [],
+    isFetched: blocksFetched,
+    isLoading: blocksLoading,
+  } = useResourceReaderBlocks(
     resourceId,
     pagesToLoad,
     Boolean(resourceId),
   );
+
+  const evidencePageBlocksLoaded = useMemo(() => {
+    if (!evidenceHighlight?.pageNumber) return true;
+    const targetPage = evidenceHighlight.pageNumber;
+    if (!pagesToLoad.includes(targetPage)) return true;
+    if (blocksFetched) return true;
+    return !blocksLoading && pagedBlocks.length > 0;
+  }, [
+    blocksFetched,
+    blocksLoading,
+    evidenceHighlight?.pageNumber,
+    pagedBlocks.length,
+    pagesToLoad,
+  ]);
 
   const overlayDoc = useMemo(
     () => ({
@@ -216,11 +255,11 @@ export function PdfJsDocumentReader({
     setCurrentPage(clamped);
   }, [setCurrentPage, state.totalPages]);
 
-  const scrollToBbox = useCallback((pageNumber: number, bbox: [number, number, number, number]) => {
-    goToPage(pageNumber);
-    setFlashRect({ page: pageNumber, bbox });
-    window.setTimeout(() => setFlashRect(null), 2400);
-  }, [goToPage, setFlashRect]);
+  const scrollToFlashRects = useCallback((rects: FlashRect[]) => {
+    if (rects.length === 0) return;
+    goToPage(rects[0].page);
+    showFlashRects(rects);
+  }, [goToPage, showFlashRects]);
 
   const applyScale = useCallback((nextScale: number) => {
     const viewer = pdfViewerRef.current;
@@ -407,20 +446,29 @@ export function PdfJsDocumentReader({
   }, [layoutRefreshKey, scheduleLayoutRefresh, state.scale, viewerReady]);
 
   useEffect(() => {
-    if (!evidenceHighlight?.pageNumber) return;
-    if (evidenceHighlight.bbox) {
-      const b = evidenceHighlight.bbox;
-      scrollToBbox(evidenceHighlight.pageNumber, [b.x0, b.y0, b.x1, b.y1]);
+    if (!evidenceHighlight?.pageNumber || !viewerReady) return;
+    const rects = resolveEvidenceFlashRects(evidenceHighlight, overlayDoc.blocks, {
+      pageBlocksLoaded: evidencePageBlocksLoaded,
+    });
+    if (rects.length > 0) {
+      scrollToFlashRects(rects);
       return;
     }
     goToPage(evidenceHighlight.pageNumber);
   }, [
-    evidenceHighlight?.bbox,
-    evidenceHighlight?.evidenceId,
-    evidenceHighlight?.pageNumber,
+    evidenceHighlight,
+    evidencePageBlocksLoaded,
     goToPage,
-    scrollToBbox,
+    overlayDoc.blocks,
+    scrollToFlashRects,
+    viewerReady,
   ]);
+
+  useEffect(() => () => {
+    if (flashTimeoutRef.current !== null) {
+      window.clearTimeout(flashTimeoutRef.current);
+    }
+  }, []);
 
   return (
     <div className="document-reader-shell pdf-js-document-reader">
@@ -492,7 +540,7 @@ export function PdfJsDocumentReader({
           pageSizes={pageSizes}
           viewerElement={viewerRef.current}
           activeBlock={state.activeBlock}
-          flashRect={state.flashRect}
+          flashRects={state.flashRects}
           onBlockHover={setActiveBlock}
           onBlockClick={setActiveBlock}
           onEvent={subscribeEvent}

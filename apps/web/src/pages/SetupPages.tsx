@@ -28,6 +28,7 @@ import {
   readStoredCourseGoal,
   shouldCreateFreshCourseSession,
 } from "../lib/courseCreationStorage";
+import { skipCourseInquiry } from "../lib/courseCreationFlags";
 
 /* ── 子步骤定义 ── */
 
@@ -224,22 +225,26 @@ export function BuildProfilePage() {
     }
   }
 
-  async function handleStartInquiry() {
+  async function prepareSessionWithSources(): Promise<string> {
     const sourceIds = getSelectedSourceIds();
     if (sourceIds.length === 0) {
-      alert("请至少选择 1 份已解析资料");
-      return;
+      throw new Error("请至少选择 1 份已解析资料");
     }
 
+    const sid = await ensureSessionForGoal();
+    await bindSessionSources(sid, sourceIds);
+    await refreshCoveragePreview(sid, sourceIds);
+    setInquirySessionId(sid);
+    return sid;
+  }
+
+  async function handleStartInquiry() {
     setActionLoading(true);
     try {
-      const sid = await ensureSessionForGoal();
-      await bindSessionSources(sid, sourceIds);
-      await refreshCoveragePreview(sid, sourceIds);
+      const sid = await prepareSessionWithSources();
 
       setInquiryActive(true);
       setPhase("inquiry");
-      setInquirySessionId(sid);
       setInquiryLoading(true);
       try {
         const resp = await inquiryNext(sid);
@@ -256,6 +261,21 @@ export function BuildProfilePage() {
       }
     } catch (err: unknown) {
       alert(err instanceof Error ? err.message : "绑定资料或启动追问失败");
+    } finally {
+      setActionLoading(false);
+    }
+  }
+
+  async function handleSkipToTrialConfirm() {
+    setActionLoading(true);
+    try {
+      await prepareSessionWithSources();
+      setInquiryActive(false);
+      setInquiryQuestions(null);
+      setInquirySummary(null);
+      setPhase("trialConfirm");
+    } catch (err: unknown) {
+      alert(err instanceof Error ? err.message : "绑定资料失败");
     } finally {
       setActionLoading(false);
     }
@@ -533,8 +553,27 @@ export function BuildProfilePage() {
               继续选择资料
             </button>
           </div>
-        ) : (
+        ) : skipCourseInquiry ? (
           <div className="build-profile-actions build-profile-actions--single">
+            <button
+              className="button primary"
+              disabled={!canProceed || actionLoading || coverageLoading}
+              onClick={handleSkipToTrialConfirm}
+              type="button"
+            >
+              继续试生成确认
+            </button>
+          </div>
+        ) : (
+          <div className="build-profile-actions">
+            <button
+              className="button secondary"
+              disabled={!canProceed || actionLoading || coverageLoading}
+              onClick={handleSkipToTrialConfirm}
+              type="button"
+            >
+              跳过追问
+            </button>
             <button
               className="button primary"
               disabled={!canProceed || actionLoading || coverageLoading}

@@ -4,7 +4,7 @@
  * 后端 API：/api/uploads/ → /api/uploads/complete/
  */
 
-import { DEV_OWNER_ID } from "./devOwner";
+import { apiClient } from "./client";
 
 const API = "/api";
 
@@ -37,7 +37,11 @@ function getMediaType(filename: string): string {
   return map[ext] ?? "application/octet-stream";
 }
 
-async function computeSHA256(file: File): Promise<string> {
+async function computeSHA256(file: File): Promise<string | undefined> {
+  // HTTP 非 localhost 时浏览器禁用 crypto.subtle，改由 complete 接口服务端计算
+  if (!globalThis.crypto?.subtle) {
+    return undefined;
+  }
   const buffer = await file.arrayBuffer();
   const hashBuffer = await crypto.subtle.digest("SHA-256", buffer);
   const hashArray = Array.from(new Uint8Array(hashBuffer));
@@ -55,21 +59,14 @@ export async function uploadFile(
 ): Promise<UploadCompleteResult> {
   // Step 1: 创建上传会话
   onProgress?.({ step: "create", message: "正在创建上传会话…" });
-  const createRes = await fetch(`${API}/uploads/`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
+  const { uploadId, uploadUrl } = await apiClient.post<UploadCreateResult>(
+    `${API}/uploads/`,
+    {
       filename: file.name,
       size: file.size,
       mediaType: getMediaType(file.name),
-      ownerId: DEV_OWNER_ID,
-    }),
-  });
-  if (!createRes.ok) {
-    const err = await createRes.json().catch(() => ({}));
-    throw new Error(err.error ?? `创建上传会话失败 (${createRes.status})`);
-  }
-  const { uploadId, uploadUrl } = (await createRes.json()) as UploadCreateResult;
+    },
+  );
 
   // Step 2: 上传到预签名 URL
   onProgress?.({ step: "upload", message: "正在上传文件…" });
@@ -85,22 +82,16 @@ export async function uploadFile(
   // Step 3: 完成上传 → 触发解析
   onProgress?.({ step: "complete", message: "正在完成上传并触发解析…" });
   const sha256 = await computeSHA256(file);
-  const completeRes = await fetch(`${API}/uploads/complete/`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
+  const result = await apiClient.post<UploadCompleteResult>(
+    `${API}/uploads/complete/`,
+    {
       uploadId,
-      sha256,
+      ...(sha256 ? { sha256 } : {}),
       size: file.size,
       sync: true,
-      ownerId: DEV_OWNER_ID,
-    }),
-  });
-  if (!completeRes.ok) {
-    const err = await completeRes.json().catch(() => ({}));
-    throw new Error(err.error ?? `完成上传失败 (${completeRes.status})`);
-  }
-  const result = (await completeRes.json()) as UploadCompleteResult;
+    },
+    { timeoutMs: 120_000 },
+  );
 
   onProgress?.({ step: "done", message: "上传完成" });
   return result;

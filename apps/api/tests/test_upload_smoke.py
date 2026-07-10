@@ -6,7 +6,8 @@ import os
 
 import pytest
 from django.conf import settings
-from django.test import Client, override_settings
+from django.test import override_settings
+from rest_framework.test import APIClient
 
 from mentora.knowledge.models import ProcessingStatus, SourceVersion
 from mentora.knowledge.services.upload import upload_file_direct
@@ -33,12 +34,14 @@ def normal_pdf_bytes():
 
 
 @pytest.mark.django_db
-def test_upload_direct_persists_evidence(normal_pdf_bytes):
+def test_upload_direct_persists_evidence(normal_pdf_bytes, django_user_model):
+    user = django_user_model.objects.create_user(email="direct@example.com", password="test-pass-123")
     sha256 = hashlib.sha256(normal_pdf_bytes).hexdigest()
     result = upload_file_direct(
         file_bytes=normal_pdf_bytes,
         filename="normal.pdf",
         content_sha256=sha256,
+        owner=user,
         sync_processing=True,
     )
 
@@ -54,8 +57,10 @@ def test_upload_direct_persists_evidence(normal_pdf_bytes):
 
 
 @pytest.mark.django_db
-def test_upload_http_smoke(normal_pdf_bytes):
-    client = Client()
+def test_upload_http_smoke(normal_pdf_bytes, django_user_model):
+    user = django_user_model.objects.create_user(email="http@example.com", password="test-pass-123")
+    client = APIClient()
+    client.force_authenticate(user=user)
     sha256 = hashlib.sha256(normal_pdf_bytes).hexdigest()
     size = len(normal_pdf_bytes)
 

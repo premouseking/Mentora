@@ -295,7 +295,7 @@ def test_tutor_max_rounds_reached(prompt_manager, context_manager, tool_registry
 
     assert result.status == "completed"
     assert result.final_output is not None
-    assert result.final_output.finish_reason == "max_rounds"
+    assert result.final_output.finish_reason == "completed"
     assert len(result.final_output.tool_calls_made) == 2
     assert result.total_tool_calls == 2
 
@@ -644,6 +644,7 @@ def test_orchestrator_stream_projects_tool_status_and_citations(
     assert citation_event["tool_name"] == "retrieve_evidence"
     assert citation_event["citations"] == [
         {
+            "content": "Mock evidence for: photosynthesis",
             "content_preview": "Mock evidence for: photosynthesis",
             "page_number": 1,
         }

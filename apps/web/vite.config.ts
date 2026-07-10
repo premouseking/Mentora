@@ -31,8 +31,11 @@ export default defineConfig(({ mode }) => {
       },
     },
     server: {
+      host: "0.0.0.0",
       port: 5173,
       strictPort: true,
+      // 云服务器经 nginx 以公网 IP 访问时需放行 Host 校验
+      allowedHosts: true,
       proxy: apiProxyTarget
         ? {
             "/api": {
@@ -42,6 +45,10 @@ export default defineConfig(({ mode }) => {
               timeout: 300_000,
               proxyTimeout: 300_000,
               configure(proxy) {
+                proxy.on("proxyReq", (proxyReq) => {
+                  // Docker 内 target 为 http://api:8000 时 changeOrigin 会把 Host 设为 api:8000，触发 Django DisallowedHost
+                  proxyReq.setHeader("host", "127.0.0.1:8000");
+                });
                 proxy.on("error", (_err, _req, res) => {
                   if (res.headersSent) return;
                   res.writeHead(503, { "Content-Type": "application/json" });

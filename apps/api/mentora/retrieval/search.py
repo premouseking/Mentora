@@ -34,12 +34,22 @@ class SearchResult:
     fts_score: float = 0.0
     trgm_score: float = 0.0
     vector_score: float = 0.0
+    semantic_content: str | None = None
+    matched_preview: str | None = None
+    block_evidence_count: int = 1
+    source_title: str = ""
 
     def to_dict(self) -> dict:
+        content = self.semantic_content or self.evidence.content
+        matched = self.matched_preview or self.evidence.content
         return {
             "evidence_id": str(self.evidence.id),
-            "content_preview": self.evidence.content[:200],
+            "content": content,
+            "content_preview": content[:200],
+            "matched_preview": matched[:200],
             "page_number": self.evidence.page_number,
+            "block_evidence_count": self.block_evidence_count,
+            "source_title": self.source_title,
             "score": round(self.score, 4),
             "fts_score": round(self.fts_score, 4),
             "trgm_score": round(self.trgm_score, 4),
@@ -106,6 +116,40 @@ def _rrf(
 
 
 # ── public entry point ────────────────────────────────
+
+
+def _resolve_source_titles(source_version_ids: list[str] | None) -> dict[str, str]:
+    if not source_version_ids:
+        return {}
+    try:
+        from mentora.courses.scope_planning import get_source_titles
+
+        return get_source_titles(source_version_ids)
+    except Exception:
+        return {}
+
+
+def _apply_semantic_blocks(
+    results: list[SearchResult],
+    *,
+    source_version_ids: list[str] | None = None,
+    memory_mode: bool = False,
+) -> list[SearchResult]:
+    """检索后将碎片 EvidenceUnit 扩展为完整语义块。"""
+    if not results:
+        return results
+
+    if memory_mode:
+        from mentora.retrieval.semantic_blocks import expand_memory_results_to_semantic_blocks
+
+        return expand_memory_results_to_semantic_blocks(results)
+
+    from mentora.retrieval.semantic_blocks import expand_results_to_semantic_blocks
+
+    return expand_results_to_semantic_blocks(
+        results,
+        source_titles=_resolve_source_titles(source_version_ids),
+    )
 
 
 def search(
@@ -303,6 +347,8 @@ def _search_pg(
             trgm_score=trgm_ranking.get(did, 0.0),
             vector_score=vector_ranking.get(did, 0.0),
         ))
+
+    results = _apply_semantic_blocks(results, source_version_ids=source_version_ids)
 
     return SearchResultSet(
         query=query,
@@ -504,6 +550,8 @@ def _grep_search(
                 score=float(row[3]),
             ))
 
+    results = _apply_semantic_blocks(results, source_version_ids=source_version_ids)
+
     return SearchResultSet(
         query=query,
         results=results,
@@ -570,6 +618,8 @@ def _search_memory(
             fts_score=fts_ranking.get(did, 0.0),
             trgm_score=trgm_ranking.get(did, 0.0),
         ))
+
+    results = _apply_semantic_blocks(results, memory_mode=True)
 
     return SearchResultSet(
         query=query,

@@ -4,10 +4,12 @@ import type { SourceDetail } from "../../services/documentApi";
 import type { PdfBlock } from "../../services/resourceTypes";
 import {
   buildMinimalPdfReaderDoc,
+  blocksToFlashRects,
   filterInteractiveBlocks,
   isInteractiveBlockType,
   isSourceDetailPdf,
   PDF_LOAD_ERROR_MESSAGE,
+  resolveEvidenceFlashRects,
 } from "./resourceReaderUtils";
 
 function sampleDetail(overrides: Partial<SourceDetail> = {}): SourceDetail {
@@ -90,5 +92,103 @@ describe("resourceReaderUtils", () => {
 
   it("exposes pdf load error message", () => {
     expect(PDF_LOAD_ERROR_MESSAGE).toContain("原始 PDF 加载失败");
+  });
+
+  it("maps evidence id to multiple block flash rects", () => {
+    const blocks: PdfBlock[] = [
+      {
+        idx: "block-0",
+        type: "heading",
+        page: 2,
+        bbox: [10, 20, 30, 40],
+        text: "标题",
+        level: 1,
+        evidence_unit_id: "ev-1",
+        children: [],
+      },
+      {
+        idx: "block-1",
+        type: "paragraph",
+        page: 2,
+        bbox: [10, 50, 90, 70],
+        text: "正文",
+        level: null,
+        evidence_unit_id: "ev-1",
+        children: [],
+      },
+      {
+        idx: "block-2",
+        type: "paragraph",
+        page: 2,
+        bbox: [1, 2, 3, 4],
+        text: "其他",
+        level: null,
+        evidence_unit_id: "ev-2",
+        children: [],
+      },
+    ];
+
+    expect(blocksToFlashRects(blocks, "ev-1")).toEqual([
+      { page: 2, bbox: [10, 20, 30, 40] },
+      { page: 2, bbox: [10, 50, 90, 70] },
+    ]);
+  });
+
+  it("falls back to evidence bbox when no matching blocks", () => {
+    const rects = resolveEvidenceFlashRects(
+      {
+        evidenceId: "ev-missing",
+        pageNumber: 3,
+        bbox: { x0: 1, y0: 2, x1: 3, y1: 4 },
+      },
+      [],
+      { pageBlocksLoaded: true },
+    );
+    expect(rects).toEqual([{ page: 3, bbox: [1, 2, 3, 4] }]);
+  });
+
+  it("waits for blocks before falling back to evidence bbox", () => {
+    const rects = resolveEvidenceFlashRects(
+      {
+        evidenceId: "ev-missing",
+        pageNumber: 3,
+        bbox: { x0: 1, y0: 2, x1: 3, y1: 4 },
+      },
+      [],
+      { pageBlocksLoaded: false },
+    );
+    expect(rects).toEqual([]);
+  });
+
+  it("merges same-page block rects into one flash rect", () => {
+    const blocks: PdfBlock[] = [
+      {
+        idx: "block-0",
+        type: "paragraph",
+        page: 2,
+        bbox: [10, 50, 90, 70],
+        text: "第一句",
+        level: null,
+        evidence_unit_id: "ev-1",
+        children: [],
+      },
+      {
+        idx: "block-1",
+        type: "paragraph",
+        page: 2,
+        bbox: [10, 20, 90, 40],
+        text: "第二句",
+        level: null,
+        evidence_unit_id: "ev-1",
+        children: [],
+      },
+    ];
+
+    const rects = resolveEvidenceFlashRects(
+      { evidenceId: "ev-1", pageNumber: 2, bbox: null },
+      blocks,
+      { pageBlocksLoaded: true },
+    );
+    expect(rects).toEqual([{ page: 2, bbox: [10, 20, 90, 70] }]);
   });
 });

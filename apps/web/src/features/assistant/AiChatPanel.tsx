@@ -1,7 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   AtSign,
-  Check,
   ChevronLeft,
   File,
   FolderClosed,
@@ -19,6 +18,15 @@ import remarkGfm from "remark-gfm";
 import type { AiExplanation } from "../../data/aiExplanations";
 import type { FileNode } from "../../data/files";
 import type { MistakeItem } from "../../data/mistakes";
+import {
+  getCourseAgentSession,
+  listCourseAgentSessions,
+  streamCourseAgentMessage,
+  type CourseAgentStreamEvent,
+} from "../../services/courseAgentApi";
+import { postJsonStream } from "../../services/streamClient";
+import { consumeAssistantStream } from "./assistantStream";
+import { ChatCitationList } from "./ChatCitationList";
 
 /* ── 类型定义 ── */
 
@@ -37,9 +45,9 @@ interface ChatStatus {
 }
 
 interface ChatCitation {
+  content?: string;
   content_preview: string;
   page_number?: number | null;
-  evidence_id?: string;
   source_title?: string;
 }
 
@@ -47,6 +55,7 @@ type ChatStreamEvent =
   | { type: "chunk"; content: string }
   | { type: "status"; event: string; message: string; tool_name?: string; success?: boolean }
   | { type: "citations"; tool_name?: string; citations: ChatCitation[] }
+  | { type: "session_created"; session_id: string; title?: string; course_id?: string }
   | { type: "error"; message: string }
   | { type: "done" };
 
@@ -55,6 +64,7 @@ interface ChatSession {
   name: string;
   messages: ChatMessage[];
   createdAt: number;
+  agentSessionId?: string | null;
 }
 
 interface SelectedTextSnippet {
@@ -86,6 +96,33 @@ export interface AiChatContext {
   selectedFileId?: string | null;
   selectedAiId?: string | null;
   selectedMistakeId?: string | null;
+}
+
+export interface CourseAgentBinding {
+  courseId: string;
+  courseSessionId: string;
+  courseTitle?: string;
+  courseGoal?: string;
+  currentTaskId?: string | null;
+  currentSourceVersionId?: string | null;
+}
+
+function buildWelcomeMessage(courseBinding?: CourseAgentBinding) {
+  if (courseBinding) {
+    const title = courseBinding.courseTitle || courseBinding.courseGoal || "当前课程";
+    return `你好！我是「${title}」的 AI 助教。我可以结合课程资料、学习方案和当前任务为你答疑。`;
+  }
+  return "你好！我是 Mentora AI 助手。关于你的学习课程，有什么我可以帮你的吗？";
+}
+
+function createEmptySession(courseBinding?: CourseAgentBinding): ChatSession {
+  return {
+    id: crypto.randomUUID(),
+    name: "新对话",
+    createdAt: Date.now(),
+    agentSessionId: null,
+    messages: [{ role: "assistant", content: buildWelcomeMessage(courseBinding) }],
+  };
 }
 
 interface MentionMenuItem extends AiChatMention {
@@ -285,27 +322,16 @@ export function AiChatPanel({
   onClose,
   mode = "panel",
   context,
+  courseBinding,
 }: {
   width?: number;
   onClose?: () => void;
   mode?: "panel" | "page";
   context?: AiChatContext;
+  courseBinding?: CourseAgentBinding;
 }) {
   /* ── 会话状态管理 ── */
-  const [sessions, setSessions] = useState<ChatSession[]>(() => [
-    {
-      id: crypto.randomUUID(),
-      name: "新对话",
-      createdAt: Date.now(),
-      messages: [
-        {
-          role: "assistant",
-          content:
-            "你好！我是 Mentora AI 助手。关于你的学习课程，有什么我可以帮你的吗？",
-        },
-      ],
-    },
-  ]);
+  const [sessions, setSessions] = useState<ChatSession[]>(() => [createEmptySession(courseBinding)]);
   const [activeSessionId, setActiveSessionId] = useState<string>(
     () => sessions[0]?.id ?? "",
   );
@@ -333,22 +359,63 @@ export function AiChatPanel({
   const [mentionMenuOpen, setMentionMenuOpen] = useState(false);
   const [mentionQuery, setMentionQuery] = useState("");
   const [mentionActiveIndex, setMentionActiveIndex] = useState(0);
+  const [courseSessionsLoaded, setCourseSessionsLoaded] = useState(false);
 
   const mentionItems = buildMentionMenuItems(context, mentionQuery);
 
-  function createSession() {
-    const newSession: ChatSession = {
-      id: crypto.randomUUID(),
-      name: "新对话",
-      createdAt: Date.now(),
-      messages: [
-        {
-          role: "assistant",
-          content:
-            "你好！我是 Mentora AI 助手。关于你的学习课程，有什么我可以帮你的吗？",
-        },
-      ],
+  useEffect(() => {
+    if (!courseBinding?.courseId || courseSessionsLoaded) return;
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const items = await listCourseAgentSessions(courseBinding.courseId);
+        if (cancelled || items.length === 0) {
+          if (!cancelled) setCourseSessionsLoaded(true);
+          return;
+        }
+
+        const detail = await getCourseAgentSession(courseBinding.courseId, items[0].id);
+        if (cancelled) return;
+
+        const restored: ChatSession = {
+          id: crypto.randomUUID(),
+          agentSessionId: detail.id,
+          name: detail.title || "新对话",
+          createdAt: detail.updated_at ? Date.parse(detail.updated_at) : Date.now(),
+          messages: detail.messages.length > 0
+            ? detail.messages.map((message) => ({
+                role: message.role,
+                content: message.content,
+                citations: message.citations,
+              }))
+            : [{ role: "assistant", content: buildWelcomeMessage(courseBinding) }],
+        };
+
+        const others: ChatSession[] = items.slice(1).map((item) => ({
+          id: crypto.randomUUID(),
+          agentSessionId: item.id,
+          name: item.title || "新对话",
+          createdAt: item.updated_at ? Date.parse(item.updated_at) : Date.now(),
+          messages: [{ role: "assistant", content: buildWelcomeMessage(courseBinding) }],
+        }));
+
+        setSessions([restored, ...others]);
+        setActiveSessionId(restored.id);
+      } catch {
+        // 恢复失败时保留本地空会话
+      } finally {
+        if (!cancelled) setCourseSessionsLoaded(true);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
     };
+  }, [courseBinding, courseSessionsLoaded]);
+
+  function createSession() {
+    const newSession = createEmptySession(courseBinding);
     setSessions((prev) => [...prev, newSession]);
     setActiveSessionId(newSession.id);
     setInput("");
@@ -369,11 +436,107 @@ export function AiChatPanel({
   function switchSession(id: string) {
     setActiveSessionId(id);
     setInput("");
+    void hydrateCourseSession(id);
   }
 
   function openSessionFromHistory(id: string) {
     setActiveSessionId(id);
     setHistoryOpen(false);
+    void hydrateCourseSession(id);
+  }
+
+  async function hydrateCourseSession(localSessionId: string) {
+    if (!courseBinding?.courseId) return;
+    const target = sessions.find((session) => session.id === localSessionId);
+    if (!target?.agentSessionId) return;
+    const hasUserMessage = target.messages.some((message) => message.role === "user");
+    if (hasUserMessage) return;
+
+    try {
+      const detail = await getCourseAgentSession(courseBinding.courseId, target.agentSessionId);
+      setSessions((prev) =>
+        prev.map((session) => {
+          if (session.id !== localSessionId) return session;
+          return {
+            ...session,
+            name: detail.title || session.name,
+            messages: detail.messages.length > 0
+              ? detail.messages.map((message) => ({
+                  role: message.role,
+                  content: message.content,
+                  citations: message.citations,
+                }))
+              : session.messages,
+          };
+        }),
+      );
+    } catch {
+      // 历史加载失败时保留当前占位消息
+    }
+  }
+
+  function applyStreamEvent(data: ChatStreamEvent | CourseAgentStreamEvent) {
+    if (data.type === "session_created") {
+      setSessions((prev) =>
+        prev.map((session) =>
+          session.id === activeSessionId
+            ? {
+                ...session,
+                agentSessionId: data.session_id,
+                name: data.title || session.name,
+              }
+            : session,
+        ),
+      );
+      return;
+    }
+
+    if (data.type === "chunk") {
+      updateLastAssistant((last) => ({
+        ...last,
+        content: last.content + data.content,
+      }));
+      return;
+    }
+
+    if (data.type === "status") {
+      updateLastAssistant((last) => ({
+        ...last,
+        statuses: [
+          ...(last.statuses ?? []),
+          {
+            event: data.event,
+            message: data.message,
+            toolName: data.tool_name,
+            success: data.success,
+          },
+        ],
+      }));
+      return;
+    }
+
+    if (data.type === "citations") {
+      updateLastAssistant((last) => ({
+        ...last,
+        citations: [...(last.citations ?? []), ...data.citations],
+      }));
+      return;
+    }
+
+    if (data.type === "error") {
+      setSessions((prev) =>
+        prev.map((session) => {
+          if (session.id !== activeSessionId) return session;
+          const msgs = [...session.messages];
+          const last = msgs[msgs.length - 1];
+          msgs[msgs.length - 1] = {
+            ...last,
+            content: last.content || `错误: ${data.message}`,
+          };
+          return { ...session, messages: msgs };
+        }),
+      );
+    }
   }
 
   function deleteSession(id: string) {
@@ -385,18 +548,7 @@ export function AiChatPanel({
         setActiveSessionId(next[targetIdx].id);
       }
       if (next.length === 0) {
-        const empty: ChatSession = {
-          id: crypto.randomUUID(),
-          name: "新对话",
-          createdAt: Date.now(),
-          messages: [
-            {
-              role: "assistant",
-              content:
-                "你好！我是 Mentora AI 助手。关于你的学习课程，有什么我可以帮你的吗？",
-            },
-          ],
-        };
+        const empty = createEmptySession(courseBinding);
         setActiveSessionId(empty.id);
         return [empty];
       }
@@ -405,18 +557,7 @@ export function AiChatPanel({
   }
 
   function deleteAllSessions() {
-    const empty: ChatSession = {
-      id: crypto.randomUUID(),
-      name: "新对话",
-      createdAt: Date.now(),
-      messages: [
-        {
-          role: "assistant",
-          content:
-            "你好！我是 Mentora AI 助手。关于你的学习课程，有什么我可以帮你的吗？",
-        },
-      ],
-    };
+    const empty = createEmptySession(courseBinding);
     setSessions([empty]);
     setActiveSessionId(empty.id);
   }
@@ -660,83 +801,31 @@ export function AiChatPanel({
     window.setTimeout(syncInputHeight, 0);
 
     try {
-      const historyMessages =
-        sessions.find((s) => s.id === activeSessionId)?.messages ?? [];
-      const resp = await fetch("/api/chat/stream/", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+      if (courseBinding) {
+        await streamCourseAgentMessage({
+          courseId: courseBinding.courseId,
           message: requestMessage,
-          history: historyMessages.map((m) => ({
-            role: m.role,
-            content: m.content,
-          })),
+          agentSessionId: activeSession.agentSessionId,
+          currentTaskId: courseBinding.currentTaskId,
+          currentSourceVersionId: courseBinding.currentSourceVersionId ?? context?.selectedFileId,
           mentions: mentionsForRequest,
-        }),
-      });
-
-      if (!resp.ok) {
-        const errorText = await resp.text();
-        throw new Error(errorText || `HTTP ${resp.status}`);
-      }
-
-      const reader = resp.body!.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop() || "";
-
-        for (const line of lines) {
-          if (!line.startsWith("data: ")) continue;
-          try {
-            const data = JSON.parse(line.slice(6)) as ChatStreamEvent;
-            if (data.type === "chunk") {
-              updateLastAssistant((last) => ({
-                ...last,
-                content: last.content + data.content,
-              }));
-            } else if (data.type === "status") {
-              updateLastAssistant((last) => ({
-                ...last,
-                statuses: [
-                  ...(last.statuses ?? []),
-                  {
-                    event: data.event,
-                    message: data.message,
-                    toolName: data.tool_name,
-                    success: data.success,
-                  },
-                ],
-              }));
-            } else if (data.type === "citations") {
-              updateLastAssistant((last) => ({
-                ...last,
-                citations: [...(last.citations ?? []), ...data.citations],
-              }));
-            } else if (data.type === "error") {
-              setSessions((prev) =>
-                prev.map((s) => {
-                  if (s.id !== activeSessionId) return s;
-                  const msgs = [...s.messages];
-                  const last = msgs[msgs.length - 1];
-                  msgs[msgs.length - 1] = {
-                    ...last,
-                    content: last.content || `错误: ${data.message}`,
-                  };
-                  return { ...s, messages: msgs };
-                }),
-              );
-            }
-          } catch {
-            // 跳过无法解析的行
-          }
-        }
+          onEvent: applyStreamEvent,
+        });
+      } else {
+        const historyMessages =
+          sessions.find((s) => s.id === activeSessionId)?.messages ?? [];
+        const body = await postJsonStream(
+          "/api/chat/stream/",
+          {
+            message: requestMessage,
+            history: historyMessages.map((m) => ({
+              role: m.role,
+              content: m.content,
+            })),
+            mentions: mentionsForRequest,
+          },
+        );
+        await consumeAssistantStream(body, (event) => applyStreamEvent(event as ChatStreamEvent));
       }
     } catch (err: any) {
       setSessions((prev) =>
@@ -802,7 +891,19 @@ export function AiChatPanel({
       aria-label="AI 对话面板"
     >
       <header className="ai-chat-header">
-        <strong className="ai-chat-header-brand">Mentora</strong>
+        <div className="ai-chat-header-main">
+          <strong className="ai-chat-header-brand">Mentora</strong>
+          {courseBinding && (
+            <div className="ai-chat-course-tags">
+              <span className="ai-chat-course-tag">
+                {courseBinding.courseTitle || courseBinding.courseGoal || "当前课程"}
+              </span>
+              {activeSession?.agentSessionId ? (
+                <span className="ai-chat-course-tag bound">已绑定课程</span>
+              ) : null}
+            </div>
+          )}
+        </div>
         <div className="ai-chat-header-actions">
           <button
             className="ai-chat-action-btn"
@@ -976,13 +1077,6 @@ export function AiChatPanel({
                   </span>
                 )}
                 <div className="ai-chat-bubble">
-                  {msg.content && (
-                    msg.role === "assistant" ? (
-                      <AiMarkdownMessage content={msg.content} />
-                    ) : (
-                      <div className="ai-chat-content">{msg.content}</div>
-                    )
-                  )}
                   {msg.statuses?.length ? (
                     <div className="ai-chat-status-list">
                       {msg.statuses.map((status, index) => (
@@ -998,26 +1092,15 @@ export function AiChatPanel({
                       ))}
                     </div>
                   ) : null}
+                  {msg.content && (
+                    msg.role === "assistant" ? (
+                      <AiMarkdownMessage content={msg.content} />
+                    ) : (
+                      <div className="ai-chat-content">{msg.content}</div>
+                    )
+                  )}
                   {msg.citations?.length ? (
-                    <div className="ai-chat-citations" aria-label="引用来源">
-                      {msg.citations.map((citation, index) => (
-                        <div
-                          className="ai-chat-citation"
-                          key={`${citation.evidence_id ?? "source"}-${index}`}
-                        >
-                          <Check size={12} />
-                          <span>
-                            {citation.source_title
-                              ? `${citation.source_title}: `
-                              : ""}
-                            {citation.content_preview}
-                            {citation.page_number
-                              ? ` · p.${citation.page_number}`
-                              : ""}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
+                    <ChatCitationList citations={msg.citations} />
                   ) : null}
                 </div>
               </div>

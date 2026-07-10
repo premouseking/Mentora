@@ -22,10 +22,11 @@ class TokenUsage(BaseModel):
 
 
 class Citation(BaseModel):
-    """证据引用，关联到 EvidenceUnit。"""
-    evidence_id: str = Field(description="EvidenceUnit UUID")
+    """用户可见证据引用。"""
+    content: str = Field(default="", description="引用证据正文")
     content_preview: str = Field(default="", description="引用内容预览")
     page_number: int | None = Field(default=None, description="所在页码")
+    source_title: str = Field(default="", description="来源标题")
 
 
 class ToolInvocationRecord(BaseModel):

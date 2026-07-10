@@ -36,9 +36,10 @@ def _job_to_dict(job: QuizGenerationJob) -> dict[str, Any]:
     }
 
 
-def create_generation_job(req: QuizGenerationRequest) -> QuizGenerationJob:
+def create_generation_job(req: QuizGenerationRequest, *, owner) -> QuizGenerationJob:
     cache_key = build_generation_cache_key(req)
     return QuizGenerationJob.objects.create(
+        owner=owner,
         status=QuizGenerationJob.Status.PENDING,
         progress="等待开始",
         progress_pct=0,
@@ -57,8 +58,10 @@ def create_generation_job(req: QuizGenerationRequest) -> QuizGenerationJob:
     )
 
 
-def get_generation_job(job_id: str) -> dict[str, Any] | None:
-    job = QuizGenerationJob.objects.filter(id=job_id).first()
+def get_generation_job(job_id: str, *, owner=None) -> dict[str, Any] | None:
+    job = QuizGenerationJob.objects.filter(
+        id=job_id, **({"owner": owner} if owner is not None else {}),
+    ).first()
     if job is None:
         return None
     return _job_to_dict(job)

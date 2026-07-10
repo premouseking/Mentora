@@ -17,6 +17,7 @@ import { Link, NavLink } from "react-router-dom";
 import { DesktopTitleBar } from "./DesktopTitleBar";
 import { CourseInfoBar } from "./CourseInfoBar";
 import { PageSkeleton } from "./PageSkeleton";
+import type { AiChatContext, CourseAgentBinding } from "../features/assistant/AiChatPanel";
 
 const AssistantPanel = lazy(() =>
   import("../features/assistant/AssistantPanel").then((m) => ({ default: m.AssistantPanel })),
@@ -188,7 +189,15 @@ function ResizeHandle({
 
 /* ── App Shell ── */
 
-export function AppShell({ children }: { children: ReactNode }) {
+export function AppShell({
+  children,
+  assistantCourseBinding,
+  assistantContext,
+}: {
+  children: ReactNode;
+  assistantCourseBinding?: CourseAgentBinding;
+  assistantContext?: AiChatContext;
+}) {
   const [aiPanelOpen, setAiPanelOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(readStoredCollapsed);
   const [sidebarLabelsVisible, setSidebarLabelsVisible] = useState(
@@ -269,6 +278,8 @@ export function AppShell({ children }: { children: ReactNode }) {
               <AssistantPanel
                 width={panelWidth}
                 onClose={() => setAiPanelOpen(false)}
+                courseBinding={assistantCourseBinding}
+                context={assistantContext}
               />
             </Suspense>
           </>

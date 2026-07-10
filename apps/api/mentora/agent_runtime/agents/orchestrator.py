@@ -24,6 +24,13 @@ from mentora.agent_runtime.prompts.manager import PromptManager
 from mentora.agent_runtime.schemas.context import AgentContext
 from mentora.agent_runtime.schemas.output import AgentOutput, OrchestratorResult
 from mentora.agent_runtime.schemas.task import OrchestratorTask, PipelineStep
+from mentora.model_gateway.exceptions import ProviderError
+
+
+def _format_stream_error(exc: Exception) -> str:
+    if isinstance(exc, ProviderError):
+        return "模型服务暂时不可用，请稍后重试。"
+    return str(exc) or "未知错误"
 
 
 class Orchestrator:
@@ -119,6 +126,7 @@ class Orchestrator:
             context=ctx,
             model_id=task.model_id,
             max_tool_rounds=task.max_tool_rounds,
+            tool_metadata=task.tool_metadata,
         )
 
         event_queue: asyncio.Queue[dict | None] = asyncio.Queue()
@@ -157,12 +165,17 @@ class Orchestrator:
                 error_occurred.append(payload.get("error_message", "未知错误"))
 
         emitter = EventEmitter(callback=emitter_callback)
+        agent_output: AgentOutput | None = None
 
         async def run_agent():
+            nonlocal agent_output
             try:
-                await agent.run_stream(agent_input, emitter=emitter)
+                agent_output = await agent.run_stream(agent_input, emitter=emitter)
             except Exception as exc:
-                event_queue.put_nowait({"type": "error", "message": str(exc)})
+                event_queue.put_nowait({
+                    "type": "error",
+                    "message": _format_stream_error(exc),
+                })
             finally:
                 event_queue.put_nowait(None)  # ensure sentinel
 
@@ -181,6 +194,20 @@ class Orchestrator:
             await agent_task
             if error_occurred:
                 yield f"data: {json.dumps({'type': 'error', 'message': error_occurred[0]}, ensure_ascii=False)}\n\n"
+            elif agent_output and agent_output.finish_reason == "max_rounds":
+                yield (
+                    "data: "
+                    + json.dumps(
+                        {
+                            "type": "status",
+                            "event": "agent.max_rounds",
+                            "message": "工具调用轮次已达上限，回答可能不完整",
+                            "success": False,
+                        },
+                        ensure_ascii=False,
+                    )
+                    + "\n\n"
+                )
             yield "data: {\"type\":\"done\"}\n\n"
         except Exception as exc:
             yield f"data: {json.dumps({'type': 'error', 'message': str(exc)}, ensure_ascii=False)}\n\n"
@@ -296,11 +323,14 @@ class Orchestrator:
 
     def _build_system_prompt(self, agent: Agent, task: OrchestratorTask) -> str:
         """构建 Agent 的系统提示词。"""
+        metadata = task.tool_metadata or {}
+        course_name = metadata.get("course_title") or "当前课程"
+        allowed_ids = metadata.get("allowed_source_version_ids") or task.context_sources
+        source_titles = "，".join(str(item) for item in allowed_ids) or "未指定"
         try:
-            # 从 PromptManager 获取并渲染模板
             return self._prompts.render(
                 agent.system_prompt_ref,
-                {"course_name": "当前课程", "source_titles": "，".join(task.context_sources) or "未指定"},
+                {"course_name": course_name, "source_titles": source_titles},
             )
         except KeyError:
             raise KeyError(

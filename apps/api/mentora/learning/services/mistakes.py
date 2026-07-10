@@ -141,13 +141,14 @@ def get_mistake_items(course_id: str, *, include_archived: bool = False) -> list
     return result
 
 
-def archive_mistake(course_id: str, item_id: str) -> dict:
+def archive_mistake(course_id: str, item_id: str, *, owner) -> dict:
     """归档单道错题，后续默认列表不再展示。"""
     from mentora.learning.models import MistakeArchive
 
     record, _ = MistakeArchive.objects.get_or_create(
         course_id=course_id,
         item_id=item_id,
+        owner=owner,
     )
     return {
         "course_id": course_id,
@@ -156,10 +157,12 @@ def archive_mistake(course_id: str, item_id: str) -> dict:
     }
 
 
-def unarchive_mistake(course_id: str, item_id: str) -> dict:
+def unarchive_mistake(course_id: str, item_id: str, *, owner) -> dict:
     from mentora.learning.models import MistakeArchive
 
-    deleted, _ = MistakeArchive.objects.filter(course_id=course_id, item_id=item_id).delete()
+    deleted, _ = MistakeArchive.objects.filter(
+        course_id=course_id, item_id=item_id, owner=owner,
+    ).delete()
     if not deleted:
         return {"course_id": course_id, "item_id": str(item_id), "status": "not_archived"}
     return {"course_id": course_id, "item_id": str(item_id), "status": "active"}

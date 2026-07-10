@@ -18,6 +18,7 @@ from typing import AsyncGenerator
 
 from mentora.model_gateway.providers.base import BaseProvider
 from mentora.model_gateway.providers.http_client import async_post_json, async_post_sse
+from mentora.model_gateway.dsml_tool_calls import parse_dsml_tool_calls
 from mentora.model_gateway.schemas import (
     FunctionCall,
     Message,
@@ -83,7 +84,7 @@ class OpenAIProvider(BaseProvider):
             headers=self._build_headers(),
             timeout=timeout or self._request_timeout,
         )
-        return self._parse_response(resp_json, model or self._model)
+        return self._parse_response(resp_json, model or self._model, tools=tools)
 
     # ── 流式 ──
 
@@ -132,7 +133,13 @@ class OpenAIProvider(BaseProvider):
             payload["stream_options"] = {"include_usage": True}
         return payload
 
-    def _parse_response(self, resp: dict, model: str) -> ProviderResponse:
+    def _parse_response(
+        self,
+        resp: dict,
+        model: str,
+        *,
+        tools: list[dict] | None = None,
+    ) -> ProviderResponse:
         """解析非流式 OpenAI 响应。"""
         choice = resp.get("choices", [{}])[0]
         message = choice.get("message", {})
@@ -162,12 +169,56 @@ class OpenAIProvider(BaseProvider):
                 total_tokens=u.get("total_tokens", 0),
             )
 
+        return self._apply_dsml_fallback(
+            ProviderResponse(
+                content=content,
+                tool_calls=tool_calls,
+                finish_reason=finish_reason,
+                usage=usage,
+                model=resp.get("model", model),
+            ),
+            tools=tools,
+        )
+
+    def _apply_dsml_fallback(
+        self,
+        response: ProviderResponse,
+        *,
+        tools: list[dict] | None = None,
+    ) -> ProviderResponse:
+        allow_promotion = bool(tools)
+        if response.tool_calls:
+            cleaned, _ = parse_dsml_tool_calls(response.content, allow_promotion=False)
+            if cleaned != response.content:
+                return ProviderResponse(
+                    content=cleaned,
+                    tool_calls=response.tool_calls,
+                    finish_reason=response.finish_reason,
+                    usage=response.usage,
+                    model=response.model,
+                )
+            return response
+
+        cleaned, tool_calls = parse_dsml_tool_calls(
+            response.content,
+            allow_promotion=allow_promotion,
+        )
+        if not tool_calls:
+            if cleaned != response.content:
+                return ProviderResponse(
+                    content=cleaned or "",
+                    tool_calls=None,
+                    finish_reason=response.finish_reason,
+                    usage=response.usage,
+                    model=response.model,
+                )
+            return response
         return ProviderResponse(
-            content=content,
+            content=cleaned,
             tool_calls=tool_calls,
-            finish_reason=finish_reason,
-            usage=usage,
-            model=resp.get("model", model),
+            finish_reason="tool_calls",
+            usage=response.usage,
+            model=response.model,
         )
 
     def _parse_stream_chunk(

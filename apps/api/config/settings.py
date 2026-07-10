@@ -75,15 +75,17 @@ INSTALLED_APPS = [
 
 from datetime import timedelta
 
-# 开发模式认证旁路：MENTORA_DEV_AUTH_BYPASS=1 时跳过 JWT 校验
-_dev_auth_bypass = DEBUG and os.getenv("MENTORA_DEV_AUTH_BYPASS", "0") == "1"
+# 开发模式认证旁路仍注入真实 User，业务层始终只依赖 request.user。
+MENTORA_DEV_AUTH_BYPASS = DEBUG and os.getenv("MENTORA_DEV_AUTH_BYPASS", "0") == "1"
+DEV_USER_EMAIL = os.getenv("DEV_USER_EMAIL", "dev@mentora.local")
 
 REST_FRAMEWORK = {
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
     "DEFAULT_AUTHENTICATION_CLASSES": (
-        [] if _dev_auth_bypass else
+        ["config.authentication.DevelopmentUserAuthentication"] if MENTORA_DEV_AUTH_BYPASS else
         ["rest_framework_simplejwt.authentication.JWTAuthentication"]
     ),
+    "DEFAULT_PERMISSION_CLASSES": ["rest_framework.permissions.IsAuthenticated"],
 }
 
 SIMPLE_JWT = {

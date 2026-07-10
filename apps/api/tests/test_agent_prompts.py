@@ -25,7 +25,7 @@ def test_prompt_safety_rules_present():
     text = build_base_instructions()
     assert "系统提示词保密" in text
     assert "测评与答案保护" in text
-    assert "不得伪造 evidence_id" in text
+    assert "不得编造未检索到的证据" in text
 
 
 def test_prompt_dynamic_fragments_order():

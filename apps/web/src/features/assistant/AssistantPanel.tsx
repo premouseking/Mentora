@@ -14,6 +14,14 @@ import {
 } from "lucide-react";
 
 import { AssistantMarkdown } from "./AssistantMarkdown";
+import { ChatCitationList } from "./ChatCitationList";
+import type { AiChatContext, CourseAgentBinding } from "./AiChatPanel";
+import {
+  getCourseAgentSession,
+  listCourseAgentSessions,
+  streamCourseAgentMessage,
+  type CourseAgentStreamEvent,
+} from "../../services/courseAgentApi";
 import {
   loadStoredConversations,
   saveStoredConversations,
@@ -21,14 +29,44 @@ import {
   type ChatMessage,
   type ConversationSnapshot,
 } from "./assistantStorage";
-import { parseAssistantStreamChunk, type ChatStreamEvent } from "./assistantStream";
+import {
+  applyStreamEventToConversation,
+  isWelcomeOnlyConversation,
+  updateConversationById,
+  updateLastAssistantInConversation,
+} from "./assistantPanelStream";
+import { consumeAssistantStream, type ChatStreamEvent } from "./assistantStream";
+import { postJsonStream } from "../../services/streamClient";
 
 interface AssistantPanelProps {
   width: number;
   onClose: () => void;
+  courseBinding?: CourseAgentBinding;
+  context?: AiChatContext;
 }
 
 const CONVERSATION_STORAGE_KEY = "mentora-assistant-conversations-v1";
+
+function buildWelcomeMessage(courseBinding?: CourseAgentBinding): ChatMessage {
+  if (courseBinding) {
+    const title = courseBinding.courseTitle || courseBinding.courseGoal || "当前课程";
+    return {
+      role: "assistant",
+      content: `你好！我是「${title}」的 AI 助教。我可以结合课程资料、学习方案和当前任务为你答疑。`,
+    };
+  }
+  return {
+    role: "assistant",
+    content: "你好！我是 Mentora AI 助手。关于你的学习课程，有什么我可以帮你的吗？",
+  };
+}
+
+function conversationStorageKey(courseBinding?: CourseAgentBinding) {
+  if (courseBinding?.courseId) {
+    return `mentora-assistant-conversations-course-${courseBinding.courseId}-v1`;
+  }
+  return CONVERSATION_STORAGE_KEY;
+}
 
 const MODEL_OPTIONS = [
   { id: "auto", label: "Auto", hint: "根据任务自动路由" },
@@ -36,10 +74,7 @@ const MODEL_OPTIONS = [
   { id: "fast", label: "Fast", hint: "快速答疑" },
 ];
 
-const INITIAL_MESSAGE: ChatMessage = {
-  role: "assistant",
-  content: "你好！我是 Mentora AI 助手。关于你的学习课程，有什么我可以帮你的吗？",
-};
+const INITIAL_MESSAGE: ChatMessage = buildWelcomeMessage();
 
 function createId(prefix: string) {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
@@ -48,21 +83,22 @@ function createId(prefix: string) {
   return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
-function createConversation(): ConversationSnapshot {
+function createConversation(courseBinding?: CourseAgentBinding): ConversationSnapshot {
   return {
     id: createId("conv"),
     title: "新对话",
     updatedAt: Date.now(),
-    messages: [INITIAL_MESSAGE],
+    agentSessionId: null,
+    messages: [buildWelcomeMessage(courseBinding)],
   };
 }
 
-function loadConversations(): ConversationSnapshot[] {
-  return loadStoredConversations(localStorage, CONVERSATION_STORAGE_KEY);
+function loadConversations(storageKey: string): ConversationSnapshot[] {
+  return loadStoredConversations(localStorage, storageKey);
 }
 
-function saveConversations(conversations: ConversationSnapshot[]) {
-  saveStoredConversations(localStorage, CONVERSATION_STORAGE_KEY, conversations);
+function saveConversations(storageKey: string, conversations: ConversationSnapshot[]) {
+  saveStoredConversations(localStorage, storageKey, conversations);
 }
 
 function buildConversationTitle(messages: ChatMessage[]) {
@@ -92,10 +128,16 @@ function readFileAsDataUrl(file: File): Promise<string> {
   });
 }
 
-export function AssistantPanel({ width, onClose }: AssistantPanelProps) {
+export function AssistantPanel({
+  width,
+  onClose,
+  courseBinding,
+  context,
+}: AssistantPanelProps) {
+  const storageKey = conversationStorageKey(courseBinding);
   const [conversations, setConversations] = useState<ConversationSnapshot[]>(() => {
-    const loaded = loadConversations();
-    return loaded.length ? loaded : [createConversation()];
+    const loaded = loadConversations(storageKey);
+    return loaded.length ? loaded : [createConversation(courseBinding)];
   });
   const [activeConversationId, setActiveConversationId] = useState(() => conversations[0]?.id ?? "");
   const [activeTab, setActiveTab] = useState<"chat" | "history">("chat");
@@ -104,22 +146,118 @@ export function AssistantPanel({ width, onClose }: AssistantPanelProps) {
   const [attachments, setAttachments] = useState<AssistantAttachment[]>([]);
   const [sending, setSending] = useState(false);
   const [copiedMessageId, setCopiedMessageId] = useState<number | null>(null);
+  const [courseSessionsLoaded, setCourseSessionsLoaded] = useState(false);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messageListRef = useRef<HTMLDivElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
+  const streamingConversationIdRef = useRef<string | null>(null);
+  const sendingRef = useRef(false);
+  const activeConversationIdRef = useRef(activeConversationId);
+
+  useEffect(() => {
+    sendingRef.current = sending;
+  }, [sending]);
+
+  useEffect(() => {
+    activeConversationIdRef.current = activeConversationId;
+  }, [activeConversationId]);
 
   const activeConversation = useMemo(() => {
     return conversations.find((conversation) => conversation.id === activeConversationId) ?? conversations[0];
   }, [activeConversationId, conversations]);
 
-  const messages = activeConversation?.messages ?? [INITIAL_MESSAGE];
+  const messages = activeConversation?.messages ?? [buildWelcomeMessage(courseBinding)];
   const selectedModelInfo = MODEL_OPTIONS.find((model) => model.id === selectedModel) ?? MODEL_OPTIONS[0];
-  const canSend = Boolean(input.trim() || attachments.length) && !sending;
+  const courseSessionsReady = !courseBinding || courseSessionsLoaded;
+  const canSend = Boolean(input.trim() || attachments.length) && !sending && courseSessionsReady;
 
   useEffect(() => {
-    saveConversations(conversations);
-  }, [conversations]);
+    setCourseSessionsLoaded(false);
+    const loaded = loadConversations(storageKey);
+    setConversations(loaded.length ? loaded : [createConversation(courseBinding)]);
+    setActiveConversationId(loaded[0]?.id ?? "");
+    setActiveTab("chat");
+    setInput("");
+    setAttachments([]);
+  }, [storageKey, courseBinding?.courseId]);
+
+  useEffect(() => {
+    if (!courseBinding?.courseId || courseSessionsLoaded) return;
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const items = await listCourseAgentSessions(courseBinding.courseId);
+        if (cancelled || items.length === 0) {
+          if (!cancelled) setCourseSessionsLoaded(true);
+          return;
+        }
+
+        const detail = await getCourseAgentSession(courseBinding.courseId, items[0].id);
+        if (cancelled) return;
+        if (sendingRef.current || streamingConversationIdRef.current) {
+          setCourseSessionsLoaded(true);
+          return;
+        }
+
+        const restored: ConversationSnapshot = {
+          id: createId("conv"),
+          agentSessionId: detail.id,
+          title: detail.title || "新对话",
+          updatedAt: detail.updated_at ? Date.parse(detail.updated_at) : Date.now(),
+          messages: detail.messages.length > 0
+            ? detail.messages.map((message) => ({
+                role: message.role,
+                content: message.content,
+                citations: message.citations,
+              }))
+            : [buildWelcomeMessage(courseBinding)],
+        };
+
+        const others: ConversationSnapshot[] = items.slice(1).map((item) => ({
+          id: createId("conv"),
+          agentSessionId: item.id,
+          title: item.title || "新对话",
+          updatedAt: item.updated_at ? Date.parse(item.updated_at) : Date.now(),
+          messages: [buildWelcomeMessage(courseBinding)],
+        }));
+
+        let shouldActivateRestored = false;
+        setConversations((prev) => {
+          const active = prev.find((conversation) => conversation.id === activeConversationIdRef.current);
+          if (!isWelcomeOnlyConversation(active)) {
+            const merged = [restored, ...others];
+            const serverAgentIds = new Set(
+              merged.map((conversation) => conversation.agentSessionId).filter(Boolean),
+            );
+            const localOnly = prev.filter(
+              (conversation) => !conversation.agentSessionId || !serverAgentIds.has(conversation.agentSessionId),
+            );
+            return [...merged, ...localOnly].sort((left, right) => right.updatedAt - left.updatedAt);
+          }
+          shouldActivateRestored = true;
+          return [restored, ...others];
+        });
+
+        if (shouldActivateRestored) {
+          setActiveConversationId(restored.id);
+        }
+      } catch {
+        // 恢复失败时保留本地空会话
+      } finally {
+        if (!cancelled) setCourseSessionsLoaded(true);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [courseBinding?.courseId, courseSessionsLoaded]);
+
+  useEffect(() => {
+    saveConversations(storageKey, conversations);
+  }, [conversations, storageKey]);
 
   useEffect(() => {
     messageListRef.current?.scrollTo({
@@ -134,28 +272,20 @@ export function AssistantPanel({ width, onClose }: AssistantPanelProps) {
 
   function updateActiveConversation(updater: (conversation: ConversationSnapshot) => ConversationSnapshot) {
     setConversations((prev) => {
-      const current = prev.find((conversation) => conversation.id === activeConversationId) ?? prev[0] ?? createConversation();
-      const nextConversation = updater(current);
-      const exists = prev.some((conversation) => conversation.id === nextConversation.id);
-      const next = exists
-        ? prev.map((conversation) => (conversation.id === nextConversation.id ? nextConversation : conversation))
-        : [nextConversation, ...prev];
-      return next.sort((a, b) => b.updatedAt - a.updatedAt);
+      const current = prev.find((conversation) => conversation.id === activeConversationId);
+      if (!current) return prev;
+      return updateConversationById(prev, current.id, updater);
     });
   }
 
+  function updateStreamingConversation(updater: (conversation: ConversationSnapshot) => ConversationSnapshot) {
+    const targetId = streamingConversationIdRef.current;
+    if (!targetId) return;
+    setConversations((prev) => updateConversationById(prev, targetId, updater));
+  }
+
   function updateLastAssistant(update: (message: ChatMessage) => ChatMessage) {
-    updateActiveConversation((conversation) => {
-      const nextMessages = [...conversation.messages];
-      const last = nextMessages[nextMessages.length - 1];
-      if (!last || last.role !== "assistant") return conversation;
-      nextMessages[nextMessages.length - 1] = update(last);
-      return {
-        ...conversation,
-        updatedAt: Date.now(),
-        messages: nextMessages,
-      };
-    });
+    updateStreamingConversation((conversation) => updateLastAssistantInConversation(conversation, update));
   }
 
   async function addFiles(files: FileList | File[] | null, preferredKind?: "image" | "file") {
@@ -181,12 +311,42 @@ export function AssistantPanel({ width, onClose }: AssistantPanelProps) {
   }
 
   function handleNewConversation() {
-    const conversation = createConversation();
+    const conversation = createConversation(courseBinding);
     setConversations((prev) => [conversation, ...prev]);
     setActiveConversationId(conversation.id);
     setActiveTab("chat");
     setInput("");
     setAttachments([]);
+  }
+
+  async function hydrateCourseConversation(conversationId: string) {
+    if (!courseBinding?.courseId) return;
+    const target = conversations.find((conversation) => conversation.id === conversationId);
+    if (!target?.agentSessionId) return;
+    const hasUserMessage = target.messages.some((message) => message.role === "user");
+    if (hasUserMessage) return;
+
+    try {
+      const detail = await getCourseAgentSession(courseBinding.courseId, target.agentSessionId);
+      setConversations((prev) =>
+        prev.map((conversation) => {
+          if (conversation.id !== conversationId) return conversation;
+          return {
+            ...conversation,
+            title: detail.title || conversation.title,
+            messages: detail.messages.length > 0
+              ? detail.messages.map((message) => ({
+                  role: message.role,
+                  content: message.content,
+                  citations: message.citations,
+                }))
+              : conversation.messages,
+          };
+        }),
+      );
+    } catch {
+      // 历史加载失败时保留当前占位消息
+    }
   }
 
   async function handleCopyMessage(content: string, index: number) {
@@ -199,38 +359,18 @@ export function AssistantPanel({ width, onClose }: AssistantPanelProps) {
     abortControllerRef.current?.abort();
   }
 
-  function applyStreamEvent(data: ChatStreamEvent) {
-    if (data.type === "chunk") {
-      updateLastAssistant((last) => ({ ...last, content: last.content + data.content }));
-    } else if (data.type === "status") {
-      updateLastAssistant((last) => ({
-        ...last,
-        statuses: [
-          ...(last.statuses ?? []),
-          {
-            event: data.event,
-            message: data.message,
-            toolName: data.tool_name,
-            success: data.success,
-          },
-        ],
-      }));
-    } else if (data.type === "citations") {
-      updateLastAssistant((last) => ({
-        ...last,
-        citations: [...(last.citations ?? []), ...data.citations],
-      }));
-    } else if (data.type === "error") {
-      updateLastAssistant((last) => ({
-        ...last,
-        content: last.content || `错误：${data.message}`,
-      }));
-    }
+  function applyStreamEvent(data: ChatStreamEvent | CourseAgentStreamEvent) {
+    const targetId = streamingConversationIdRef.current;
+    if (!targetId) return;
+
+    setConversations((prev) =>
+      updateConversationById(prev, targetId, (conversation) => applyStreamEventToConversation(conversation, data)),
+    );
   }
 
   async function handleSend() {
     const text = input.trim();
-    if ((!text && !attachments.length) || sending) return;
+    if ((!text && !attachments.length) || sending || !courseSessionsReady) return;
     const requestText = text || "请根据我上传的附件进行分析。";
     const outgoingAttachments = attachments;
     const userMessage: ChatMessage = {
@@ -239,7 +379,10 @@ export function AssistantPanel({ width, onClose }: AssistantPanelProps) {
       attachments: outgoingAttachments,
     };
     const assistantPlaceholder: ChatMessage = { role: "assistant", content: "" };
+    const conversationId = activeConversationId;
+    const agentSessionIdAtSend = activeConversation?.agentSessionId;
 
+    streamingConversationIdRef.current = conversationId;
     updateActiveConversation((conversation) => {
       const nextMessages = [...conversation.messages, userMessage, assistantPlaceholder];
       return {
@@ -256,45 +399,38 @@ export function AssistantPanel({ width, onClose }: AssistantPanelProps) {
     abortControllerRef.current = controller;
 
     try {
-      const resp = await fetch("/api/chat/stream/", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        signal: controller.signal,
-        body: JSON.stringify({
+      if (courseBinding) {
+        await streamCourseAgentMessage({
+          courseId: courseBinding.courseId,
           message: requestText,
-          model_id: selectedModel,
-          attachments: outgoingAttachments.map((attachment) => ({
-            name: attachment.name,
-            kind: attachment.kind,
-            mime_type: attachment.mimeType,
-            size: attachment.size,
-            data_url: attachment.dataUrl,
-          })),
-          history: messages.map((message) => ({
-            role: message.role,
-            content: message.content,
-          })),
-        }),
-      });
-
-      if (!resp.ok) {
-        const errorText = await resp.text();
-        throw new Error(errorText || `HTTP ${resp.status}`);
+          agentSessionId: agentSessionIdAtSend,
+          currentTaskId: courseBinding.currentTaskId,
+          currentSourceVersionId: courseBinding.currentSourceVersionId ?? context?.selectedFileId,
+          signal: controller.signal,
+          onEvent: applyStreamEvent,
+        });
+      } else {
+        const body = await postJsonStream(
+          "/api/chat/stream/",
+          {
+            message: requestText,
+            model_id: selectedModel,
+            attachments: outgoingAttachments.map((attachment) => ({
+              name: attachment.name,
+              kind: attachment.kind,
+              mime_type: attachment.mimeType,
+              size: attachment.size,
+              data_url: attachment.dataUrl,
+            })),
+            history: messages.map((message) => ({
+              role: message.role,
+              content: message.content,
+            })),
+          },
+          { signal: controller.signal },
+        );
+        await consumeAssistantStream(body, applyStreamEvent);
       }
-      if (!resp.body) throw new Error("响应流为空");
-
-      const reader = resp.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        const parsed = parseAssistantStreamChunk(decoder.decode(value, { stream: true }), buffer);
-        buffer = parsed.buffer;
-        parsed.events.forEach(applyStreamEvent);
-      }
-      parseAssistantStreamChunk("\n", buffer).events.forEach(applyStreamEvent);
     } catch (error) {
       if (error instanceof Error && error.name === "AbortError") {
         updateLastAssistant((last) => ({
@@ -309,6 +445,7 @@ export function AssistantPanel({ width, onClose }: AssistantPanelProps) {
         content: last.content || `抱歉，AI 服务出错：${message}`,
       }));
     } finally {
+      streamingConversationIdRef.current = null;
       abortControllerRef.current = null;
       setSending(false);
     }
@@ -328,7 +465,19 @@ export function AssistantPanel({ width, onClose }: AssistantPanelProps) {
           <span className="ai-chat-header-icon">
             <Sparkles size={16} />
           </span>
-          <strong>AI 助手</strong>
+          <div className="ai-chat-header-main">
+            <strong>AI 助手</strong>
+            {courseBinding ? (
+              <div className="ai-chat-course-tags">
+                <span className="ai-chat-course-tag">
+                  {courseBinding.courseTitle || courseBinding.courseGoal || "当前课程"}
+                </span>
+                {activeConversation?.agentSessionId ? (
+                  <span className="ai-chat-course-tag bound">已绑定课程</span>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
         </div>
         <div className="ai-chat-header-actions">
           <button
@@ -365,6 +514,7 @@ export function AssistantPanel({ width, onClose }: AssistantPanelProps) {
               onClick={() => {
                 setActiveConversationId(conversation.id);
                 setActiveTab("chat");
+                void hydrateCourseConversation(conversation.id);
               }}
             >
               <strong>{conversation.title}</strong>
@@ -387,11 +537,6 @@ export function AssistantPanel({ width, onClose }: AssistantPanelProps) {
                       <strong>AI 助手</strong>
                     </div>
                     <div className="ai-chat-assistant-block">
-                      {message.content ? (
-                        <AssistantMarkdown content={message.content} />
-                      ) : (
-                        <div className="ai-chat-loading">正在生成...</div>
-                      )}
                       {message.statuses?.length ? (
                         <div className="ai-chat-status-list">
                           {message.statuses.map((status, statusIndex) => (
@@ -405,19 +550,13 @@ export function AssistantPanel({ width, onClose }: AssistantPanelProps) {
                           ))}
                         </div>
                       ) : null}
+                      {message.content ? (
+                        <AssistantMarkdown content={message.content} />
+                      ) : (
+                        <div className="ai-chat-loading">正在生成...</div>
+                      )}
                       {message.citations?.length ? (
-                        <div className="ai-chat-citations" aria-label="引用来源">
-                          {message.citations.map((citation, citationIndex) => (
-                            <div className="ai-chat-citation" key={`${citation.evidence_id ?? "source"}-${citationIndex}`}>
-                              <Check size={12} />
-                              <span>
-                                {citation.source_title ? `${citation.source_title}: ` : ""}
-                                {citation.content_preview}
-                                {citation.page_number ? ` · p.${citation.page_number}` : ""}
-                              </span>
-                            </div>
-                          ))}
-                        </div>
+                        <ChatCitationList citations={message.citations} />
                       ) : null}
                     </div>
                     {message.content ? (
@@ -473,9 +612,10 @@ export function AssistantPanel({ width, onClose }: AssistantPanelProps) {
             <div className="ai-chat-input-row">
               <textarea
                 className="ai-chat-input"
-                placeholder="输入消息..."
+                placeholder={courseSessionsReady ? "输入消息..." : "正在恢复会话…"}
                 value={input}
                 rows={2}
+                disabled={!courseSessionsReady}
                 onChange={(event) => setInput(event.target.value)}
                 onKeyDown={handleKeyDown}
               />

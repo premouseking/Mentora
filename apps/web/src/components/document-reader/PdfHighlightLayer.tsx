@@ -7,14 +7,14 @@ import { useEffect, useMemo, useRef } from "react";
 import type { PdfBlock } from "../../services/resourceTypes";
 import { filterInteractiveBlocks } from "./resourceReaderUtils";
 import { bboxToPercentStyle } from "./pdfReaderUtils";
-import type { ActiveBlockRef } from "./pdfReaderStateStore";
+import type { ActiveBlockRef, FlashRect } from "./pdfReaderStateStore";
 
 interface PdfHighlightLayerProps {
   blocks: PdfBlock[];
   pageSizes: Map<number, [number, number]>;
   viewerElement: HTMLDivElement | null;
   activeBlock: ActiveBlockRef | null;
-  flashRect: { page: number; bbox: [number, number, number, number] } | null;
+  flashRects: FlashRect[];
   onBlockHover: (block: ActiveBlockRef | null) => void;
   onBlockClick: (block: ActiveBlockRef) => void;
   onEvent: (event: "pagerendered" | "scalechanging", handler: (evt: unknown) => void) => () => void;
@@ -29,7 +29,7 @@ export function PdfHighlightLayer({
   pageSizes,
   viewerElement,
   activeBlock,
-  flashRect,
+  flashRects,
   onBlockHover,
   onBlockClick,
   onEvent,
@@ -156,29 +156,31 @@ export function PdfHighlightLayer({
       node.remove();
     });
 
-    if (!flashRect) return;
+    if (flashRects.length === 0) return;
 
-    const pageEl = viewerElement.querySelector<HTMLDivElement>(
-      `.page[data-page-number="${flashRect.page}"]`,
-    );
-    if (!pageEl) return;
+    for (const flashRect of flashRects) {
+      const pageEl = viewerElement.querySelector<HTMLDivElement>(
+        `.page[data-page-number="${flashRect.page}"]`,
+      );
+      if (!pageEl) continue;
 
-    const layer = pageEl.querySelector<HTMLDivElement>(".pdf-highlight-layer");
-    const pageSize = pageSizes.get(flashRect.page);
-    if (!layer || !pageSize) return;
+      const layer = pageEl.querySelector<HTMLDivElement>(".pdf-highlight-layer");
+      const pageSize = pageSizes.get(flashRect.page);
+      if (!layer || !pageSize) continue;
 
-    const flash = document.createElement("div");
-    flash.className = "pdf-parsed-flash pdf-evidence-flash";
-    const fb = flashRect.bbox;
-    Object.assign(
-      flash.style,
-      bboxToPercentStyle(
-        { x0: fb[0], y0: fb[1], x1: fb[2], y1: fb[3] },
-        pageSize,
-      ),
-    );
-    layer.appendChild(flash);
-  }, [flashRect, pageSizes, viewerElement]);
+      const flash = document.createElement("div");
+      flash.className = "pdf-parsed-flash pdf-evidence-flash";
+      const fb = flashRect.bbox;
+      Object.assign(
+        flash.style,
+        bboxToPercentStyle(
+          { x0: fb[0], y0: fb[1], x1: fb[2], y1: fb[3] },
+          pageSize,
+        ),
+      );
+      layer.appendChild(flash);
+    }
+  }, [flashRects, pageSizes, viewerElement]);
 
   useEffect(() => {
     if (!viewerElement) return;

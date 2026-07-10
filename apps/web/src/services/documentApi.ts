@@ -2,7 +2,7 @@
  * 文档查询 API 服务层。
  *
  * 约定：
- * - 资料列表按 DEV_OWNER_ID 过滤
+ * - 资料归属由后端根据 JWT 用户确定
  * - 详情接口返回 ParsedBundle 正文供文档阅读页渲染
  */
 import {
@@ -13,7 +13,7 @@ import {
   type ParsedElementRaw,
   type ParsedBundle,
 } from "./parsedBundleContract";
-import { DEV_OWNER_ID } from "./devOwner";
+import { apiClient } from "./client";
 
 const API = "/api";
 
@@ -68,15 +68,13 @@ export async function fetchSources(
   courseId?: string,
   options?: { limit?: number; offset?: number; signal?: AbortSignal; status?: "active" | "archived" },
 ): Promise<SourceItem[]> {
-  const params = new URLSearchParams({ ownerId: DEV_OWNER_ID });
+  const params = new URLSearchParams();
   if (courseId) params.set("courseId", courseId);
   if (options?.limit != null) params.set("limit", String(options.limit));
   if (options?.offset != null) params.set("offset", String(options.offset));
   if (options?.status) params.set("status", options.status);
   const url = `${API}/library/sources/?${params.toString()}`;
-  const res = await fetch(url, { signal: options?.signal });
-  if (!res.ok) throw new Error(`获取资料列表失败: ${res.status}`);
-  const data = await res.json();
+  const data = await apiClient.get<{ items?: SourceItem[] }>(url, { signal: options?.signal });
   return data.items ?? [];
 }
 
@@ -98,9 +96,7 @@ export function isPdfMediaType(mediaType: string, filename?: string): boolean {
 }
 
 export async function fetchSourceDetail(sourceVersionId: string): Promise<SourceDetail> {
-  const res = await fetch(`${API}/library/sources/${sourceVersionId}/`);
-  if (!res.ok) throw new Error(`获取资料详情失败: ${res.status}`);
-  const data = await res.json();
+  const data = await apiClient.get<SourceDetail>(`${API}/library/sources/${sourceVersionId}/`);
   return {
     ...data,
     bundle: data.bundle ? normalizeParsedBundle(data.bundle) : null,
@@ -125,50 +121,35 @@ export function sourcesToFileNodes(items: SourceItem[]): { id: string; name: str
 /* ── 删除 ── */
 
 export async function deleteSource(sourceId: string): Promise<void> {
-  const res = await fetch(`${API}/library/sources/${encodeURIComponent(sourceId)}/delete/`, {
-    method: "DELETE",
-  });
-  if (!res.ok) throw new Error("删除失败");
+  await apiClient.delete(`${API}/library/sources/${encodeURIComponent(sourceId)}/delete/`);
 }
 
 export async function archiveSource(sourceId: string): Promise<void> {
-  const params = new URLSearchParams({ ownerId: DEV_OWNER_ID });
-  const res = await fetch(
-    `${API}/library/sources/${encodeURIComponent(sourceId)}/archive/?${params.toString()}`,
-    { method: "PATCH" },
-  );
-  if (!res.ok) throw new Error("归档失败");
+  await apiClient.patch(`${API}/library/sources/${encodeURIComponent(sourceId)}/archive/`, {});
 }
 
 export async function unarchiveSource(sourceId: string): Promise<void> {
-  const params = new URLSearchParams({ ownerId: DEV_OWNER_ID });
-  const res = await fetch(
-    `${API}/library/sources/${encodeURIComponent(sourceId)}/unarchive/?${params.toString()}`,
-    { method: "PATCH" },
-  );
-  if (!res.ok) throw new Error("取消归档失败");
+  await apiClient.patch(`${API}/library/sources/${encodeURIComponent(sourceId)}/unarchive/`, {});
 }
 
 export async function archiveCourseSource(
   sessionId: string,
   sourceVersionId: string,
 ): Promise<void> {
-  const res = await fetch(
+  await apiClient.patch(
     `${API}/courses/sessions/${encodeURIComponent(sessionId)}/sources/${encodeURIComponent(sourceVersionId)}/archive/`,
-    { method: "PATCH" },
+    {},
   );
-  if (!res.ok) throw new Error("归档课程资料失败");
 }
 
 export async function unarchiveCourseSource(
   sessionId: string,
   sourceVersionId: string,
 ): Promise<void> {
-  const res = await fetch(
+  await apiClient.patch(
     `${API}/courses/sessions/${encodeURIComponent(sessionId)}/sources/${encodeURIComponent(sourceVersionId)}/unarchive/`,
-    { method: "PATCH" },
+    {},
   );
-  if (!res.ok) throw new Error("恢复课程资料失败");
 }
 
 /* ── 课程资料关联 ── */
@@ -184,9 +165,9 @@ export interface CourseSourceItem {
 }
 
 export async function getCourseSources(courseId: string): Promise<CourseSourceItem[]> {
-  const res = await fetch(`${API}/courses/sessions/${encodeURIComponent(courseId)}/sources/`);
-  if (!res.ok) throw new Error("获取课程资料失败");
-  const data = await res.json();
+  const data = await apiClient.get<{ items?: CourseSourceItem[] }>(
+    `${API}/courses/sessions/${encodeURIComponent(courseId)}/sources/`,
+  );
   return data.items ?? [];
 }
 
@@ -194,24 +175,16 @@ export async function setCourseSources(
   courseId: string,
   sourceVersionIds: string[],
 ): Promise<void> {
-  const res = await fetch(
+  await apiClient.post(
     `${API}/courses/sessions/${encodeURIComponent(courseId)}/sources/`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ source_version_ids: sourceVersionIds }),
-    },
+    { source_version_ids: sourceVersionIds },
   );
-  if (!res.ok) throw new Error("设置课程资料失败");
 }
 
 /* ── 重新解析 ── */
 
 export async function reparseSource(sourceId: string): Promise<void> {
-  const res = await fetch(`${API}/library/sources/${encodeURIComponent(sourceId)}/reparse/`, {
-    method: "POST",
-  });
-  if (!res.ok) throw new Error("重新解析失败");
+  await apiClient.post(`${API}/library/sources/${encodeURIComponent(sourceId)}/reparse/`);
 }
 
 /* ── 文件夹 ── */
@@ -222,21 +195,12 @@ export interface FolderItem {
 }
 
 export async function fetchFolders(): Promise<FolderItem[]> {
-  const params = new URLSearchParams({ ownerId: DEV_OWNER_ID });
-  const res = await fetch(`${API}/library/folders/?${params.toString()}`);
-  if (!res.ok) throw new Error(`获取文件夹列表失败: ${res.status}`);
-  const data = await res.json();
-  return data.items ?? data ?? [];
+  const data = await apiClient.get<{ items?: FolderItem[] } | FolderItem[]>(`${API}/library/folders/`);
+  return Array.isArray(data) ? data : data.items ?? [];
 }
 
 export async function createFolder(name: string): Promise<FolderItem> {
-  const res = await fetch(`${API}/library/folders/create/`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ name, ownerId: DEV_OWNER_ID }),
-  });
-  if (!res.ok) throw new Error("创建文件夹失败");
-  return res.json();
+  return apiClient.post<FolderItem>(`${API}/library/folders/create/`, { name });
 }
 
 /** 预留：重命名文件夹。UI 实现后接入。
@@ -244,28 +208,17 @@ export async function createFolder(name: string): Promise<FolderItem> {
  *  后端已就绪，前端待设计双击编辑或右键菜单触发。
  */
 export async function renameFolder(folderId: string, name: string): Promise<void> {
-  const res = await fetch(`${API}/library/folders/${encodeURIComponent(folderId)}/`, {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ name }),
-  });
-  if (!res.ok) throw new Error("重命名文件夹失败");
+  await apiClient.patch(`${API}/library/folders/${encodeURIComponent(folderId)}/`, { name });
 }
 
 export async function deleteFolder(folderId: string): Promise<void> {
-  const res = await fetch(`${API}/library/folders/${encodeURIComponent(folderId)}/delete/`, {
-    method: "DELETE",
-  });
-  if (!res.ok) throw new Error("删除文件夹失败");
+  await apiClient.delete(`${API}/library/folders/${encodeURIComponent(folderId)}/delete/`);
 }
 
 /* ── 标签 ── */
 
 export async function fetchTags(): Promise<string[]> {
-  const params = new URLSearchParams({ ownerId: DEV_OWNER_ID });
-  const res = await fetch(`${API}/library/tags/?${params.toString()}`);
-  if (!res.ok) throw new Error(`获取标签列表失败: ${res.status}`);
-  const data = await res.json();
+  const data = await apiClient.get<{ tags?: string[]; items?: string[] }>(`${API}/library/tags/`);
   return data.tags ?? data.items ?? [];
 }
 
@@ -274,23 +227,15 @@ export async function fetchTags(): Promise<string[]> {
  *  后端已就绪，前端待设计标签编辑器（添加/删除/建议）后对接。
  */
 export async function updateSourceTags(sourceId: string, tags: string[]): Promise<void> {
-  const res = await fetch(`${API}/library/sources/${encodeURIComponent(sourceId)}/tags/`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ tags }),
-  });
-  if (!res.ok) throw new Error("更新标签失败");
+  await apiClient.post(`${API}/library/sources/${encodeURIComponent(sourceId)}/tags/`, { tags });
 }
 
 /* ── 移动 ── */
 
 export async function moveSource(sourceId: string, folderId: string | null): Promise<void> {
-  const res = await fetch(`${API}/library/sources/${encodeURIComponent(sourceId)}/move/`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ folder_id: folderId }),
+  await apiClient.post(`${API}/library/sources/${encodeURIComponent(sourceId)}/move/`, {
+    folder_id: folderId,
   });
-  if (!res.ok) throw new Error("移动资料失败");
 }
 
 /* ── 课程文件树 ── */
@@ -318,13 +263,9 @@ export interface CoursePhasesResponse {
 }
 
 export async function fetchCourseFiles(courseId: string): Promise<{ tree: TreeNode[] }> {
-  const res = await fetch(`${API}/courses/${encodeURIComponent(courseId)}/files/`);
-  if (!res.ok) throw new Error(`获取文件树失败: ${res.status}`);
-  return res.json();
+  return apiClient.get<{ tree: TreeNode[] }>(`${API}/courses/${encodeURIComponent(courseId)}/files/`);
 }
 
 export async function fetchCoursePhases(courseId: string): Promise<CoursePhasesResponse> {
-  const res = await fetch(`${API}/courses/${encodeURIComponent(courseId)}/phases/`);
-  if (!res.ok) throw new Error(`获取阶段列表失败: ${res.status}`);
-  return res.json();
+  return apiClient.get<CoursePhasesResponse>(`${API}/courses/${encodeURIComponent(courseId)}/phases/`);
 }

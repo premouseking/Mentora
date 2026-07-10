@@ -24,7 +24,7 @@ export interface PdfReaderState {
   searchOpen: boolean;
   activeBlock: ActiveBlockRef | null;
   selectedText: string;
-  flashRect: FlashRect | null;
+  flashRects: FlashRect[];
 }
 
 type PdfReaderAction =
@@ -36,7 +36,7 @@ type PdfReaderAction =
   | { type: "toggle_search"; open?: boolean }
   | { type: "set_active_block"; block: ActiveBlockRef | null }
   | { type: "set_selected_text"; text: string }
-  | { type: "set_flash_rect"; rect: FlashRect | null };
+  | { type: "set_flash_rects"; rects: FlashRect[] };
 
 const initialState: PdfReaderState = {
   scale: 1,
@@ -47,7 +47,7 @@ const initialState: PdfReaderState = {
   searchOpen: false,
   activeBlock: null,
   selectedText: "",
-  flashRect: null,
+  flashRects: [],
 };
 
 function reducer(state: PdfReaderState, action: PdfReaderAction): PdfReaderState {
@@ -68,8 +68,8 @@ function reducer(state: PdfReaderState, action: PdfReaderAction): PdfReaderState
       return { ...state, activeBlock: action.block };
     case "set_selected_text":
       return { ...state, selectedText: action.text };
-    case "set_flash_rect":
-      return { ...state, flashRect: action.rect };
+    case "set_flash_rects":
+      return { ...state, flashRects: action.rects };
     default:
       return state;
   }
@@ -113,8 +113,8 @@ export function usePdfReaderState(initialTotalPages = 1) {
     dispatch({ type: "set_selected_text", text });
   }, []);
 
-  const setFlashRect = useCallback((rect: FlashRect | null) => {
-    dispatch({ type: "set_flash_rect", rect });
+  const setFlashRects = useCallback((rects: FlashRect[]) => {
+    dispatch({ type: "set_flash_rects", rects });
   }, []);
 
   return {
@@ -127,7 +127,7 @@ export function usePdfReaderState(initialTotalPages = 1) {
     toggleSearch,
     setActiveBlock,
     setSelectedText,
-    setFlashRect,
+    setFlashRects,
   };
 }
 

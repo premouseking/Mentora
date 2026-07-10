@@ -75,12 +75,14 @@ class ModelGateway:
                             "LLM_STRUCTURED_TIMEOUT",
                             django_settings.LLM_REQUEST_TIMEOUT,
                         )
-                    provider_resp = await provider.chat(
-                        messages=messages,
-                        tools=tools,
-                        model=model,
-                        timeout=request_timeout,
-                    )
+                    provider_kwargs = {
+                        "messages": messages,
+                        "tools": tools,
+                        "model": model,
+                    }
+                    if request_timeout is not None:
+                        provider_kwargs["timeout"] = request_timeout
+                    provider_resp = await provider.chat(**provider_kwargs)
                     chat_resp = self._build_chat_response(provider, provider_resp)
 
                     if structured_output_schema is not None:
@@ -155,58 +157,87 @@ class ModelGateway:
         model: str | None = None,
     ) -> AsyncGenerator[ChatResponse, None]:
         candidates = self._router.resolve_candidates(task_type)
-        provider = candidates[0]
         req = await self._create_request_audit(
             task_type=task_type,
-            provider_name=provider.name,
+            provider_name=candidates[0].name,
             messages=messages,
             tools=tools,
             output_schema_name="",
             structured_output=False,
         )
 
-        accumulated: list[str] = []
-        last_chunk: ChatResponse | None = None
-        started = time.perf_counter()
-        try:
-            async for provider_resp in provider.chat_stream(messages=messages, tools=tools, model=model):
-                if provider_resp.content:
-                    accumulated.append(provider_resp.content)
-                last_chunk = self._build_chat_response(provider, provider_resp)
-                yield last_chunk
-        except Exception as exc:  # noqa: BLE001 - provider boundary
-            await self._create_attempt_audit(
-                req=req,
-                attempt_number=1,
-                provider_name=provider.name,
-                model_name=provider.default_model,
-                response_json=None,
-                usage_json=None,
-                latency_ms=self._elapsed_ms(started),
-                success=False,
-                error_code="provider_stream_error",
-                error_message=type(exc).__name__,
-            )
-            raise
+        last_error: Exception | None = None
+        attempt_number = 0
 
-        usage = (last_chunk.usage if last_chunk else None) or TokenUsage()
-        await self._create_attempt_audit(
-            req=req,
-            attempt_number=1,
-            provider_name=provider.name,
-            model_name=(last_chunk.model if last_chunk else "") or provider.default_model,
-            response_json={
-                "content": "".join(accumulated),
-                "tool_calls": (
-                    [tc.model_dump(mode="json") for tc in last_chunk.tool_calls]
-                    if last_chunk and last_chunk.tool_calls
-                    else None
-                ),
-            },
-            usage_json=usage.model_dump(mode="json"),
-            latency_ms=self._elapsed_ms(started),
-            success=True,
-        )
+        for provider in candidates:
+            for _ in range(self._max_retries_per_attempt + 1):
+                attempt_number += 1
+                started = time.perf_counter()
+                accumulated: list[str] = []
+                last_chunk: ChatResponse | None = None
+                attempt_yielded = False
+
+                try:
+                    async for provider_resp in provider.chat_stream(
+                        messages=messages,
+                        tools=tools,
+                        model=model,
+                    ):
+                        last_chunk = self._build_chat_response(provider, provider_resp)
+                        if provider_resp.content:
+                            accumulated.append(provider_resp.content)
+                        attempt_yielded = True
+                        yield last_chunk
+
+                    usage = (last_chunk.usage if last_chunk else None) or TokenUsage()
+                    await self._create_attempt_audit(
+                        req=req,
+                        attempt_number=attempt_number,
+                        provider_name=provider.name,
+                        model_name=self._resolve_audit_model_name(provider, model, last_chunk),
+                        response_json={
+                            "content": "".join(accumulated),
+                            "tool_calls": (
+                                [tc.model_dump(mode="json") for tc in last_chunk.tool_calls]
+                                if last_chunk and last_chunk.tool_calls
+                                else None
+                            ),
+                        },
+                        usage_json=usage.model_dump(mode="json"),
+                        latency_ms=self._elapsed_ms(started),
+                        success=True,
+                    )
+                    self._router.mark_success(provider.name)
+                    return
+                except Exception as exc:  # noqa: BLE001 - provider boundary
+                    last_error = exc
+                    self._router.mark_failure(provider.name)
+                    await self._create_attempt_audit(
+                        req=req,
+                        attempt_number=attempt_number,
+                        provider_name=provider.name,
+                        model_name=self._resolve_audit_model_name(provider, model, last_chunk),
+                        response_json={
+                            "content": "".join(accumulated),
+                            "tool_calls": (
+                                [tc.model_dump(mode="json") for tc in last_chunk.tool_calls]
+                                if last_chunk and last_chunk.tool_calls
+                                else None
+                            ),
+                        }
+                        if attempt_yielded
+                        else None,
+                        usage_json=None,
+                        latency_ms=self._elapsed_ms(started),
+                        success=False,
+                        error_code="provider_stream_error",
+                        error_message=type(exc).__name__,
+                    )
+                    if attempt_yielded:
+                        raise
+                    continue
+
+        raise ProviderError("All model candidates failed", transient=False) from last_error
 
     async def _create_request_audit(
         self,
@@ -257,6 +288,21 @@ class ModelGateway:
             error_code=error_code,
             error_message=error_message,
         )
+
+    @staticmethod
+    def _resolve_audit_model_name(
+        provider: BaseProvider,
+        model: str | None,
+        last_chunk: ChatResponse | None = None,
+    ) -> str:
+        if last_chunk and last_chunk.model:
+            return last_chunk.model
+        if model:
+            return model
+        configured = getattr(provider, "_model", None)
+        if configured:
+            return configured
+        return provider.default_model
 
     @staticmethod
     def _build_chat_response(provider: BaseProvider, resp: ProviderResponse) -> ChatResponse:

@@ -23,31 +23,20 @@ import {
 
 import { AppShell } from "../components/AppShell";
 import {
-  normalizeParsingPreviewResult,
   type BoundingBox,
   type ParsingPreviewResult,
 } from "../services/parsedBundleContract";
+import {
+  fetchParsingBenchmark,
+  previewParsing,
+  type BenchmarkData,
+} from "../services/parsingApi";
 
 /* ── types ─────────────────────────────────────────── */
-
-interface BenchmarkFixture {
-  name: string; status: string; page_count: number; element_count: number;
-  evidence_count: number; heading_count: number; paragraph_count: number;
-  quality_score: number | null; elapsed_ms: number; error_type?: string; warnings: string[];
-}
-
-interface BenchmarkData {
-  parser_name: string; parser_version: string;
-  total_fixtures: number; ok_count: number; skipped_count: number; error_count: number;
-  fixtures: BenchmarkFixture[];
-  generated_at: string;
-}
 
 type Tab = "preview" | "benchmark";
 
 /* ── helpers ───────────────────────────────────────── */
-
-const API = "/api";
 
 const typeColors: Record<string, string> = {
   heading: "#197367", paragraph: "#2778c4", table: "#7253a7",
@@ -98,17 +87,7 @@ export function ParsingLabPage() {
   async function uploadAndParse(f: File) {
     setLoading(true); setError(null);
     try {
-      const form = new FormData();
-      form.append("file", f);
-      const res = await fetch(`${API}/parsing/preview`, { method: "POST", body: form });
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.message ?? err.error ?? `HTTP ${res.status}`);
-      }
-      const data = await res.json();
-      const preview = normalizeParsingPreviewResult(data);
-      if (!preview) throw new Error("解析结果格式无效");
-      setResult(preview);
+      setResult(await previewParsing(f));
     } catch (err) {
       setError(err instanceof Error ? err.message : "解析服务不可用，请启动 API 后重试。");
       setResult(null);
@@ -121,10 +100,7 @@ export function ParsingLabPage() {
   async function runBenchmark() {
     setBenchLoading(true); setBenchError(null);
     try {
-      const res = await fetch(`${API}/parsing/benchmark`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data: BenchmarkData = await res.json();
-      setBenchmark(data);
+      setBenchmark(await fetchParsingBenchmark());
     } catch (err) {
       setBenchError(err instanceof Error ? err.message : "Benchmark 服务不可用，请启动 API 后重试。");
       setBenchmark(null);

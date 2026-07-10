@@ -20,7 +20,6 @@ from mentora.knowledge.layout_converter import (
 )
 from mentora.knowledge.models import Source, SourceVersion
 from mentora.knowledge.reader_contract import PdfReaderDocument, ResourceItem, ResourceMeta
-from mentora.knowledge.views import _resolve_owner_id
 from mentora.parsing.contract import serialize_parsed_bundle
 from mentora.parsing.schemas import ParsedBundle
 
@@ -104,11 +103,7 @@ def _load_bundle(version: SourceVersion) -> ParsedBundle | None:
 
 @api_view(["GET"])
 def list_resources(request):
-    owner_id, error_response = _resolve_owner_id(request.GET.get("ownerId"))
-    if error_response is not None:
-        return error_response
-
-    qs = Source.objects.filter(owner_id=owner_id).select_related("latest_version").order_by("-created_at")
+    qs = Source.objects.filter(owner=request.user).select_related("latest_version").order_by("-created_at")
     items = []
     for source in qs:
         latest = source.latest_version
@@ -121,7 +116,9 @@ def list_resources(request):
 @api_view(["GET"])
 def resource_info(request, resource_id):
     try:
-        version = SourceVersion.objects.select_related("source").get(id=resource_id)
+        version = SourceVersion.objects.select_related("source").get(
+            id=resource_id, source__owner=request.user,
+        )
     except SourceVersion.DoesNotExist:
         return Response({"error": "资源不存在"}, status=404)
     return Response(_source_version_to_resource(version).model_dump(mode="json"))
@@ -163,7 +160,9 @@ def _build_reader_document(version: SourceVersion, *, include_blocks: bool = Tru
 @api_view(["GET"])
 def resource_reader_meta(request, resource_id):
     try:
-        version = SourceVersion.objects.select_related("source").get(id=resource_id)
+        version = SourceVersion.objects.select_related("source").get(
+            id=resource_id, source__owner=request.user,
+        )
     except SourceVersion.DoesNotExist:
         return Response({"error": "资源不存在"}, status=404)
 
@@ -176,7 +175,9 @@ def resource_reader_meta(request, resource_id):
 @api_view(["GET"])
 def resource_reader_blocks(request, resource_id):
     try:
-        version = SourceVersion.objects.select_related("source").get(id=resource_id)
+        version = SourceVersion.objects.select_related("source").get(
+            id=resource_id, source__owner=request.user,
+        )
     except SourceVersion.DoesNotExist:
         return Response({"error": "资源不存在"}, status=404)
 
@@ -194,7 +195,9 @@ def resource_reader_blocks(request, resource_id):
 @api_view(["GET"])
 def resource_reader(request, resource_id):
     try:
-        version = SourceVersion.objects.select_related("source").get(id=resource_id)
+        version = SourceVersion.objects.select_related("source").get(
+            id=resource_id, source__owner=request.user,
+        )
     except SourceVersion.DoesNotExist:
         return Response({"error": "资源不存在"}, status=404)
 
@@ -210,7 +213,7 @@ def resource_pdf(request, resource_id):
     from mentora.knowledge.models import SourceVersion
 
     try:
-        version = SourceVersion.objects.get(id=resource_id)
+        version = SourceVersion.objects.get(id=resource_id, source__owner=request.user)
     except SourceVersion.DoesNotExist:
         return Response({"error": "资源不存在"}, status=404)
 
@@ -226,7 +229,7 @@ def resource_pdf(request, resource_id):
 def resource_page_thumbnails(request, resource_id):
     """返回页元数据；缩略图由前端 pdf.js 渲染。"""
     try:
-        version = SourceVersion.objects.get(id=resource_id)
+        version = SourceVersion.objects.get(id=resource_id, source__owner=request.user)
     except SourceVersion.DoesNotExist:
         return Response({"error": "资源不存在"}, status=404)
 

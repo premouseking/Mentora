@@ -553,6 +553,29 @@ export function CourseWorkspacePage() {
     [activeTabId, openTabs],
   );
 
+  const assistantCourseBinding = useMemo(() => {
+    if (!courseId || !course) return undefined;
+    return {
+      courseId,
+      courseSessionId: course.session_id,
+      courseTitle: course.goal?.slice(0, 64) || undefined,
+      courseGoal: course.goal || undefined,
+      currentSourceVersionId: selectedFile,
+    };
+  }, [courseId, course, selectedFile]);
+
+  const assistantContext = useMemo(
+    () => ({
+      files: fileNodes,
+      aiItems: aiItems as unknown as import("../data/aiExplanations").AiExplanation[],
+      mistakeItems: mistakeItems as unknown as import("../data/mistakes").MistakeItem[],
+      selectedFileId: selectedFile,
+      selectedAiId: selectedAi,
+      selectedMistakeId: selectedMistake,
+    }),
+    [fileNodes, aiItems, mistakeItems, selectedFile, selectedAi, selectedMistake],
+  );
+
 
 
   useEffect(() => {
@@ -810,14 +833,20 @@ export function CourseWorkspacePage() {
 
   if (isInitialLoading) {
     return (
-      <AppShell>
+      <AppShell
+        assistantCourseBinding={assistantCourseBinding}
+        assistantContext={assistantContext}
+      >
         <WorkspaceSkeleton />
       </AppShell>
     );
   }
 
   return (
-    <AppShell>
+    <AppShell
+      assistantCourseBinding={assistantCourseBinding}
+      assistantContext={assistantContext}
+    >
       {quizPracticeOpen ? (
         <Suspense fallback={<PageSkeleton />}>
           <QuizPracticeView

@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import type { BundleRaw, ParsedElementRaw } from "../../services/documentApi";
 import { buildLibraryAssetUrl } from "../../services/documentApi";
+import { fetchProtectedAssetBlobUrl } from "../../services/assetApi";
 import {
   buildHighlightNeedle,
   elementAnchorId,
@@ -39,6 +40,31 @@ function resolveImageSrc(
 
 function isMeaningfulCaption(text: string): boolean {
   return Boolean(text && text !== "[图片]");
+}
+
+function ProtectedDocumentImage({ src, alt }: { src: string; alt: string }) {
+  const [resolvedSrc, setResolvedSrc] = useState(src.startsWith("/api/") ? "" : src);
+
+  useEffect(() => {
+    if (!src.startsWith("/api/")) {
+      setResolvedSrc(src);
+      return;
+    }
+    const controller = new AbortController();
+    let blobUrl = "";
+    void fetchProtectedAssetBlobUrl(src, controller.signal).then((url) => {
+      blobUrl = url;
+      setResolvedSrc(url);
+    }).catch(() => setResolvedSrc(""));
+    return () => {
+      controller.abort();
+      if (blobUrl) URL.revokeObjectURL(blobUrl);
+    };
+  }, [src]);
+
+  return resolvedSrc
+    ? <img src={resolvedSrc} alt={alt} className="doc-image" loading="lazy" />
+    : null;
 }
 
 export function ParsedDocumentRenderer({
@@ -129,12 +155,7 @@ export function ParsedDocumentRenderer({
                   const caption = isMeaningfulCaption(text) ? text : null;
                   return (
                     <div key={index} id={anchorId} className="doc-image-wrap">
-                      <img
-                        src={src}
-                        alt={text || "图片"}
-                        className="doc-image"
-                        loading="lazy"
-                      />
+                      <ProtectedDocumentImage src={src} alt={text || "图片"} />
                       {caption ? <div className="doc-image-caption">{caption}</div> : null}
                     </div>
                   );

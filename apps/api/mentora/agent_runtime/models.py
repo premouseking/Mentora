@@ -187,3 +187,82 @@ class PromptRevision(models.Model):
 
     def __str__(self) -> str:
         return f"PromptRevision({self.template_name}) v{self.version}"
+
+
+class CourseAgentSession(models.Model):
+    """课程绑定的 Agent 对话会话。
+
+    约定：
+    - course_id / course_session_id 存 UUID 字符串，不跨模块 FK
+    - 首条用户消息发送时创建，关闭页面后可恢复历史
+
+    约束：
+    - 会话必须归属单一课程
+    """
+
+    class Status(models.TextChoices):
+        ACTIVE = "active", "进行中"
+        ARCHIVED = "archived", "已归档"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    course_id = models.UUIDField(db_index=True, help_text="Course.id")
+    course_session_id = models.UUIDField(db_index=True, help_text="CourseCreationSession.id")
+    legacy_owner_id = models.CharField(
+        max_length=128, blank=True, default="", help_text="用户 ID（预留）",
+    )
+    owner = models.ForeignKey(
+        "users.User", null=True, on_delete=models.PROTECT, related_name="course_agent_sessions",
+    )
+    title = models.CharField(max_length=256, blank=True, default="")
+    status = models.CharField(
+        max_length=16,
+        choices=Status.choices,
+        default=Status.ACTIVE,
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "agent_runtime_course_agent_session"
+        verbose_name = "课程 Agent 会话"
+        verbose_name_plural = verbose_name
+        indexes = [
+            models.Index(fields=["course_id", "-updated_at"], name="ar_cas_course_updated_idx"),
+            models.Index(fields=["course_session_id", "-updated_at"], name="ar_cas_session_updated_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return f"CourseAgentSession({self.id}) course={self.course_id}"
+
+
+class CourseAgentMessage(models.Model):
+    """课程 Agent 会话消息。"""
+
+    class Role(models.TextChoices):
+        USER = "user", "用户"
+        ASSISTANT = "assistant", "助手"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    session = models.ForeignKey(
+        CourseAgentSession,
+        on_delete=models.CASCADE,
+        related_name="messages",
+    )
+    role = models.CharField(max_length=16, choices=Role.choices)
+    content = models.TextField(blank=True, default="")
+    citations_json = models.JSONField(default=list, help_text="引用列表")
+    metadata_json = models.JSONField(default=dict, help_text="mentions 等扩展元数据")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "agent_runtime_course_agent_message"
+        verbose_name = "课程 Agent 消息"
+        verbose_name_plural = verbose_name
+        ordering = ["created_at"]
+        indexes = [
+            models.Index(fields=["session", "created_at"], name="ar_cam_session_created_idx"),
+        ]
+
+    def __str__(self) -> str:
+        preview = self.content[:40] + "…" if len(self.content) > 40 else self.content
+        return f"CourseAgentMessage({self.role}) {preview}"

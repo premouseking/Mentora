@@ -30,7 +30,11 @@ def history_list(request):
     except ValueError:
         limit = 50
 
-    return Response(get_history(course_id, limit=limit))
+    if course_id:
+        from mentora.courses.models import Course
+        if not Course.objects.filter(id=course_id, owner=request.user).exists():
+            return Response({"error": "课程不存在"}, status=404)
+    return Response(get_history(course_id, limit=limit, owner=request.user))
 
 
 @extend_schema(
@@ -50,6 +54,9 @@ def mistake_list(request):
     course_id = request.GET.get("course_id", "").strip()
     if not course_id:
         return Response({"error": "缺少 course_id 参数"}, status=400)
+    from mentora.courses.models import Course
+    if not Course.objects.filter(id=course_id, owner=request.user).exists():
+        return Response({"error": "课程不存在"}, status=404)
 
     include_archived = request.GET.get("include_archived", "").lower() in ("1", "true", "yes")
     items = get_mistake_items(course_id, include_archived=include_archived)
@@ -73,6 +80,9 @@ def explanation_list(request):
     course_id = request.GET.get("course_id", "").strip()
     if not course_id:
         return Response({"error": "缺少 course_id 参数"}, status=400)
+    from mentora.courses.models import Course
+    if not Course.objects.filter(id=course_id, owner=request.user).exists():
+        return Response({"error": "课程不存在"}, status=404)
 
     items = get_explanations(course_id)
     return Response({"items": items})
@@ -90,6 +100,11 @@ def explanation_list(request):
 @api_view(["GET"])
 def task_detail(request, task_id):
     """GET /api/learning/tasks/<task_id>/"""
+    from mentora.learning.models import LearningTask
+    if not LearningTask.objects.filter(
+        id=task_id, revision__learning_plan__owner=request.user,
+    ).exists():
+        return Response({"error": "任务不存在"}, status=404)
     detail = get_task_detail(task_id)
     if detail is None:
         return Response({"error": "任务不存在"}, status=404)
@@ -110,7 +125,7 @@ def task_complete(request, task_id):
     from mentora.learning.services.task_sources import resolve_learning_task
 
     task = resolve_learning_task(str(task_id))
-    if task is None:
+    if task is None or task.revision.learning_plan.owner_id != request.user.id:
         return Response({"error": "任务不存在"}, status=404)
     result = complete_task(str(task.id))
     return Response(result)
@@ -129,7 +144,10 @@ def mistake_archive(request, item_id):
     course_id = request.GET.get("course_id", "").strip()
     if not course_id:
         return Response({"error": "缺少 course_id 参数"}, status=400)
-    return Response(archive_mistake(course_id, str(item_id)))
+    from mentora.courses.models import Course
+    if not Course.objects.filter(id=course_id, owner=request.user).exists():
+        return Response({"error": "课程不存在"}, status=404)
+    return Response(archive_mistake(course_id, str(item_id), owner=request.user))
 
 
 @extend_schema(
@@ -144,4 +162,7 @@ def mistake_unarchive(request, item_id):
     course_id = request.GET.get("course_id", "").strip()
     if not course_id:
         return Response({"error": "缺少 course_id 参数"}, status=400)
-    return Response(unarchive_mistake(course_id, str(item_id)))
+    from mentora.courses.models import Course
+    if not Course.objects.filter(id=course_id, owner=request.user).exists():
+        return Response({"error": "课程不存在"}, status=404)
+    return Response(unarchive_mistake(course_id, str(item_id), owner=request.user))

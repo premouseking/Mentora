@@ -3,7 +3,7 @@
  *
  * @module services/resourceApi
  */
-import { DEV_OWNER_ID } from "./devOwner";
+import { apiClient, ApiError } from "./client";
 import type {
   PdfBlock,
   PdfPageInfo,
@@ -106,32 +106,30 @@ export function normalizeReaderDocument(raw: Record<string, unknown>): PdfReader
 }
 
 export async function fetchResources(): Promise<ResourceItem[]> {
-  const params = new URLSearchParams({ ownerId: DEV_OWNER_ID });
-  const res = await fetch(`${API}/resources/?${params}`);
-  if (!res.ok) throw new Error(`获取资源列表失败: ${res.status}`);
-  const data = await res.json();
+  const data = await apiClient.get<{ items?: Record<string, unknown>[] }>(`${API}/resources/`);
   return (data.items ?? []).map((item: Record<string, unknown>) => normalizeResourceItem(item));
 }
 
 export async function fetchResourceInfo(resourceId: string): Promise<ResourceItem> {
-  const res = await fetch(`${API}/resources/${resourceId}/info/`);
-  if (!res.ok) throw new Error(`获取资源详情失败: ${res.status}`);
-  const data = await res.json();
+  const data = await apiClient.get<Record<string, unknown>>(
+    `${API}/resources/${encodeURIComponent(resourceId)}/info/`,
+  );
   return normalizeResourceItem(data);
 }
 
 export async function fetchReaderMeta(resourceId: string): Promise<PdfReaderDocument> {
-  const res = await fetch(`${API}/resources/${resourceId}/reader/meta/`);
-  if (res.status === 404) {
-    // 旧版 API 无 meta 端点时回退到完整 reader 契约
-    return fetchReaderDocument(resourceId);
+  try {
+    const data = await apiClient.get<Record<string, unknown>>(
+      `${API}/resources/${encodeURIComponent(resourceId)}/reader/meta/`,
+    );
+    return normalizeReaderDocument(data);
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 404) {
+      // 旧版 API 无 meta 端点时回退到完整 reader 契约
+      return fetchReaderDocument(resourceId);
+    }
+    throw error;
   }
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    throw new Error(String((body as { error?: string }).error ?? `获取阅读器元数据失败: ${res.status}`));
-  }
-  const data = await res.json();
-  return normalizeReaderDocument(data);
 }
 
 export async function fetchReaderBlocks(
@@ -141,28 +139,24 @@ export async function fetchReaderBlocks(
   const params = new URLSearchParams();
   if (pages.length > 0) params.set("pages", pages.join(","));
   const qs = params.toString();
-  const res = await fetch(`${API}/resources/${resourceId}/reader/blocks/${qs ? `?${qs}` : ""}`);
-  if (res.status === 404) {
+  try {
+    const data = await apiClient.get<{ blocks?: Record<string, unknown>[] }>(
+      `${API}/resources/${encodeURIComponent(resourceId)}/reader/blocks/${qs ? `?${qs}` : ""}`,
+    );
+    return (data.blocks ?? []).map((b) => normalizePdfBlock(b));
+  } catch (error) {
+    if (!(error instanceof ApiError) || error.status !== 404) throw error;
     const doc = await fetchReaderDocument(resourceId);
     if (pages.length === 0) return doc.blocks;
     const wanted = new Set(pages);
     return doc.blocks.filter((block) => wanted.has(block.page));
   }
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    throw new Error(String((body as { error?: string }).error ?? `获取阅读器 blocks 失败: ${res.status}`));
-  }
-  const data = await res.json();
-  return (data.blocks ?? []).map((b: Record<string, unknown>) => normalizePdfBlock(b));
 }
 
 export async function fetchReaderDocument(resourceId: string): Promise<PdfReaderDocument> {
-  const res = await fetch(`${API}/resources/${resourceId}/reader/`);
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    throw new Error(String((body as { error?: string }).error ?? `获取阅读器文档失败: ${res.status}`));
-  }
-  const data = await res.json();
+  const data = await apiClient.get<Record<string, unknown>>(
+    `${API}/resources/${encodeURIComponent(resourceId)}/reader/`,
+  );
   return normalizeReaderDocument(data);
 }
 
@@ -178,8 +172,6 @@ export async function fetchPageThumbnails(
   if (pages?.length) params.set("pages", pages.join(","));
   const qs = params.toString();
   const url = `${API}/resources/${resourceId}/pages/thumbnail/${qs ? `?${qs}` : ""}`;
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`获取页缩略图元数据失败: ${res.status}`);
-  const data = await res.json();
+  const data = await apiClient.get<{ pages?: Record<string, unknown>[] }>(url);
   return (data.pages ?? []).map((p: Record<string, unknown>) => normalizePageInfo(p));
 }

@@ -4,6 +4,7 @@
  * 约束：禁止在 pdfWorkerSetup 之前静态 import pdf_viewer.mjs。
  */
 import { pdfjsLib, workerSrcReady } from "./pdfWorkerSetup";
+import { requestRaw } from "../../services/client";
 
 export type PdfJsViewerModule = typeof import("pdfjs-dist/legacy/web/pdf_viewer.mjs");
 
@@ -46,8 +47,7 @@ async function probeRangeSupport(url: string, signal?: AbortSignal): Promise<boo
   if (cached !== undefined) return cached;
 
   try {
-    const response = await fetch(url, {
-      method: "HEAD",
+    const response = await requestRaw("HEAD", url, {
       signal,
     });
     const supported = response.ok && response.headers.get("accept-ranges") === "bytes";
@@ -101,7 +101,7 @@ async function fetchPdfBytes(
   }
 
   const task = (async () => {
-    const response = await fetch(url, { signal });
+    const response = await requestRaw("GET", url, { signal });
     if (!response.ok) {
       throw new Error(`PDF 请求失败 (${response.status})`);
     }
@@ -183,12 +183,7 @@ export async function loadPdfDocumentFromUrls(
         throw new PdfLoadAbortedError();
       }
 
-      const rangeSupported = await probeRangeSupport(url, signal);
-      if (rangeSupported) {
-        onProgress?.({ phase: "download", loaded: 0, total: null });
-        return await loadPdfDocumentFromUrl(url, onProgress, signal);
-      }
-
+      // 先通过统一鉴权请求读取，避免 pdf.js 裸 URL 请求遗漏 Bearer Token。
       const buffer = await fetchPdfBytes(url, onProgress, signal);
       if (buffer.byteLength < 5) {
         throw new Error("PDF 响应为空");

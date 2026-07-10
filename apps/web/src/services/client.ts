@@ -176,9 +176,23 @@ async function request<T>(
     });
 
   const handleResponse = async (resp: Response): Promise<T> => {
-    const data = await resp.json().catch(() => ({}));
+    if (resp.status === 204) return undefined as T;
+    let data: unknown = undefined;
+    if (typeof resp.text === "function") {
+      const text = await resp.text();
+      if (text) {
+        try {
+          data = JSON.parse(text);
+        } catch {
+          throw new ApiError(resp.status, "响应格式无效");
+        }
+      }
+    } else {
+      // 兼容单元测试和轻量运行时提供的最小 Response 实现。
+      data = await resp.json().catch(() => undefined);
+    }
     if (!resp.ok) {
-      const payload = data as {
+      const payload = (data ?? {}) as {
         error?: string;
         detail?: string;
         code?: string;
@@ -220,6 +234,94 @@ async function request<T>(
   } finally {
     clearTimeout(timeoutId);
   }
+}
+
+export interface RawRequestOptions {
+  body?: BodyInit;
+  headers?: HeadersInit;
+  signal?: AbortSignal;
+  timeoutMs?: number;
+  skipAuth?: boolean;
+}
+
+/**
+ * 统一的非 JSON 请求入口，供 FormData、SSE 等协议使用。
+ * 仍共享 token 注入、401 刷新、超时和取消语义。
+ */
+export async function requestRaw(
+  method: string,
+  url: string,
+  opts: RawRequestOptions = {},
+): Promise<Response> {
+  const {
+    body,
+    headers: initialHeaders,
+    signal: externalSignal,
+    timeoutMs = DEFAULT_TIMEOUT_MS,
+    skipAuth,
+  } = opts;
+  const controller = new AbortController();
+  let timedOut = false;
+  const timeoutId = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, timeoutMs);
+  const signal = externalSignal
+    ? combineSignals(externalSignal, controller.signal)
+    : controller.signal;
+  const headers = new Headers(initialHeaders);
+
+  const applyAuth = (access?: string) => {
+    if (skipAuth || !_shouldInjectAuth(url)) return;
+    const token = access ?? tokenStore.get()?.access;
+    if (token) headers.set("Authorization", `Bearer ${token}`);
+  };
+  applyAuth();
+
+  const doFetch = () => fetch(url, { method, body, headers, signal });
+
+  try {
+    let resp = await doFetch();
+    if (resp.status === 401 && !skipAuth && _shouldInjectAuth(url)) {
+      const refreshed = await _refreshAccessToken();
+      if (refreshed) {
+        applyAuth(refreshed.access);
+        resp = await doFetch();
+      }
+    }
+    return resp;
+  } catch (err: unknown) {
+    if (err instanceof DOMException && err.name === "AbortError") {
+      throw new ApiError(0, timedOut ? "请求超时，请稍后重试" : "请求已取消");
+    }
+    throw new ApiError(0, err instanceof Error ? err.message : "网络错误");
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+export async function parseRawJson<T>(resp: Response): Promise<T> {
+  const text = await resp.text();
+  let data: unknown = undefined;
+  if (text) {
+    try {
+      data = JSON.parse(text);
+    } catch {
+      if (resp.ok) throw new ApiError(resp.status, "响应格式无效");
+    }
+  }
+  if (!resp.ok) {
+    const payload = (data ?? {}) as Record<string, unknown>;
+    throw new ApiError(
+      resp.status,
+      String(payload.error ?? payload.detail ?? payload.message ?? `请求失败 (${resp.status})`),
+      {
+        code: typeof payload.code === "string" ? payload.code : undefined,
+        details: payload,
+      },
+    );
+  }
+  return data as T;
 }
 
 /* ── 公开 API ── */

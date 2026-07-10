@@ -4,7 +4,7 @@
 约定：
 - SourceVersion 一旦创建不可修改内容字段，仅 processing_status 等运行态可更新
 - object_key / artifact_ref 仅存对象存储逻辑键，不存本地绝对路径
-- owner_id 当前为字符串占位，待认证模块交付后迁移为用户 FK
+- owner 为统一认证用户；legacy_owner_id 仅用于历史数据迁移审计
 
 约束：
 - 上传完成前不得创建 SourceVersion
@@ -50,7 +50,10 @@ class Source(models.Model):
     """用户资源库中的逻辑资料。"""
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    owner_id = models.CharField(max_length=64, db_index=True, help_text="资料所有者 ID")
+    legacy_owner_id = models.CharField(max_length=64, blank=True, default="", db_index=True)
+    owner = models.ForeignKey(
+        "users.User", null=True, on_delete=models.PROTECT, related_name="knowledge_sources",
+    )
     display_title = models.CharField(max_length=512, blank=True, default="")
     tags = models.JSONField(default=list, help_text="自由标签列表，如 ['408统考', '重点']")
     folder = models.ForeignKey(
@@ -77,7 +80,7 @@ class Source(models.Model):
         verbose_name = "资料"
         verbose_name_plural = verbose_name
         indexes = [
-            models.Index(fields=["owner_id", "created_at"]),
+            models.Index(fields=["owner", "created_at"]),
         ]
 
     def __str__(self) -> str:
@@ -146,7 +149,10 @@ class UploadSession(models.Model):
     """上传会话，关联预签名 PUT 与后续 complete 校验。"""
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    owner_id = models.CharField(max_length=64, db_index=True)
+    legacy_owner_id = models.CharField(max_length=64, blank=True, default="", db_index=True)
+    owner = models.ForeignKey(
+        "users.User", null=True, on_delete=models.PROTECT, related_name="upload_sessions",
+    )
     object_key = models.CharField(max_length=512)
     status = models.CharField(
         max_length=16,
@@ -258,7 +264,10 @@ class LibraryFolder(models.Model):
     """资料文件夹，支持多级嵌套。"""
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    owner_id = models.CharField(max_length=64, db_index=True)
+    legacy_owner_id = models.CharField(max_length=64, blank=True, default="", db_index=True)
+    owner = models.ForeignKey(
+        "users.User", null=True, on_delete=models.PROTECT, related_name="library_folders",
+    )
     name = models.CharField(max_length=128)
     parent = models.ForeignKey(
         "self", null=True, blank=True, on_delete=models.CASCADE,
@@ -273,5 +282,5 @@ class LibraryFolder(models.Model):
         verbose_name_plural = verbose_name
         ordering = ["position", "name"]
         indexes = [
-            models.Index(fields=["owner_id"]),
+            models.Index(fields=["owner"]),
         ]

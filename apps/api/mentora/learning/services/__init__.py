@@ -289,6 +289,7 @@ def create_plan_revision(
     plan_snapshot: dict,
     profile_revision_id: str = "",
     knowledge_scope_revision_id: str = "",
+    owner=None,
 ) -> dict:
     """创建新的计划修订版本，含阶段/单元/任务模板全量写入。
 
@@ -302,9 +303,16 @@ def create_plan_revision(
         {plan_id, revision_id, phase_count, unit_count, task_count,
          feasibility_status, validation_result}
     """
+    if owner is None:
+        from mentora.courses.models import CourseCreationSession
+        owner = CourseCreationSession.objects.only("owner").get(id=course_session_id).owner
     plan, _ = LearningPlan.objects.get_or_create(
         course_session_id=course_session_id,
+        defaults={"owner": owner},
     )
+    if plan.owner_id is None:
+        plan.owner = owner
+        plan.save(update_fields=["owner"])
 
     # 旧版本 superseded
     if plan.active_revision_id:
@@ -908,12 +916,17 @@ def write_history_event(
     task_id: str = "",
     phase_id: str = "",
     course_title: str = "",
+    owner=None,
 ) -> dict:
     """写入一条学习记录事件。"""
     from mentora.learning.models import LearningHistoryEvent
 
     normalized_course_id = resolve_course_id_for_history(course_id=course_id)
+    if owner is None and normalized_course_id:
+        from mentora.courses.models import Course
+        owner = Course.objects.filter(id=normalized_course_id).values_list("owner", flat=True).first()
     event = LearningHistoryEvent.objects.create(
+        owner_id=owner.id if hasattr(owner, "id") else owner,
         course_id=normalized_course_id,
         event_type=event_type,
         title=title,
@@ -932,11 +945,11 @@ def write_history_event(
     }
 
 
-def get_history(course_id: str = "", *, limit: int = 50) -> dict:
+def get_history(course_id: str = "", *, limit: int = 50, owner=None) -> dict:
     """获取学习记录，按时间倒序；返回前端 HistoryEvent 契约。"""
     from mentora.learning.models import LearningHistoryEvent
 
-    qs = LearningHistoryEvent.objects.all()
+    qs = LearningHistoryEvent.objects.filter(**({"owner": owner} if owner is not None else {}))
     if course_id:
         filter_ids = _history_course_filter_ids(course_id)
         qs = qs.filter(course_id__in=filter_ids)

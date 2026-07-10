@@ -31,6 +31,9 @@ class CourseCreationSession(models.Model):
     """建课临时会话，存储步骤 1-4 收集的全部信息。"""
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    owner = models.ForeignKey(
+        "users.User", null=True, on_delete=models.PROTECT, related_name="course_creation_sessions",
+    )
     status = models.CharField(
         max_length=32,
         choices=SessionStatus.choices,
@@ -85,6 +88,9 @@ class Course(models.Model):
     """课程实体——建课流程完成后创建。"""
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    owner = models.ForeignKey(
+        "users.User", null=True, on_delete=models.PROTECT, related_name="courses",
+    )
     session = models.ForeignKey(
         CourseCreationSession,
         on_delete=models.PROTECT,

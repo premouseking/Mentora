@@ -37,9 +37,14 @@ def create_item(
     source_type: str = "user",
     created_by: str = "",
     model_request_id: str = "",
+    owner=None,
 ) -> dict:
     """创建题目 + 首版修订 + 溯源记录。"""
+    if owner is None:
+        from mentora.courses.models import CourseCreationSession
+        owner = CourseCreationSession.objects.only("owner").get(id=course_session_id).owner
     item = AssessmentItem.objects.create(
+        owner=owner,
         course_session_id=course_session_id,
         topic_id=topic_id or None,
         question_type=question_type,
@@ -112,13 +117,18 @@ def create_session(
     item_ids: list[str],
     *,
     unit_id: str = "",
+    owner=None,
 ) -> dict:
     """创建测验会话并关联题目。"""
-    items = list(AssessmentItem.objects.filter(id__in=item_ids))
+    if owner is None:
+        from mentora.courses.models import CourseCreationSession
+        owner = CourseCreationSession.objects.only("owner").get(id=course_session_id).owner
+    items = list(AssessmentItem.objects.filter(id__in=item_ids, owner=owner))
     if not items:
         raise ValueError("题目列表不能为空")
 
     session = AssessmentSession.objects.create(
+        owner=owner,
         course_session_id=course_session_id,
         unit_id=unit_id or None,
         status=AssessmentSession.Status.CREATED,

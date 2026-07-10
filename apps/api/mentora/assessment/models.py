@@ -24,6 +24,9 @@ class AssessmentItem(models.Model):
         SHORT_ANSWER = "short_answer", "简答题"
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    owner = models.ForeignKey(
+        "users.User", null=True, on_delete=models.PROTECT, related_name="assessment_items",
+    )
     course_session_id = models.UUIDField(db_index=True, help_text="关联课程会话 ID")
     topic_id = models.UUIDField(null=True, blank=True, help_text="关联 knowledge topic ID")
     question_type = models.CharField(max_length=16, choices=QuestionType.choices)
@@ -83,6 +86,9 @@ class AssessmentSession(models.Model):
         COMPLETED = "completed", "已完成"
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    owner = models.ForeignKey(
+        "users.User", null=True, on_delete=models.PROTECT, related_name="assessment_sessions",
+    )
     course_session_id = models.UUIDField(db_index=True)
     unit_id = models.UUIDField(null=True, blank=True, help_text="关联 learning_plan_unit ID")
     status = models.CharField(max_length=16, choices=Status.choices, default=Status.CREATED)
@@ -179,6 +185,9 @@ class QuizGenerationJob(models.Model):
         FAILED = "failed", "失败"
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    owner = models.ForeignKey(
+        "users.User", null=True, on_delete=models.PROTECT, related_name="quiz_generation_jobs",
+    )
     status = models.CharField(
         max_length=16,
         choices=Status.choices,

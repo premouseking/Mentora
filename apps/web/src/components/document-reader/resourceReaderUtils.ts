@@ -9,6 +9,8 @@ import type { BundleRaw } from "../../services/documentApi";
 import { isPdfMediaType, type SourceDetail } from "../../services/documentApi";
 import { buildResourcePdfUrl } from "../../services/resourceApi";
 import type { PdfBlock, PdfPageInfo, PdfReaderDocument } from "../../services/resourceTypes";
+import type { FlashRect } from "./pdfReaderStateStore";
+import type { EvidenceHighlight } from "./types";
 
 /** 高亮层可交互块类型；image 不参与 hover/click，避免 PPT 背景图遮挡文本。 */
 export const INTERACTIVE_BLOCK_TYPES = new Set([
@@ -25,6 +27,74 @@ export function isInteractiveBlockType(type: string): boolean {
 
 export function filterInteractiveBlocks(blocks: PdfBlock[]): PdfBlock[] {
   return blocks.filter((block) => isInteractiveBlockType(block.type));
+}
+
+/** 按 evidence_unit_id 收集块级闪烁矩形。 */
+export function blocksToFlashRects(blocks: PdfBlock[], evidenceId: string): FlashRect[] {
+  return blocks
+    .filter((block) => block.evidence_unit_id === evidenceId && block.bbox)
+    .map((block) => ({
+      page: block.page,
+      bbox: block.bbox as [number, number, number, number],
+    }));
+}
+
+function unionFlashBbox(bboxes: Array<[number, number, number, number]>): [number, number, number, number] {
+  return [
+    Math.min(...bboxes.map((bbox) => bbox[0])),
+    Math.min(...bboxes.map((bbox) => bbox[1])),
+    Math.max(...bboxes.map((bbox) => bbox[2])),
+    Math.max(...bboxes.map((bbox) => bbox[3])),
+  ];
+}
+
+/** 同页多块 rect 合并为外接矩形，避免句级碎片闪烁。 */
+export function mergeFlashRects(rects: FlashRect[]): FlashRect[] {
+  if (rects.length <= 1) return rects;
+
+  const byPage = new Map<number, FlashRect[]>();
+  for (const rect of rects) {
+    const group = byPage.get(rect.page) ?? [];
+    group.push(rect);
+    byPage.set(rect.page, group);
+  }
+
+  const merged: FlashRect[] = [];
+  for (const [page, pageRects] of byPage) {
+    if (pageRects.length === 1) {
+      merged.push(pageRects[0]);
+      continue;
+    }
+    merged.push({
+      page,
+      bbox: unionFlashBbox(pageRects.map((rect) => rect.bbox)),
+    });
+  }
+
+  return merged.sort((left, right) => left.page - right.page);
+}
+
+export type ResolveEvidenceFlashRectsOptions = {
+  /** 目标页 blocks 已拉取完成；false 时不回退 EvidenceUnit bbox。 */
+  pageBlocksLoaded?: boolean;
+};
+
+/**
+ * 优先用 PdfBlock 块 bbox 定位 evidence；无匹配块且 blocks 已就绪时回退 EvidenceUnit bbox。
+ */
+export function resolveEvidenceFlashRects(
+  highlight: Pick<EvidenceHighlight, "evidenceId" | "pageNumber" | "bbox">,
+  blocks: PdfBlock[],
+  options?: ResolveEvidenceFlashRectsOptions,
+): FlashRect[] {
+  const fromBlocks = mergeFlashRects(blocksToFlashRects(blocks, highlight.evidenceId));
+  if (fromBlocks.length > 0) return fromBlocks;
+  if (options?.pageBlocksLoaded === false) return [];
+  if (!highlight.bbox) return [];
+  return [{
+    page: highlight.pageNumber,
+    bbox: [highlight.bbox.x0, highlight.bbox.y0, highlight.bbox.x1, highlight.bbox.y1],
+  }];
 }
 
 export function isSourceDetailPdf(detail: Pick<SourceDetail, "version">): boolean {
