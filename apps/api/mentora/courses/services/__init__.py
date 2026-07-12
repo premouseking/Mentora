@@ -201,10 +201,10 @@ def activate_course(course_id: str, *, owner=None) -> dict:
         from mentora.learning.services import activate_revision
         activate_revision(str(profile.plan_revision_id))
 
-    # 写入学习记录；course_id 统一使用建课会话 ID，与其余写入点及历史查询保持同一 ID 空间
+    # 写入学习记录
     from mentora.learning.services import write_history_event
     write_history_event(
-        course_id=str(course.session_id),
+        course_id=str(course.id),
         event_type="course_started",
         title=f"开始课程：{profile.goal[:50] if profile.goal else '新课程'}",
         detail="课程已激活，学习计划已就绪。",

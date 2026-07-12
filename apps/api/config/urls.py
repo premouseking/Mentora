@@ -16,7 +16,10 @@ from mentora.assessment.views import (
 from django.urls import include
 from mentora.users.views import change_password, login, logout, profile, refresh, register, update_profile
 from mentora.learning.views import (
+    explanation_commit,
+    explanation_doc,
     explanation_list,
+    explanation_preview,
     history_list,
     mistake_archive,
     mistake_list,
@@ -92,6 +95,9 @@ urlpatterns = [
     path("api/learning/mistakes/<uuid:item_id>/archive/", mistake_archive, name="learning-mistake-archive"),
     path("api/learning/mistakes/<uuid:item_id>/unarchive/", mistake_unarchive, name="learning-mistake-unarchive"),
     path("api/learning/explanations/", explanation_list, name="learning-explanations"),
+    path("api/learning/explanations/preview/", explanation_preview, name="learning-explanations-preview"),
+    path("api/learning/explanations/commit/", explanation_commit, name="learning-explanations-commit"),
+    path("api/learning/explanations/<uuid:doc_id>/", explanation_doc, name="learning-explanation-doc"),
     path("api/learning/tasks/<uuid:task_id>/", task_detail, name="learning-task-detail"),
     path("api/learning/tasks/<uuid:task_id>/complete/", task_complete, name="learning-task-complete"),
     # Agent 聊天

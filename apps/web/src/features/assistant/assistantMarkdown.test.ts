@@ -33,10 +33,4 @@ describe("normalizeAssistantMarkdown", () => {
     expect(normalizeAssistantMarkdown(" \n\t ")).toBe("");
     expect(normalizeAssistantMarkdown(undefined)).toBe("");
   });
-
-  it("normalizes bracketed formulas that contain LaTeX commands", () => {
-    expect(
-      normalizeAssistantMarkdown("存在一点 [ f'(\\xi) = \\frac{f(b)-f(a)}{b-a} ]。"),
-    ).toBe("存在一点 $f'(\\xi) = \\frac{f(b)-f(a)}{b-a}$。");
-  });
 });

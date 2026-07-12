@@ -16,7 +16,6 @@ from rest_framework.decorators import api_view
 from rest_framework.response import Response
 
 from mentora.workflow_runtime.services import WorkflowRuntime
-from mentora.workflow_runtime.tasks import run_workflow
 
 
 @extend_schema(
@@ -67,8 +66,6 @@ def workflow_submit(request):
         input_json=input_json,
         owner=request.user,
     )
-
-    run_workflow.delay(str(wf.id))
 
     return Response(
         {"workflow_id": str(wf.id), "status": wf.status},
@@ -145,5 +142,4 @@ def workflow_list(request):
             "created_at": wf.created_at.isoformat() if wf.created_at else None,
         })
 
-    # offset 固定为 0：该端点仅支持 limit 截断，暂不支持翻页
-    return Response({"items": items, "total": len(items), "limit": limit, "offset": 0})
+    return Response({"items": items, "total": len(items), "limit": limit})
