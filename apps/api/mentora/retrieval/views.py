@@ -1,11 +1,12 @@
 """检索和引用定位 API。"""
 
+from asgiref.sync import async_to_sync
 from rest_framework.response import Response
 from rest_framework.decorators import api_view
 from drf_spectacular.utils import extend_schema
 
 from mentora.retrieval.locator import locate_evidence
-from mentora.retrieval.search import search
+from mentora.retrieval.search import async_search
 
 
 @extend_schema(
@@ -44,7 +45,7 @@ def search_view(request):
         from mentora.courses.services import get_course_scope
         source_version_ids = get_course_scope(course_id)
 
-    result_set = search(
+    result_set = async_to_sync(async_search)(
         query, top_k=top_k,
         mode=mode,
         source_version_ids=source_version_ids,

@@ -110,12 +110,13 @@ def generate_task_content(task_id: str) -> bool:
 def _build_evidence_context(query: str) -> str:
     """检索相关证据并格式化为提示词上下文。"""
     try:
-        from mentora.retrieval.search import search
+        from asgiref.sync import async_to_sync
+        from mentora.retrieval.search import async_search
     except ImportError:
         return "（检索服务暂不可用）"
 
     try:
-        results = search(query, top_k=5)
+        results = async_to_sync(async_search)(query, top_k=5)
     except Exception as exc:
         logger.warning("Evidence retrieval failed: %s", exc)
         return "（检索失败）"

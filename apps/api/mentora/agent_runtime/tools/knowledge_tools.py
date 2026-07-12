@@ -13,8 +13,6 @@
 """
 
 import json
-
-from asgiref.sync import sync_to_async
 from mentora.agent_runtime.schemas.context import ToolContext
 from mentora.agent_runtime.tools.base import Tool, ToolResult
 
@@ -48,9 +46,9 @@ class RetrieveEvidenceTool(Tool):
                 source_version_ids = get_course_scope(ctx.course_id)
 
         try:
-            from mentora.retrieval.search import search
+            from mentora.retrieval.search import async_search
 
-            result_set = await sync_to_async(search)(
+            result_set = await async_search(
                 query=query, top_k=top_k, source_version_ids=source_version_ids,
             )
             results = [r.to_dict() for r in result_set.results]
