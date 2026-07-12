@@ -45,7 +45,7 @@ class PromptManager:
     ) -> str:
         variables = self._normalize_variables(variables or {})
         template = self.get(name)
-        for required_name in template.required_variables:
+        for required_name in template.variables:
             variables.setdefault(required_name, "")
         cache_key = self._make_cache_key(name, variables, include_base)
         if cache_key in self._render_cache:
