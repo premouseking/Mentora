@@ -15,7 +15,14 @@ import {
   Trash2,
   X,
 } from "lucide-react";
+import { AiKeywordPill } from "../../components/AiKeywordPill";
+import { AiMarkdownContent } from "../../components/AiMarkdownContent";
 import type { FileNode } from "../../data/files";
+import {
+  commitExplanationSave,
+  previewExplanationSave,
+  type ExplanationPreview,
+} from "../../services/learningApi";
 import { AssistantMessageBody } from "./AssistantMessageBody";
 import { flattenAssistantBlocksContent, applyAssistantStreamEvent } from "./assistantBlocks";
 import { getAssistantMessagePlainText } from "./assistantStorage";
@@ -75,12 +82,14 @@ interface AiChatMistakeContextItem {
 }
 
 export interface AiChatContext {
+  courseId?: string;
   files?: FileNode[];
   aiItems?: AiChatExplanationContextItem[];
   mistakeItems?: AiChatMistakeContextItem[];
   selectedFileId?: string | null;
   selectedAiId?: string | null;
   selectedMistakeId?: string | null;
+  onExplanationSaved?: (docId: string) => void;
 }
 
 interface MentionMenuItem extends AiChatMention {
@@ -136,6 +145,14 @@ function normalizeSelectedText(text: string) {
 
 function truncateText(text: string, maxLength: number) {
   return text.length > maxLength ? `${text.slice(0, maxLength)}…` : text;
+}
+
+function isSaveableAssistantMessage(msg: ChatMessage, assistantText: string) {
+  if (!isAssistantMessage(msg)) return false;
+  const text = assistantText.trim();
+  if (text.length < 20) return false;
+  if (text.startsWith("错误:") || text.startsWith("抱歉，AI 服务出错")) return false;
+  return true;
 }
 
 function buildSessionTitle(text: string) {
@@ -427,6 +444,13 @@ export function AiChatPanel({
   const [selectionMenu, setSelectionMenu] = useState<SelectionMenuState | null>(null);
   const [mentions, setMentions] = useState<AiChatMention[]>([]);
   const [mentionMenuOpen, setMentionMenuOpen] = useState(false);
+  const [savePreview, setSavePreview] = useState<{
+    messageIndex: number;
+    preview: ExplanationPreview | null;
+    loading: boolean;
+    committing: boolean;
+    error: string;
+  } | null>(null);
   const [mentionQuery, setMentionQuery] = useState("");
   const [mentionActiveIndex, setMentionActiveIndex] = useState(0);
 
@@ -516,6 +540,74 @@ export function AiChatPanel({
       ? getAssistantMessagePlainText(latest)
       : DEFAULT_ASSISTANT_GREETING;
     return truncateText(normalizeSelectedText(preview), 72);
+  }
+
+  function updateMessageAt(index: number, update: (message: ChatMessage) => ChatMessage) {
+    setSessions((prev) =>
+      prev.map((s) => {
+        if (s.id !== activeSessionId) return s;
+        const msgs = [...s.messages];
+        if (index < 0 || index >= msgs.length) return s;
+        msgs[index] = update(msgs[index]);
+        return { ...s, messages: msgs, updatedAt: Date.now() };
+      }),
+    );
+  }
+
+  async function handleStartSaveExplanation(messageIndex: number) {
+    if (!context?.courseId || !activeSession) return;
+    const assistantMsg = activeSession.messages[messageIndex];
+    const userMsg = activeSession.messages[messageIndex - 1];
+    if (!isAssistantMessage(assistantMsg) || !userMsg || userMsg.role !== "user") return;
+
+    const assistantText = flattenAssistantBlocksContent(assistantMsg.blocks);
+    setSavePreview({ messageIndex, preview: null, loading: true, committing: false, error: "" });
+    updateMessageAt(messageIndex, (m) =>
+      isAssistantMessage(m) ? { ...m, saveState: "previewing" } : m,
+    );
+
+    try {
+      const preview = await previewExplanationSave({
+        course_id: context.courseId,
+        user_message: userMsg.content,
+        assistant_message: assistantText,
+        citations: assistantMsg.citations,
+      });
+      setSavePreview({ messageIndex, preview, loading: false, committing: false, error: "" });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "生成预览失败";
+      setSavePreview({ messageIndex, preview: null, loading: false, committing: false, error: message });
+      updateMessageAt(messageIndex, (m) =>
+        isAssistantMessage(m) ? { ...m, saveState: "idle" } : m,
+      );
+    }
+  }
+
+  async function handleConfirmSaveExplanation() {
+    if (!context?.courseId || !savePreview?.preview) return;
+    setSavePreview((prev) => (prev ? { ...prev, committing: true, error: "" } : prev));
+    try {
+      const result = await commitExplanationSave(context.courseId, savePreview.preview.preview_id);
+      updateMessageAt(savePreview.messageIndex, (m) =>
+        isAssistantMessage(m)
+          ? { ...m, saveState: "saved", savedDocId: result.doc_id }
+          : m,
+      );
+      context.onExplanationSaved?.(result.doc_id);
+      setSavePreview(null);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "保存失败";
+      setSavePreview((prev) => (prev ? { ...prev, committing: false, error: message } : prev));
+    }
+  }
+
+  function handleCancelSaveExplanation() {
+    if (savePreview) {
+      updateMessageAt(savePreview.messageIndex, (m) =>
+        isAssistantMessage(m) ? { ...m, saveState: "idle" } : m,
+      );
+    }
+    setSavePreview(null);
   }
 
   function updateLastAssistant(update: (message: AssistantChatMessage) => AssistantChatMessage) {
@@ -1043,7 +1135,11 @@ export function AiChatPanel({
                 从历史恢复会话，或新建对话继续。
               </div>
             ) : null}
-            {activeSession?.messages.map((msg, i) => (
+            {activeSession?.messages.map((msg, i) => {
+              const assistantText = isAssistantMessage(msg)
+                ? flattenAssistantBlocksContent(msg.blocks)
+                : "";
+              return (
               <div className={`ai-chat-message ${msg.role}`} data-message-index={i} key={i}>
                 {isAssistantMessage(msg) ? (
                   <>
@@ -1056,19 +1152,32 @@ export function AiChatPanel({
                     <div className="ai-chat-assistant-block">
                       <AssistantMessageBody message={msg} />
                     </div>
-                    {flattenAssistantBlocksContent(msg.blocks).trim() ? (
+                    {assistantText.trim() ? (
                       <div className="ai-chat-message-toolbar">
                         <button
                           type="button"
-                          onClick={() => void handleCopyAssistantMessage(
-                            flattenAssistantBlocksContent(msg.blocks),
-                            i,
-                          )}
+                          onClick={() => void handleCopyAssistantMessage(assistantText, i)}
                           aria-label={copiedMessageIndex === i ? "已复制" : "复制回复"}
                           title={copiedMessageIndex === i ? "已复制" : "复制回复"}
                         >
                           {copiedMessageIndex === i ? <Check size={14} /> : <Copy size={14} />}
                         </button>
+                        {context?.courseId && msg.saveState === "saved" ? (
+                          <span className="ai-chat-save-done">已保存到 AI 讲解</span>
+                        ) : null}
+                        {context?.courseId
+                          && isSaveableAssistantMessage(msg, assistantText)
+                          && msg.saveState !== "saved"
+                          && !(sending && i === activeSession.messages.length - 1) ? (
+                          <button
+                            type="button"
+                            className="ai-chat-save-btn"
+                            disabled={savePreview?.loading && savePreview.messageIndex === i}
+                            onClick={() => void handleStartSaveExplanation(i)}
+                          >
+                            保存到 AI 讲解
+                          </button>
+                        ) : null}
                       </div>
                     ) : null}
                   </>
@@ -1078,7 +1187,7 @@ export function AiChatPanel({
                   </div>
                 )}
               </div>
-            ))}
+            );})}
           </div>
 
           <div className="ai-chat-input-area">
@@ -1178,6 +1287,47 @@ export function AiChatPanel({
             <MessageSquare size={15} />
             添加到对话
           </button>
+        </div>
+      )}
+      {savePreview && (
+        <div className="ai-explanation-save-overlay" role="dialog" aria-modal="true">
+          <div className="ai-explanation-save-dialog">
+            <h3>保存到 AI 讲解</h3>
+            {savePreview.loading ? (
+              <p>正在生成摘要并匹配目标文件…</p>
+            ) : savePreview.error ? (
+              <p className="ai-explanation-error">{savePreview.error}</p>
+            ) : savePreview.preview ? (
+              <>
+                <p className="ai-explanation-save-target">
+                  {savePreview.preview.action === "append"
+                    ? `追加到：${savePreview.preview.target_title}（关键词重叠 ${savePreview.preview.overlap_count} 个）`
+                    : `新建文件：${savePreview.preview.target_title}`}
+                </p>
+                <div className="ai-mentioned-context-list ai-explanation-save-keywords">
+                  {savePreview.preview.keywords.map((kw) => (
+                    <AiKeywordPill key={kw} label={kw} />
+                  ))}
+                </div>
+                <div className="ai-explanation-save-preview-body">
+                  <AiMarkdownContent content={savePreview.preview.summary_md} />
+                </div>
+              </>
+            ) : null}
+            <div className="ai-explanation-save-dialog-actions">
+              <button type="button" onClick={handleCancelSaveExplanation} disabled={savePreview.committing}>
+                取消
+              </button>
+              <button
+                type="button"
+                className="primary"
+                onClick={() => void handleConfirmSaveExplanation()}
+                disabled={!savePreview.preview || savePreview.committing}
+              >
+                {savePreview.committing ? "保存中…" : "确认保存"}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>
