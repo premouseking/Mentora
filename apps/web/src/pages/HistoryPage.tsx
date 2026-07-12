@@ -12,8 +12,8 @@ import {
 } from "lucide-react";
 
 import { AppShell } from "../components/AppShell";
-import { listCourseSessions, type CourseSessionListItem } from "../services/courseApi";
-import { fetchHistory, type HistoryEvent } from "../services/learningApi";
+import { PageSkeleton } from "../components/PageSkeleton";
+import { useHistoryData } from "../hooks/useHistoryData";
 import {
   formatDateLabel,
   formatMonthTitle,
@@ -23,6 +23,8 @@ import {
   summarizeDay,
   TODAY_DATE_KEY,
 } from "../data/history";
+import type { HistoryEvent } from "../services/learningApi";
+import type { CourseSessionListItem } from "../services/courseApi";
 
 /* ── 本地 Task 类型（与 history/Task 兼容）── */
 
@@ -69,9 +71,12 @@ function historyEventToTask(ev: HistoryEvent): Task {
 /* ── 主页面 ───────────────────────────────────────── */
 
 export function HistoryPage() {
+  const { events, sessions: courses, isLoading } = useHistoryData();
   const [tasks, setTasks] = useState<Task[]>([]);
-  const [courses, setCourses] = useState<CourseSessionListItem[]>([]);
-  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    setTasks(events.map(historyEventToTask));
+  }, [events]);
 
   const [view, setView] = useState<ViewMode>("day");
   const [selectedDate, setSelectedDate] = useState(TODAY_DATE_KEY);
@@ -84,27 +89,15 @@ export function HistoryPage() {
   const [todoCollapsed, setTodoCollapsed] = useState(false);
   const [doneCollapsed, setDoneCollapsed] = useState(false);
 
-  /* 从后端加载历史记录 */
-  useEffect(() => {
-    let cancelled = false;
-    Promise.all([fetchHistory(), listCourseSessions()])
-      .then(([historyData, courseData]) => {
-        if (cancelled) return;
-        setCourses(courseData);
-        setTasks(historyData.items.map(historyEventToTask));
-      })
-      .catch(() => {
-        // 静默降级
-      })
-      .finally(() => { if (!cancelled) setLoading(false); });
-    return () => { cancelled = true; };
-  }, []);
-
   /** 课程 + 搜索筛选（不按日期，供周/月视图使用） */
   const baseFiltered = useMemo(() => {
     let list = tasks;
     if (courseFilter !== "all") {
-      list = list.filter((t) => t.courseId === courseFilter);
+      const session = courses.find((c) => c.id === courseFilter);
+      const linkedCourseId = session?.course_id ?? courseFilter;
+      list = list.filter(
+        (t) => t.courseId === courseFilter || t.courseId === linkedCourseId,
+      );
     }
     if (search.trim()) {
       const q = search.toLowerCase();
@@ -116,12 +109,20 @@ export function HistoryPage() {
       );
     }
     return list;
-  }, [tasks, courseFilter, search]);
+  }, [tasks, courseFilter, search, courses]);
 
   const dayTasks = useMemo(
     () => baseFiltered.filter((t) => t.date === selectedDate),
     [baseFiltered, selectedDate],
   );
+
+  if (isLoading && tasks.length === 0) {
+    return (
+      <AppShell>
+        <PageSkeleton />
+      </AppShell>
+    );
+  }
 
   const todoTasks = dayTasks.filter((t) => t.status === "todo");
   const doneTasks = dayTasks.filter((t) => t.status === "done");

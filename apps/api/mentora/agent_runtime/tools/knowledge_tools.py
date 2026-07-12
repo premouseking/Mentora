@@ -36,12 +36,16 @@ class RetrieveEvidenceTool(Tool):
                 error="查询不能为空",
             )
 
-        # 作用域：优先 args，次之从 ctx.course_id 自动解析
+        # 作用域：优先 args，次之 metadata / course_id 自动解析
         source_version_ids = args.get("source_version_ids")
-        if not source_version_ids and ctx.course_id:
-            from mentora.courses.services import get_course_scope
+        if not source_version_ids:
+            allowed = ctx.metadata.get("allowed_source_version_ids")
+            if isinstance(allowed, list) and allowed:
+                source_version_ids = allowed
+            elif ctx.course_id:
+                from mentora.courses.services import get_course_scope
 
-            source_version_ids = get_course_scope(ctx.course_id)
+                source_version_ids = get_course_scope(ctx.course_id)
 
         try:
             from mentora.retrieval.search import search

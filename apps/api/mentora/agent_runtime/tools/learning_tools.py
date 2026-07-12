@@ -76,7 +76,7 @@ class GetLearningProgressTool(Tool):
     """
 
     async def execute(self, args: dict, ctx: ToolContext) -> ToolResult:
-        course_session_id = args.get("course_session_id", "")
+        course_session_id = args.get("course_session_id") or ctx.metadata.get("course_session_id", "")
 
         if not course_session_id:
             return ToolResult(

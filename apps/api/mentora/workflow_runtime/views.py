@@ -36,10 +36,6 @@ from mentora.workflow_runtime.tasks import run_workflow
                     "type": "object",
                     "description": "OrchestratorTask 序列化 JSON",
                 },
-                "owner_id": {
-                    "type": "string",
-                    "description": "发起用户 ID（可选）",
-                },
             },
             "required": ["workflow_type", "input_json"],
         },
@@ -65,13 +61,11 @@ def workflow_submit(request):
     if not isinstance(input_json, dict):
         return Response({"error": "input_json 必须是对象"}, status=400)
 
-    owner_id = (body.get("owner_id") or "").strip()
-
     runtime = WorkflowRuntime()
     wf = runtime.submit(
         workflow_type=workflow_type,
         input_json=input_json,
-        owner_id=owner_id,
+        owner=request.user,
     )
 
     run_workflow.delay(str(wf.id))
@@ -95,7 +89,7 @@ def workflow_submit(request):
 def workflow_detail(request, workflow_id):
     """GET /api/workflows/<workflow_id>/"""
     runtime = WorkflowRuntime()
-    wf = runtime.get(workflow_id)
+    wf = runtime.get(workflow_id, owner=request.user)
     if wf is None:
         return Response({"error": "工作流不存在"}, status=404)
 
@@ -106,7 +100,6 @@ def workflow_detail(request, workflow_id):
         "current_step_index": wf.current_step_index,
         "input_json": wf.input_json,
         "output_json": wf.output_json,
-        "owner_id": wf.owner_id,
         "error_code": wf.error_code,
         "error_message": wf.error_message,
         "started_at": wf.started_at.isoformat() if wf.started_at else None,
@@ -121,13 +114,6 @@ def workflow_detail(request, workflow_id):
     tags=["Workflow"],
     parameters=[
         {
-            "name": "owner_id",
-            "in_": "query",
-            "type": "string",
-            "description": "用户 ID",
-            "required": True,
-        },
-        {
             "name": "limit",
             "in_": "query",
             "type": "integer",
@@ -136,23 +122,18 @@ def workflow_detail(request, workflow_id):
     ],
     responses={
         200: {"description": "工作流列表"},
-        400: {"description": "缺少 owner_id"},
     },
 )
 @api_view(["GET"])
 def workflow_list(request):
     """GET /api/workflows/"""
-    owner_id = (request.GET.get("owner_id") or "").strip()
-    if not owner_id:
-        return Response({"error": "owner_id 为必填参数"}, status=400)
-
     try:
         limit = max(1, min(100, int(request.GET.get("limit", 20))))
     except (ValueError, TypeError):
         limit = 20
 
     runtime = WorkflowRuntime()
-    wfs = runtime.list_by_owner(owner_id, limit=limit)
+    wfs = runtime.list_by_owner(request.user, limit=limit)
 
     items = []
     for wf in wfs:

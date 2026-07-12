@@ -19,6 +19,9 @@ class LearningPlan(models.Model):
     """学习计划，1门课1个计划。"""
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    owner = models.ForeignKey(
+        "users.User", null=True, on_delete=models.PROTECT, related_name="learning_plans",
+    )
     course_session_id = models.UUIDField(
         db_index=True,
         help_text="关联的 CourseCreationSession ID。等 courses 模块补充 Course model 后迁移为 FK。",
@@ -157,6 +160,7 @@ class LearningPlanUnit(models.Model):
         blank=True,
         help_text="关联 knowledge topic ID",
     )
+    title = models.CharField(max_length=128, blank=True, default="")
     position = models.IntegerField()
     target_depth = models.CharField(
         max_length=16,
@@ -202,6 +206,8 @@ class LearningPlanTaskTemplate(models.Model):
         on_delete=models.CASCADE,
         related_name="task_templates",
     )
+    title = models.CharField(max_length=256, blank=True, default="")
+    knowledge_point = models.CharField(max_length=256, blank=True, default="")
     task_type = models.CharField(
         max_length=16,
         choices=TaskType.choices,
@@ -211,6 +217,7 @@ class LearningPlanTaskTemplate(models.Model):
         choices=DeliveryMode.choices,
         default=DeliveryMode.TEXT,
     )
+    position = models.IntegerField(default=0)
     estimated_minutes = models.IntegerField(default=0)
     required = models.BooleanField(default=True)
 
@@ -218,7 +225,7 @@ class LearningPlanTaskTemplate(models.Model):
         db_table = "learning_plan_task_template"
         verbose_name = "任务模板"
         verbose_name_plural = verbose_name
-        ordering = ["unit", "id"]
+        ordering = ["unit", "position", "id"]
 
 
 class LearningTask(models.Model):
@@ -271,6 +278,10 @@ class LearningTask(models.Model):
     required = models.BooleanField(default=True)
     due_date = models.DateTimeField(null=True, blank=True, help_text="建议完成日期")
     completed_at = models.DateTimeField(null=True, blank=True)
+    content_json = models.JSONField(
+        default=dict,
+        help_text="任务内容 {content_blocks: [...], source_evidence_ids: [...]}",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -302,6 +313,9 @@ class LearningHistoryEvent(models.Model):
         AI_EXPLANATION = "ai_explanation", "AI 讲解文档"
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    owner = models.ForeignKey(
+        "users.User", null=True, on_delete=models.PROTECT, related_name="learning_history_events",
+    )
     course_id = models.CharField(max_length=128, db_index=True, help_text="关联课程 ID")
     event_type = models.CharField(max_length=20, choices=EventType.choices)
     title = models.CharField(max_length=512)
@@ -320,4 +334,27 @@ class LearningHistoryEvent(models.Model):
         ordering = ["-created_at"]
         indexes = [
             models.Index(fields=["course_id", "-created_at"]),
+        ]
+
+
+class MistakeArchive(models.Model):
+    """错题归档记录：用户主动隐藏已掌握的错题。"""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    owner = models.ForeignKey(
+        "users.User", null=True, on_delete=models.PROTECT, related_name="mistake_archives",
+    )
+    course_id = models.CharField(max_length=128, db_index=True)
+    item_id = models.UUIDField(db_index=True)
+    archived_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "learning_mistake_archive"
+        verbose_name = "错题归档"
+        verbose_name_plural = verbose_name
+        constraints = [
+            models.UniqueConstraint(
+                fields=["owner", "course_id", "item_id"],
+                name="learning_mistake_archive_uc",
+            ),
         ]

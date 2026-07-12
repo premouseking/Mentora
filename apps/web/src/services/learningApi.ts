@@ -70,6 +70,7 @@ export interface QuizBlock {
 
 export interface TaskSource {
   evidence_id: string;
+  source_version_id: string;
   title: string;
   page_number: number;
   snippet_preview: string;
@@ -79,6 +80,7 @@ export interface TaskSource {
 
 export interface LearningTaskDetail {
   task_id: string;
+  template_id?: string;
   title: string;
   task_type: string;
   unit_title: string;
@@ -94,13 +96,12 @@ export interface LearningTaskDetail {
 export interface HistoryEvent {
   id: string;
   event_type: string;
-  course_id: string;
+  task_id: string | null;
+  task_title: string;
+  course_id: string | null;
   course_title: string;
-  title: string;
-  detail: string;
-  result: string;
-  task_id: string;
-  phase_id: string;
+  description: string;
+  metadata: Record<string, unknown>;
   created_at: string;
 }
 
@@ -110,13 +111,24 @@ export async function fetchTask(taskId: string): Promise<LearningTaskDetail> {
   return apiClient.get<LearningTaskDetail>(`/api/learning/tasks/${encodeURIComponent(taskId)}/`);
 }
 
-export interface ListResponse<T> {
-  items: T[];
-  count?: number;
+export async function completeLearningTask(taskId: string): Promise<{ task_id: string; status: string }> {
+  return apiClient.post<{ task_id: string; status: string }>(
+    `/api/learning/tasks/${encodeURIComponent(taskId)}/complete/`,
+    {},
+  );
 }
 
-export async function fetchHistory(limit = 50): Promise<ListResponse<HistoryEvent>> {
-  return apiClient.get<ListResponse<HistoryEvent>>(`/api/history/?limit=${limit}`);
+export async function fetchHistory(
+  options: { limit?: number; courseId?: string } = {},
+): Promise<{ items: HistoryEvent[]; total?: number }> {
+  const params = new URLSearchParams();
+  params.set("limit", String(options.limit ?? 50));
+  if (options.courseId) {
+    params.set("courseId", options.courseId);
+  }
+  return apiClient.get<{ items: HistoryEvent[]; total?: number }>(
+    `/api/history/?${params.toString()}`,
+  );
 }
 
 /* ── 错题 & 讲解 ── */
@@ -142,91 +154,30 @@ export interface ExplanationItem {
   title: string;
   topic: string;
   type: string;
-  keywords?: string[];
   created_at: string;
-  updated_at?: string;
 }
 
-export async function fetchMistakes(courseId: string): Promise<ListResponse<MistakeItem>> {
-  return apiClient.get<ListResponse<MistakeItem>>(
-    `/api/learning/mistakes/?course_id=${encodeURIComponent(courseId)}`,
+export async function fetchMistakes(
+  courseId: string,
+  options?: { includeArchived?: boolean },
+): Promise<{ items: MistakeItem[] }> {
+  const params = new URLSearchParams({ course_id: courseId });
+  if (options?.includeArchived) params.set("include_archived", "true");
+  return apiClient.get<{ items: MistakeItem[] }>(
+    `/api/learning/mistakes/?${params.toString()}`,
   );
 }
 
-export interface ExplanationDetail {
-  id: string;
-  title: string;
-  detail: string;
-  keywords: string[];
-  doc_type: string;
-  created_at: string;
-  updated_at: string;
-  append_count: number;
+export async function archiveMistake(courseId: string, itemId: string): Promise<void> {
+  const params = new URLSearchParams({ course_id: courseId });
+  await apiClient.patch(
+    `/api/learning/mistakes/${encodeURIComponent(itemId)}/archive/?${params.toString()}`,
+    {},
+  );
 }
 
-export interface ExplanationPreview {
-  preview_id: string;
-  action: "append" | "create";
-  target_doc_id: string | null;
-  target_title: string;
-  keywords: string[];
-  overlap_count: number;
-  summary_md: string;
-  doc_type: string;
-}
-
-export interface ExplanationCommitResult {
-  doc_id: string;
-  action: "append" | "create";
-  title: string;
-}
-
-export async function fetchExplanations(courseId: string): Promise<ListResponse<ExplanationItem>> {
-  return apiClient.get<ListResponse<ExplanationItem>>(
+export async function fetchExplanations(courseId: string): Promise<{ items: ExplanationItem[] }> {
+  return apiClient.get<{ items: ExplanationItem[] }>(
     `/api/learning/explanations/?course_id=${encodeURIComponent(courseId)}`,
-  );
-}
-
-export async function fetchExplanationDetail(docId: string, courseId: string): Promise<ExplanationDetail> {
-  return apiClient.get<ExplanationDetail>(
-    `/api/learning/explanations/${encodeURIComponent(docId)}/?course_id=${encodeURIComponent(courseId)}`,
-  );
-}
-
-export async function previewExplanationSave(payload: {
-  course_id: string;
-  user_message: string;
-  assistant_message: string;
-  citations?: { content_preview?: string; page_number?: number | null; evidence_id?: string; source_title?: string }[];
-}): Promise<ExplanationPreview> {
-  return apiClient.post<ExplanationPreview>("/api/learning/explanations/preview/", payload, {
-    timeoutMs: 60_000,
-  });
-}
-
-export async function commitExplanationSave(
-  courseId: string,
-  previewId: string,
-): Promise<ExplanationCommitResult> {
-  return apiClient.post<ExplanationCommitResult>("/api/learning/explanations/commit/", {
-    course_id: courseId,
-    preview_id: previewId,
-  });
-}
-
-export async function updateExplanation(
-  docId: string,
-  courseId: string,
-  data: { title?: string; detail?: string; keywords?: string[]; doc_type?: string },
-): Promise<ExplanationDetail> {
-  return apiClient.patch<ExplanationDetail>(
-    `/api/learning/explanations/${encodeURIComponent(docId)}/`,
-    { course_id: courseId, ...data },
-  );
-}
-
-export async function deleteExplanation(docId: string, courseId: string): Promise<void> {
-  await apiClient.delete<void>(
-    `/api/learning/explanations/${encodeURIComponent(docId)}/?course_id=${encodeURIComponent(courseId)}`,
   );
 }

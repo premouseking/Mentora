@@ -1,4 +1,6 @@
 import { useMemo, useState, useEffect, useRef, useCallback, type DragEvent } from "react";
+import { useNavigate } from "react-router-dom";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
   BookOpen,
@@ -31,12 +33,16 @@ import {
 
 import { AppShell } from "../components/AppShell";
 import {
-  fetchSources, deleteSource, reparseSource,
-  fetchFolders, createFolder, deleteFolder,
-  fetchTags, moveSource,
-  type SourceItem, type FolderItem,
+  deleteSource, reparseSource,
+  createFolder, deleteFolder,
+  moveSource,
+  type FolderItem,
 } from "../services/documentApi";
-import { uploadFile, type UploadProgress } from "../services/uploadService";
+import { buildLibraryReaderPath } from "../services/resourceCompat";
+import { queryKeys } from "../lib/queryKeys";
+import { useLibraryData } from "../hooks/useLibraryData";
+import { SourceUploadModal } from "../components/upload/SourceUploadModal";
+import { VirtualLibraryRows } from "../components/VirtualLibraryRows";
 import {
   parseStateLabels,
   roleLabels,
@@ -51,8 +57,6 @@ import {
 const ALL_TYPES: (LibraryItemType | "all")[] = [
   "all", "pdf", "docx", "pptx", "image", "video", "audio", "link",
 ];
-
-const allTags: string[] = [];
 
 const typeIcons: Record<LibraryItemType, typeof FileText> = {
   pdf: FileText, docx: FileText, pptx: FileText, image: Image, video: FileText, audio: FileText, link: Link2,
@@ -77,7 +81,19 @@ function ParseIcon({ state }: { state: ParseState }) {
 
 /* ── detail panel ──────────────────────────────────── */
 
-function LibraryDetailPanel({ item, onClose, onDelete, onReparse }: { item: LibraryItem; onClose: () => void; onDelete?: () => void; onReparse?: () => void }) {
+function LibraryDetailPanel({
+  item,
+  onClose,
+  onDelete,
+  onReparse,
+  onPreview,
+}: {
+  item: LibraryItem;
+  onClose: () => void;
+  onDelete?: () => void;
+  onReparse?: () => void;
+  onPreview: () => void;
+}) {
   const [reparsing, setReparsing] = useState(false);
 
   async function handleReparse() {
@@ -147,7 +163,15 @@ function LibraryDetailPanel({ item, onClose, onDelete, onReparse }: { item: Libr
         <section className="library-detail-section">
           <h3>操作</h3>
           <div className="library-detail-actions">
-            <button className="button secondary compact" type="button"><Eye size={15} /> 预览</button>
+            <button
+              className="button secondary compact"
+              disabled={item.parseState !== "ready"}
+              onClick={onPreview}
+              title={item.parseState !== "ready" ? "解析中，完成后可预览" : undefined}
+              type="button"
+            >
+              <Eye size={15} /> 预览
+            </button>
             <button className="button secondary compact" type="button" onClick={handleReparse} disabled={reparsing}>
               {reparsing ? <Loader size={15} className="spin" /> : <RefreshCw size={15} />}
               {reparsing ? "解析中…" : "重新解析"}
@@ -162,121 +186,6 @@ function LibraryDetailPanel({ item, onClose, onDelete, onReparse }: { item: Libr
         </section>
       </div>
     </aside>
-  );
-}
-
-/* ── upload modal ──────────────────────────────────── */
-
-const ACCEPTED_TYPES = ".pdf,.docx,.pptx,.xlsx,.png,.jpg,.jpeg,.mp4,.mp3";
-
-interface UploadModalProps {
-  onClose: () => void;
-  onUploaded: () => void;
-}
-
-function UploadModal({ onClose, onUploaded }: UploadModalProps) {
-  const [dragOver, setDragOver] = useState(false);
-  const [progress, setProgress] = useState<UploadProgress | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
-  function pickFile() {
-    fileInputRef.current?.click();
-  }
-
-  async function handleFile(file: File) {
-    setProgress({ step: "create", message: "正在创建上传会话…" });
-    try {
-      await uploadFile(file, (p) => setProgress(p));
-      setProgress({ step: "done", message: "上传完成，解析中…" });
-      setTimeout(() => {
-        onUploaded();
-        onClose();
-      }, 800);
-    } catch (err: unknown) {
-      setProgress({
-        step: "error",
-        message: err instanceof Error ? err.message : "上传失败",
-      });
-    }
-  }
-
-  function onFileChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const f = e.target.files?.[0];
-    if (f) handleFile(f);
-    // reset so same file can be picked again
-    e.target.value = "";
-  }
-
-  function onDrop(e: DragEvent<HTMLDivElement>) {
-    e.preventDefault();
-    setDragOver(false);
-    const f = e.dataTransfer.files[0];
-    if (f) handleFile(f);
-  }
-
-  if (progress) {
-    const isError = progress.step === "error";
-    return (
-      <div className="library-modal-overlay" onClick={isError ? onClose : undefined}>
-        <div className="library-modal" onClick={(e) => e.stopPropagation()}>
-          <header className="library-modal-header">
-            <strong>{isError ? "上传失败" : "正在上传"}</strong>
-            <button aria-label="关闭" onClick={onClose} type="button"><X size={17} /></button>
-          </header>
-          <div className="library-upload-zone" style={{ textAlign: "center", padding: "40px 24px" }}>
-            {isError ? (
-              <>
-                <FileWarning size={32} color="#e74c3c" />
-                <p style={{ color: "#e74c3c", marginTop: 12 }}>{progress.message}</p>
-                <button className="button secondary" onClick={() => setProgress(null)} style={{ marginTop: 12 }}>
-                  重新上传
-                </button>
-              </>
-            ) : (
-              <>
-                <Loader size={32} className="spin" />
-                <p style={{ marginTop: 12 }}>{progress.message}</p>
-              </>
-            )}
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="library-modal-overlay" onClick={onClose}>
-      <div className="library-modal" onClick={(e) => e.stopPropagation()}>
-        <header className="library-modal-header">
-          <strong>添加资料</strong>
-          <button aria-label="关闭" onClick={onClose} type="button"><X size={17} /></button>
-        </header>
-        <input
-          ref={fileInputRef}
-          accept={ACCEPTED_TYPES}
-          style={{ display: "none" }}
-          type="file"
-          onChange={onFileChange}
-        />
-        <div
-          className={`library-upload-zone${dragOver ? " drag-over" : ""}`}
-          onDragEnter={() => setDragOver(true)}
-          onDragLeave={() => setDragOver(false)}
-          onDragOver={(e) => e.preventDefault()}
-          onDrop={onDrop}
-        >
-          <Upload size={28} />
-          <strong>拖拽文件到此处上传</strong>
-          <span>支持 PDF、Word、PPT、图片、视频、音频</span>
-        </div>
-        <div className="library-modal-separator"><span>或者</span></div>
-        <div className="library-add-options">
-          <button className="button secondary" type="button" onClick={pickFile}><Folders size={16} />从本地选择文件</button>
-          <button className="button secondary" type="button" onClick={() => {}}><Globe size={16} />添加网页链接</button>
-        </div>
-        <p className="library-upload-note">上传资料仅进入资源库，不会自动授权任何课程访问。</p>
-      </div>
-    </div>
   );
 }
 
@@ -400,41 +309,28 @@ function FolderSidebar({
 
 /* ── main page ─────────────────────────────────────── */
 
-function sourceToLibraryItem(s: SourceItem): LibraryItem {
-  const v = s.latestVersion;
-  const status: ParseState = v
-    ? v.processingStatus === "completed" ? "ready"
-    : v.processingStatus === "failed" ? "failed"
-    : v.processingStatus === "processing" ? "reading"
-    : "pending"
-    : "pending";
-  const filename = v?.originalFilename ?? "";
-  const ext = filename.split(".").pop()?.toLowerCase() ?? "";
-  const typeMap: Record<string, LibraryItemType> = {
-    pdf: "pdf", docx: "docx", pptx: "pptx",
-    png: "image", jpg: "image", jpeg: "image",
-    mp4: "video", mp3: "audio",
-  };
-  return {
-    id: v?.id ?? s.id,
-    name: s.displayTitle || filename || "未命名",
-    type: typeMap[ext] ?? "pdf",
-    tags: [],
-    parseState: status,
-    updatedAt: new Date().toISOString().slice(0, 10),
-    usedBy: [],
-    role: "primary" as const,
-    version: v?.versionNumber ?? 1,
-    folderId: null,
-  };
-}
-
 export function LibraryPage() {
-  const [items, setItems] = useState<LibraryItem[]>([]);
-  const [folders, setFolders] = useState<FolderItem[]>([]);
-  const [allTags, setAllTags] = useState<string[]>([]);
-  const [loading, setLoading] = useState(true);
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const { data, isLoading, isFetching, error } = useLibraryData();
+  const items = data?.items ?? [];
+  const folders = data?.folders ?? [];
+  const allTags = data?.tags ?? [];
   const sourceIdMap = useRef<Map<string, string>>(new Map());
+
+  const refreshLibrary = useCallback(() => {
+    queryClient.invalidateQueries({ queryKey: ["library"] });
+  }, [queryClient]);
+
+  useEffect(() => {
+    const map = new Map<string, string>();
+    if (data?.sourceIdByItemId) {
+      for (const [itemId, sourceId] of Object.entries(data.sourceIdByItemId)) {
+        map.set(itemId, sourceId);
+      }
+    }
+    sourceIdMap.current = map;
+  }, [data?.sourceIdByItemId]);
 
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState<LibraryItemType | "all">("all");
@@ -444,38 +340,22 @@ export function LibraryPage() {
   const [showUpload, setShowUpload] = useState(false);
   const [typeMenuOpen, setTypeMenuOpen] = useState(false);
   const [tagMenuOpen, setTagMenuOpen] = useState(false);
+  const showLoading = isLoading && items.length === 0;
 
-  const loadData = useCallback(async () => {
-    try {
-      const [sources, folderData, tagData] = await Promise.all([
-        fetchSources(),
-        fetchFolders(),
-        fetchTags(),
-      ]);
-      const map = new Map<string, string>();
-      const mapped = sources.map((s) => {
-        const item = sourceToLibraryItem(s);
-        map.set(item.id, s.id);
-        return item;
-      });
-      sourceIdMap.current = map;
-      setItems(mapped);
-      setFolders(folderData);
-      setAllTags(tagData);
-    } catch {
-      // 保留现有数据
-    } finally {
-      setLoading(false);
+  const folderCounts = useMemo(() => {
+    const counts = new Map<string | null, number>();
+    for (const item of items) {
+      const key = item.folderId ?? null;
+      counts.set(key, (counts.get(key) ?? 0) + 1);
     }
-  }, []);
-
-  useEffect(() => { loadData(); }, [loadData]);
+    return counts;
+  }, [items]);
 
   /* folder operations */
   async function handleCreateFolder(name: string) {
     try {
-      const created = await createFolder(name);
-      setFolders((prev) => [...prev, created]);
+      await createFolder(name);
+      refreshLibrary();
     } catch {
       // 失败静默
     }
@@ -484,9 +364,8 @@ export function LibraryPage() {
   async function handleDeleteFolder(id: string) {
     try {
       await deleteFolder(id);
-      setFolders((prev) => prev.filter((f) => f.id !== id));
-      setItems((prev) => prev.map((item) => (item.folderId === id ? { ...item, folderId: null } : item)));
       if (activeFolder === id) setActiveFolder(null);
+      refreshLibrary();
     } catch {
       // 失败静默
     }
@@ -497,14 +376,14 @@ export function LibraryPage() {
     if (!sourceId) return;
     try {
       await moveSource(sourceId, folderId);
-      setItems((prev) => prev.map((item) => (item.id === itemId ? { ...item, folderId } : item)));
+      refreshLibrary();
     } catch {
       // 失败静默
     }
   }
 
   function getFolderCount(folderId: string | null): number {
-    return items.filter((item) => item.folderId === folderId).length;
+    return folderCounts.get(folderId) ?? 0;
   }
 
   async function handleDeleteItem(itemId: string) {
@@ -512,8 +391,8 @@ export function LibraryPage() {
     if (!sourceId) return;
     try {
       await deleteSource(sourceId);
-      setItems((prev) => prev.filter((i) => i.id !== itemId));
       setSelectedItem(null);
+      refreshLibrary();
     } catch {
       // 删除失败静默
     }
@@ -524,7 +403,7 @@ export function LibraryPage() {
     if (!sourceId) return;
     try {
       await reparseSource(sourceId);
-      loadData();  // 刷新列表（更新解析状态）
+      refreshLibrary();
     } catch {
       // 重新解析失败静默
     }
@@ -562,7 +441,7 @@ export function LibraryPage() {
       <div className="library-page">
         <header className="page-header">
           <div>
-            <h1>资源库</h1>
+            <h1>资源库{isFetching && !showLoading ? " · 更新中…" : ""}</h1>
             <p>管理你的学习资料。上传资料仅进入资源库，不会自动授权任何课程使用。</p>
           </div>
           <div className="page-actions">
@@ -690,29 +569,71 @@ export function LibraryPage() {
                   <span>操作</span>
                 </div>
 
-                {loading ? (
+                {showLoading ? (
                   <div className="library-empty">
                     <Loader size={28} className="spin" />
                     <strong>正在加载…</strong>
+                  </div>
+                ) : error ? (
+                  <div className="library-empty">
+                    <AlertTriangle size={28} />
+                    <strong>资料加载失败</strong>
+                    <span>请检查网络连接后刷新页面，或稍后重试。</span>
+                    <button className="button secondary compact" type="button" onClick={refreshLibrary}>
+                      <RefreshCw size={15} /> 重试
+                    </button>
+                  </div>
+                ) : items.length === 0 ? (
+                  <div className="library-empty">
+                    <Upload size={28} />
+                    <strong>资源库暂无资料</strong>
+                    <span>点击右上角「上传资料」将文件导入资源库</span>
                   </div>
                 ) : filtered.length === 0 ? (
                   <div className="library-empty">
                     <Search size={28} />
                     <strong>没有匹配的资料</strong>
-                    <span>尝试调整搜索条件或筛选器</span>
+                    <span>
+                      {activeFolder
+                        ? "当前文件夹为空，可点击左侧「全部资料」查看所有资源"
+                        : "尝试调整搜索条件或筛选器"}
+                    </span>
+                    {(activeFolder || search || typeFilter !== "all" || tagFilter !== "all") && (
+                      <button
+                        className="button secondary compact"
+                        type="button"
+                        onClick={() => {
+                          setActiveFolder(null);
+                          setSearch("");
+                          setTypeFilter("all");
+                          setTagFilter("all");
+                        }}
+                      >
+                        清除筛选
+                      </button>
+                    )}
                   </div>
                 ) : (
-                  filtered.map((item) => {
-                    const Icon = typeIcons[item.type];
-                    const isSelected = selectedItem?.id === item.id;
-                    return (
-                      <button
+                  <VirtualLibraryRows
+                    items={filtered}
+                    renderRow={(item) => {
+                      const Icon = typeIcons[item.type];
+                      const isSelected = selectedItem?.id === item.id;
+                      return (
+                      <div
                         className={`library-row${isSelected ? " selected" : ""}`}
                         draggable
                         key={item.id}
                         onClick={() => setSelectedItem(isSelected ? null : item)}
                         onDragStart={(e) => onRowDragStart(e, item.id)}
-                        type="button"
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter" || event.key === " ") {
+                            event.preventDefault();
+                            setSelectedItem(isSelected ? null : item);
+                          }
+                        }}
+                        role="button"
+                        tabIndex={0}
                       >
                         <span className="lib-cell-name">
                           <span className={`lib-type-icon type-${item.type}`}><Icon size={14} /></span>
@@ -738,21 +659,33 @@ export function LibraryPage() {
                         <span className="lib-cell-actions" onClick={(e) => e.stopPropagation()}>
                           <button aria-label="更多操作" className="icon-button" type="button"><MoreHorizontal size={17} /></button>
                         </span>
-                      </button>
-                    );
-                  })
+                      </div>
+                      );
+                    }}
+                  />
                 )}
               </div>
 
               {selectedItem && (
-                <LibraryDetailPanel item={selectedItem} onClose={() => setSelectedItem(null)} onDelete={() => handleDeleteItem(selectedItem.id)} onReparse={() => handleReparseItem(selectedItem.id)} />
+                <LibraryDetailPanel
+                  item={selectedItem}
+                  onClose={() => setSelectedItem(null)}
+                  onDelete={() => handleDeleteItem(selectedItem.id)}
+                  onPreview={() => navigate(buildLibraryReaderPath(selectedItem.id))}
+                  onReparse={() => handleReparseItem(selectedItem.id)}
+                />
               )}
             </div>
           </div>
         </div>
       </div>
 
-      {showUpload && <UploadModal onClose={() => setShowUpload(false)} onUploaded={loadData} />}
+      {showUpload && (
+        <SourceUploadModal
+          onClose={() => setShowUpload(false)}
+          onUploaded={refreshLibrary}
+        />
+      )}
     </AppShell>
   );
 }

@@ -177,6 +177,7 @@ GENERATE_ITEM_DEFINITION = ToolDefinition(
         "required": ["course_session_id", "items"],
     },
     agent_roles={"assessor"},
+    timeout_seconds=300.0,
 )
 
 SUBMIT_ANSWER_DEFINITION = ToolDefinition(
@@ -217,6 +218,8 @@ def build_default_provider() -> BaseProvider:
         api_key=api_key,
         base_url=settings.LLM_BASE_URL,
         model=settings.LLM_MODEL_BALANCED,
+        request_timeout=settings.LLM_REQUEST_TIMEOUT,
+        stream_timeout=settings.LLM_STREAM_TIMEOUT,
     )
 
 

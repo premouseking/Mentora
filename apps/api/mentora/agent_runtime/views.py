@@ -534,7 +534,12 @@ def pipeline_chat(request):
                 "content_preview": output.final_message[:300],
                 "full_content": output.final_message,
                 "citations": [
-                    {"evidence_id": c.evidence_id, "content_preview": c.content_preview, "page_number": c.page_number}
+                    {
+                        "content": c.content,
+                        "content_preview": c.content_preview,
+                        "page_number": c.page_number,
+                        "source_title": c.source_title,
+                    }
                     for c in output.citations
                 ],
                 "tool_calls_made": len(output.tool_calls_made),
@@ -694,7 +699,7 @@ def pipeline_chat_stream(request):
                     step_results[step.output_key] = output.final_message
                     total_calls += len(output.tool_calls_made)
 
-                    yield f"data: {json.dumps({'type': 'step_completed', 'step_index': i, 'agent_role': step.agent_role, 'output_key': step.output_key, 'finish_reason': output.finish_reason, 'content_preview': output.final_message[:300], 'citations': [{'evidence_id': c.evidence_id, 'content_preview': c.content_preview, 'page_number': c.page_number} for c in output.citations], 'tool_calls_made': len(output.tool_calls_made), 'usage': output.usage.model_dump()}, ensure_ascii=False)}\n\n"
+                    yield f"data: {json.dumps({'type': 'step_completed', 'step_index': i, 'agent_role': step.agent_role, 'output_key': step.output_key, 'finish_reason': output.finish_reason, 'content_preview': output.final_message[:300], 'citations': [{'content': c.content, 'content_preview': c.content_preview, 'page_number': c.page_number, 'source_title': c.source_title} for c in output.citations], 'tool_calls_made': len(output.tool_calls_made), 'usage': output.usage.model_dump()}, ensure_ascii=False)}\n\n"
 
                 except Exception as step_exc:
                     yield f"data: {json.dumps({'type': 'error', 'step_index': i, 'agent_role': step.agent_role, 'message': str(step_exc)}, ensure_ascii=False)}\n\n"

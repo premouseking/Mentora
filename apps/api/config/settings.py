@@ -56,15 +56,17 @@ INSTALLED_APPS = [
 
 from datetime import timedelta
 
-# 开发模式认证旁路：MENTORA_DEV_AUTH_BYPASS=1 时跳过 JWT 校验
-_dev_auth_bypass = DEBUG and os.getenv("MENTORA_DEV_AUTH_BYPASS", "0") == "1"
+# 开发模式认证旁路仍注入真实 User，业务层始终只依赖 request.user。
+MENTORA_DEV_AUTH_BYPASS = DEBUG and os.getenv("MENTORA_DEV_AUTH_BYPASS", "0") == "1"
+DEV_USER_EMAIL = os.getenv("DEV_USER_EMAIL", "dev@mentora.local")
 
 REST_FRAMEWORK = {
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
     "DEFAULT_AUTHENTICATION_CLASSES": (
-        [] if _dev_auth_bypass else
+        ["config.authentication.DevelopmentUserAuthentication"] if MENTORA_DEV_AUTH_BYPASS else
         ["rest_framework_simplejwt.authentication.JWTAuthentication"]
     ),
+    "DEFAULT_PERMISSION_CLASSES": ["rest_framework.permissions.IsAuthenticated"],
 }
 
 SIMPLE_JWT = {
@@ -136,6 +138,7 @@ CELERY_TASK_ROUTES = {
     "mentora.knowledge.tasks.*": {"queue": "heavy"},
     "mentora.knowledge.tasks.run_processing": {"queue": "heavy"},
     "mentora.parsing.tasks.*": {"queue": "heavy"},
+    "mentora.retrieval.tasks.*": {"queue": "heavy"},
     "mentora.agent_runtime.tasks.*": {"queue": "agent"},
     "mentora.workflow_runtime.tasks.*": {"queue": "agent"},
     "mentora.learning.tasks.*": {"queue": "learning"},
@@ -152,7 +155,10 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 OBJECT_STORAGE_BACKEND = _env("OBJECT_STORAGE_BACKEND")
 OBJECT_STORAGE_ENDPOINT = _env("OBJECT_STORAGE_ENDPOINT")
-OBJECT_STORAGE_PUBLIC_ENDPOINT = os.getenv("OBJECT_STORAGE_PUBLIC_ENDPOINT", OBJECT_STORAGE_ENDPOINT)
+OBJECT_STORAGE_PUBLIC_ENDPOINT = os.getenv(
+    "OBJECT_STORAGE_PUBLIC_ENDPOINT",
+    OBJECT_STORAGE_ENDPOINT,
+)
 OBJECT_STORAGE_BUCKET = _env("OBJECT_STORAGE_BUCKET")
 OBJECT_STORAGE_ACCESS_KEY = _env("OBJECT_STORAGE_ACCESS_KEY")
 OBJECT_STORAGE_SECRET_KEY = _env("OBJECT_STORAGE_SECRET_KEY")
@@ -163,7 +169,6 @@ OBJECT_STORAGE_FS_ROOT = _env("OBJECT_STORAGE_FS_ROOT")
 
 DEV_OWNER_ID = _env("DEV_OWNER_ID")
 DEV_COURSE_SESSION_ID = os.getenv("DEV_COURSE_SESSION_ID")
-DEV_OWNER_FALLBACK_ENABLED = os.getenv("DEV_OWNER_FALLBACK_ENABLED", "false").lower() == "true"
 
 # ── pgvector ─────────────────────────────────────────────
 
@@ -184,12 +189,14 @@ PGVECTOR_PROBES = 10
 EMBEDDING_PROVIDER = os.getenv("EMBEDDING_PROVIDER", "doubao")
 EMBEDDING_DOUBAO_API_KEY = os.getenv("VOLCANO_ENGINE_API_KEY", "")
 EMBEDDING_DOUBAO_MODEL = os.getenv("EMBEDDING_DOUBAO_MODEL", "doubao-embedding")
+EMBEDDING_DOUBAO_ENDPOINT_ID = os.getenv("EMBEDDING_DOUBAO_ENDPOINT_ID", "")
 # MRL 降维：2048 → 1024，平衡性能与存储
 EMBEDDING_DOUBAO_DIMENSIONS = int(os.getenv("EMBEDDING_DOUBAO_DIMENSIONS", "1024"))
 EMBEDDING_DOUBAO_BASE_URL = os.getenv(
     "EMBEDDING_DOUBAO_BASE_URL",
     "https://ark.cn-beijing.volces.com/api/v3",
 )
+EMBEDDING_DOUBAO_BATCH_SIZE = int(os.getenv("EMBEDDING_DOUBAO_BATCH_SIZE", "1"))  # 多模态 API 限单条
 
 # ── 多模态 Provider ──────────────────────────────────────
 
@@ -229,8 +236,9 @@ LLM_MODEL = LLM_MODEL_BALANCED
 LLM_MAX_TOKENS = int(os.getenv("LLM_MAX_TOKENS", "4096"))
 LLM_TEMPERATURE = float(os.getenv("LLM_TEMPERATURE", "0.7"))
 LLM_MAX_RETRIES = int(os.getenv("LLM_MAX_RETRIES", "1"))
-LLM_REQUEST_TIMEOUT = int(os.getenv("LLM_REQUEST_TIMEOUT", os.getenv("LLM_TIMEOUT_S", "60")))
+LLM_REQUEST_TIMEOUT = int(os.getenv("LLM_REQUEST_TIMEOUT", os.getenv("LLM_TIMEOUT_S", "120")))
 LLM_STREAM_TIMEOUT = int(os.getenv("LLM_STREAM_TIMEOUT", "120"))
+LLM_STRUCTURED_TIMEOUT = int(os.getenv("LLM_STRUCTURED_TIMEOUT", "300"))
 
 MODEL_GATEWAY = {
     "max_retries_per_attempt": LLM_MAX_RETRIES,

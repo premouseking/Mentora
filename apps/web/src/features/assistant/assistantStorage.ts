@@ -1,18 +1,50 @@
-import { flattenAssistantBlocksContent } from "./assistantBlocks";
-import type { ChatMessage } from "./assistantTypes";
-import { isAssistantMessage } from "./assistantTypes";
+export interface ChatCitation {
+  content?: string;
+  content_preview: string;
+  page_number?: number | null;
+  source_title?: string;
+}
 
-export type { ChatMessage, ChatCitation, UserChatMessage, AssistantChatMessage } from "./assistantTypes";
+export interface ChatStatus {
+  event: string;
+  message: string;
+  toolName?: string;
+  success?: boolean;
+}
+
+export interface AssistantAttachment {
+  id: string;
+  name: string;
+  kind: "image" | "file";
+  mimeType: string;
+  size: number;
+  dataUrl?: string;
+}
+
+export interface ChatMessage {
+  role: "user" | "assistant";
+  content: string;
+  statuses?: ChatStatus[];
+  citations?: ChatCitation[];
+  attachments?: AssistantAttachment[];
+}
 
 export interface ConversationSnapshot {
   id: string;
   title: string;
   updatedAt: number;
   messages: ChatMessage[];
+  agentSessionId?: string | null;
 }
 
 export function sanitizeConversationsForStorage(conversations: ConversationSnapshot[]): ConversationSnapshot[] {
-  return conversations.slice(0, 20);
+  return conversations.slice(0, 20).map((conversation) => ({
+    ...conversation,
+    messages: conversation.messages.map((message) => ({
+      ...message,
+      attachments: message.attachments?.map(({ dataUrl: _dataUrl, ...attachment }) => attachment),
+    })),
+  }));
 }
 
 export function loadStoredConversations(storage: Storage, key: string): ConversationSnapshot[] {
@@ -39,9 +71,4 @@ export function saveStoredConversations(
   } catch {
     return false;
   }
-}
-
-export function getAssistantMessagePlainText(message: ChatMessage): string {
-  if (!isAssistantMessage(message)) return message.content;
-  return flattenAssistantBlocksContent(message.blocks);
 }

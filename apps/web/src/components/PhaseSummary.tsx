@@ -1,34 +1,240 @@
 import { Check, GripVertical, Pencil, Plus, Undo2, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import {
-  type ActivePlan,
-  type PlanPhase,
-  type PlanUnit,
-  type ProfileItem,
-} from "../services/courseApi";
+import { useNavigate } from "react-router-dom";
 import { MentoraLoader } from "./MentoraLoader";
+import type { ActivePlan, PlanPhase, PlanUnit } from "../services/courseApi";
+import type { CoursePhasesResponse } from "../services/documentApi";
+import {
+  buildTaskDetailSummary,
+  getTaskCardLabelForUnit,
+  getTaskDeliveryLabel,
+  getTaskDetailTitle,
+  getTaskTypeDetailLabel,
+  resolveTaskStartPath,
+  summarizeUnitTasks,
+} from "../pages/courseFlowHelpers";
 
-export type { ProfileItem };
+/* ── Mock 数据（v6：全部 mock，不连后端）── */
 
-type PhaseSummaryTask = PlanUnit["tasks"][number] & {
-  knowledge_point?: string;
-  materials?: { id: string; title: string }[];
+const MOCK_PLAN = {
+  plan_id: "mock-plan",
+  revision_id: "mock-rev-1",
+  status: "active",
+  feasibility_status: "feasible",
+  profile_revision_id: "mock-profile-1",
+  phases: [
+    {
+      id: "p1",
+      position: 0,
+      title: "基础入门",
+      objective: "掌握集合、函数等核心概念与基本方法",
+      estimated_minutes: 480,
+      units: [
+        {
+          id: "p1-u1",
+          title: "集合与逻辑",
+          position: 0,
+          topic_id: null,
+          target_depth: "understand",
+          estimated_minutes: 160,
+          prerequisite_unit_ids: [],
+          priority: 1,
+          tasks: [
+            { id: "p1-u1-t1", task_type: "lecture", delivery_mode: "self_paced", estimated_minutes: 40, required: true, knowledge_point: "集合的概念", materials: [{ id: "m-1-1", title: "集合概念讲义.pdf" }] },
+            { id: "p1-u1-t2", task_type: "exercise", delivery_mode: "self_paced", estimated_minutes: 40, required: true, materials: [{ id: "m-1-2", title: "集合运算练习.pdf" }] },
+            { id: "p1-u1-t3", task_type: "lecture", delivery_mode: "self_paced", estimated_minutes: 40, required: true, knowledge_point: "命题与逻辑", materials: [{ id: "m-1-3", title: "命题与逻辑讲义.pdf" }] },
+            { id: "p1-u1-t4", task_type: "review", delivery_mode: "self_paced", estimated_minutes: 40, required: true, materials: [] },
+          ],
+        },
+        {
+          id: "p1-u2",
+          title: "函数基础",
+          position: 1,
+          topic_id: null,
+          target_depth: "understand",
+          estimated_minutes: 150,
+          prerequisite_unit_ids: ["p1-u1"],
+          priority: 1,
+          tasks: [
+            { id: "p1-u2-t1", task_type: "lecture", delivery_mode: "self_paced", estimated_minutes: 50, required: true, knowledge_point: "函数的定义", materials: [{ id: "m-2-1", title: "函数定义讲义.pdf" }] },
+            { id: "p1-u2-t2", task_type: "exercise", delivery_mode: "self_paced", estimated_minutes: 50, required: true, materials: [{ id: "m-2-2", title: "定义域值域练习.pdf" }] },
+            { id: "p1-u2-t3", task_type: "lecture", delivery_mode: "self_paced", estimated_minutes: 50, required: true, knowledge_point: "函数的表示方法", materials: [] },
+          ],
+        },
+        {
+          id: "p1-u3",
+          title: "基本初等函数",
+          position: 2,
+          topic_id: null,
+          target_depth: "understand",
+          estimated_minutes: 170,
+          prerequisite_unit_ids: ["p1-u2"],
+          priority: 1,
+          tasks: [
+            { id: "p1-u3-t1", task_type: "lecture", delivery_mode: "self_paced", estimated_minutes: 40, required: true, knowledge_point: "正比例函数", materials: [{ id: "m-3-1", title: "正比例函数讲义.pdf" }] },
+            { id: "p1-u3-t2", task_type: "exercise", delivery_mode: "self_paced", estimated_minutes: 45, required: true, materials: [{ id: "m-3-2", title: "反比例函数练习.pdf" }] },
+            { id: "p1-u3-t3", task_type: "lecture", delivery_mode: "self_paced", estimated_minutes: 40, required: true, knowledge_point: "一次函数", materials: [{ id: "m-3-3", title: "一次函数讲义.pdf" }] },
+            { id: "p1-u3-t4", task_type: "review", delivery_mode: "self_paced", estimated_minutes: 45, required: true, materials: [{ id: "m-3-4", title: "二次函数复习题.pdf" }] },
+          ],
+        },
+      ],
+    },
+    {
+      id: "p2",
+      position: 1,
+      title: "知识梳理",
+      objective: "系统学习教材，按章节深入梳理知识体系",
+      estimated_minutes: 600,
+      units: [
+        {
+          id: "p2-u1",
+          title: "数列与极限",
+          position: 0,
+          topic_id: null,
+          target_depth: "apply",
+          estimated_minutes: 300,
+          prerequisite_unit_ids: [],
+          priority: 1,
+          tasks: [
+            { id: "p2-u1-t1", task_type: "lecture", delivery_mode: "self_paced", estimated_minutes: 60, required: true, knowledge_point: "数列的概念", materials: [{ id: "m-4-1", title: "数列概念讲义.pdf" }] },
+            { id: "p2-u1-t2", task_type: "exercise", delivery_mode: "self_paced", estimated_minutes: 60, required: true, materials: [{ id: "m-4-2", title: "数列求和练习.pdf" }] },
+            { id: "p2-u1-t3", task_type: "project", delivery_mode: "self_paced", estimated_minutes: 60, required: true, knowledge_point: "极限的探究", materials: [{ id: "m-4-3", title: "极限探究项目.pdf" }] },
+          ],
+        },
+        {
+          id: "p2-u2",
+          title: "三角函数",
+          position: 1,
+          topic_id: null,
+          target_depth: "apply",
+          estimated_minutes: 300,
+          prerequisite_unit_ids: ["p2-u1"],
+          priority: 1,
+          tasks: [
+            { id: "p2-u2-t1", task_type: "lecture", delivery_mode: "self_paced", estimated_minutes: 50, required: true, knowledge_point: "三角函数的定义", materials: [{ id: "m-5-1", title: "三角函数讲义.pdf" }] },
+            { id: "p2-u2-t2", task_type: "exercise", delivery_mode: "self_paced", estimated_minutes: 50, required: true, materials: [{ id: "m-5-2", title: "三角恒等变换练习.pdf" }] },
+          ],
+        },
+      ],
+    },
+    {
+      id: "p3",
+      position: 2,
+      title: "专项训练",
+      objective: "突破薄弱点，题型分类训练",
+      estimated_minutes: 540,
+      units: [
+        {
+          id: "p3-u1",
+          title: "函数题型专项",
+          position: 0,
+          topic_id: null,
+          target_depth: "apply",
+          estimated_minutes: 270,
+          prerequisite_unit_ids: [],
+          priority: 1,
+          tasks: [
+            { id: "p3-u1-t1", task_type: "exercise", delivery_mode: "self_paced", estimated_minutes: 90, required: true, materials: [{ id: "m-6-1", title: "函数题型专项训练.pdf" }] },
+            { id: "p3-u1-t2", task_type: "exercise", delivery_mode: "self_paced", estimated_minutes: 90, required: true, materials: [] },
+            { id: "p3-u1-t3", task_type: "review", delivery_mode: "self_paced", estimated_minutes: 90, required: true, materials: [{ id: "m-6-2", title: "函数易错题回顾.pdf" }] },
+          ],
+        },
+        {
+          id: "p3-u2",
+          title: "几何题型专项",
+          position: 1,
+          topic_id: null,
+          target_depth: "apply",
+          estimated_minutes: 270,
+          prerequisite_unit_ids: ["p3-u1"],
+          priority: 1,
+          tasks: [
+            { id: "p3-u2-t1", task_type: "exercise", delivery_mode: "self_paced", estimated_minutes: 90, required: true, materials: [{ id: "m-7-1", title: "几何题型专项训练.pdf" }] },
+            { id: "p3-u2-t2", task_type: "exercise", delivery_mode: "self_paced", estimated_minutes: 90, required: true, materials: [] },
+            { id: "p3-u2-t3", task_type: "project", delivery_mode: "self_paced", estimated_minutes: 90, required: true, knowledge_point: "立体几何综合", materials: [{ id: "m-7-2", title: "立体几何综合项目.pdf" }] },
+          ],
+        },
+      ],
+    },
+    {
+      id: "p4",
+      position: 3,
+      title: "综合应用",
+      objective: "跨知识点实战，真题与综合项目",
+      estimated_minutes: 480,
+      units: [
+        {
+          id: "p4-u1",
+          title: "综合真题训练",
+          position: 0,
+          topic_id: null,
+          target_depth: "analyze",
+          estimated_minutes: 240,
+          prerequisite_unit_ids: [],
+          priority: 1,
+          tasks: [
+            { id: "p4-u1-t1", task_type: "project", delivery_mode: "self_paced", estimated_minutes: 120, required: true, knowledge_point: "高考真题实战", materials: [{ id: "m-8-1", title: "2025高考真题集.pdf" }] },
+            { id: "p4-u1-t2", task_type: "exercise", delivery_mode: "self_paced", estimated_minutes: 120, required: true, materials: [{ id: "m-8-2", title: "真题分类训练.pdf" }] },
+          ],
+        },
+        {
+          id: "p4-u2",
+          title: "跨章节综合",
+          position: 1,
+          topic_id: null,
+          target_depth: "analyze",
+          estimated_minutes: 240,
+          prerequisite_unit_ids: ["p4-u1"],
+          priority: 1,
+          tasks: [
+            { id: "p4-u2-t1", task_type: "project", delivery_mode: "self_paced", estimated_minutes: 80, required: true, knowledge_point: "跨章节综合", materials: [{ id: "m-9-1", title: "跨章节综合项目.pdf" }] },
+            { id: "p4-u2-t2", task_type: "exercise", delivery_mode: "self_paced", estimated_minutes: 80, required: true, materials: [] },
+            { id: "p4-u2-t3", task_type: "review", delivery_mode: "self_paced", estimated_minutes: 80, required: true, materials: [{ id: "m-9-2", title: "综合题解题思路.pdf" }] },
+          ],
+        },
+      ],
+    },
+    {
+      id: "p5",
+      position: 4,
+      title: "考前冲刺",
+      objective: "考点回顾，临场策略与限时模拟",
+      estimated_minutes: 360,
+      units: [
+        {
+          id: "p5-u1",
+          title: "考点回顾",
+          position: 0,
+          topic_id: null,
+          target_depth: "analyze",
+          estimated_minutes: 180,
+          prerequisite_unit_ids: [],
+          priority: 1,
+          tasks: [
+            { id: "p5-u1-t1", task_type: "review", delivery_mode: "self_paced", estimated_minutes: 90, required: true, materials: [{ id: "m-10-1", title: "考点全回顾.pdf" }] },
+            { id: "p5-u1-t2", task_type: "lecture", delivery_mode: "self_paced", estimated_minutes: 90, required: true, knowledge_point: "临场策略", materials: [{ id: "m-10-2", title: "临场策略讲义.pdf" }] },
+          ],
+        },
+        {
+          id: "p5-u2",
+          title: "限时模拟",
+          position: 1,
+          topic_id: null,
+          target_depth: "analyze",
+          estimated_minutes: 180,
+          prerequisite_unit_ids: ["p5-u1"],
+          priority: 1,
+          tasks: [
+            { id: "p5-u2-t1", task_type: "project", delivery_mode: "self_paced", estimated_minutes: 120, required: true, knowledge_point: "限时模拟", materials: [{ id: "m-11-1", title: "限时模拟卷A.pdf" }, { id: "m-11-2", title: "限时模拟卷B.pdf" }] },
+            { id: "p5-u2-t2", task_type: "review", delivery_mode: "self_paced", estimated_minutes: 60, required: true, materials: [{ id: "m-11-3", title: "模拟卷讲评.pdf" }] },
+          ],
+        },
+      ],
+    },
+  ],
 };
 
-function asSummaryTask(task: PlanUnit["tasks"][number]): PhaseSummaryTask {
-  return task as PhaseSummaryTask;
-}
-
-const EMPTY_PLAN: ActivePlan = {
-  plan_id: "",
-  revision_id: "",
-  status: "",
-  feasibility_status: "",
-  profile_revision_id: "",
-  phases: [],
-};
-
-/* ── 阶段池：编辑模式下可选添加的模板阶段 ── */
+/* ── 阶段池：可添加的额外阶段（mock） ── */
 
 interface PoolPhase {
   id: string;
@@ -36,13 +242,37 @@ interface PoolPhase {
   objective: string;
 }
 
-const PHASE_POOL_TEMPLATES: PoolPhase[] = [
+const MOCK_PHASE_POOL: PoolPhase[] = [
   { id: "pool-k1", title: "知识衔接", objective: "补齐前置知识缺口" },
   { id: "pool-k2", title: "习题强化", objective: "大量针对性练习，巩固薄弱环节" },
   { id: "pool-k3", title: "阶段测评", objective: "定期检测学习效果，调整方向" },
   { id: "pool-k4", title: "拓展阅读", objective: "拓展学科视野，了解实际应用" },
   { id: "pool-k5", title: "思维训练", objective: "培养逻辑思维与解题策略" },
   { id: "pool-k6", title: "实战模拟", objective: "全真模拟考试，训练应试能力" },
+];
+
+/* ── mock 学习档案（建课阶段收集的学生画像） ── */
+interface ProfileItem {
+  key: string;
+  title: string;
+  value: string;
+}
+
+const MOCK_PROFILE: ProfileItem[] = [
+  { key: "goal", title: "学习目标", value: "高中数学系统复习，备战高考" },
+  { key: "level", title: "当前基础", value: "中等偏上，函数部分薄弱" },
+  { key: "pace", title: "推进方式", value: "按知识板块逐步推进" },
+  { key: "timeBudget", title: "每日时长", value: "2~3 小时" },
+  { key: "deadline", title: "目标日期", value: "2026-08-15" },
+  { key: "school", title: "学校/地区", value: "华南师大附中" },
+];
+
+/* ── 初始已完成任务（mock 数据） ── */
+const COMPLETED_TASKS_INIT = [
+  // 第一阶段第一章「集合与逻辑」：全部完成
+  "p1-u1-t1", "p1-u1-t2", "p1-u1-t3", "p1-u1-t4",
+  // 第一阶段第二章「函数基础」：前两个任务完成
+  "p1-u2-t1", "p1-u2-t2",
 ];
 
 /* ── AI 对话阶段 ── */
@@ -58,14 +288,7 @@ const TIME_OPTIONS = [
   "不固定，根据进度灵活安排",
 ];
 
-/* ── 任务类型标签 ── */
-
-const TASK_TYPE_LABEL: Record<string, string> = {
-  lecture: "讲解",
-  exercise: "练习",
-  project: "项目",
-  review: "复习",
-};
+/* ── 任务类型标签（详情区沿用统一 helper）── */
 
 function formatMinutes(m: number): string {
   if (m >= 60) return `${Math.round(m / 60 * 10) / 10} 小时`;
@@ -170,8 +393,8 @@ const CANVAS = {
   W: 600,
   chW: 150,
   chH: 42,
-  tkW: 116,
-  tkH: 34,
+  tkW: 88,
+  tkH: 32,
   tkGap: 10,
   chGap: 48,
   branch: 104, // 章节中心到任务群竖线的水平距离
@@ -221,21 +444,16 @@ function computeLayout(units: PlanUnit[]): Layout {
     const side: 1 | -1 = i % 2 === 0 ? 1 : -1; // 偶数章节右、奇数章节左
     const stemX = cx + side * CANVAS.branch;
     const taskStartY = y + (blockH - tasksH) / 2;
-    const taskNodes: TaskNode[] = tasks.map((rawTask, j) => {
-      const t = asSummaryTask(rawTask);
-      return {
+    const taskNodes: TaskNode[] = tasks.map((t, j) => ({
       id: t.id,
-      label: t.task_type === "lecture" || t.task_type === "project"
-        ? (t.knowledge_point ?? `${TASK_TYPE_LABEL[t.task_type] ?? t.task_type} ${j + 1}`)
-        : `${TASK_TYPE_LABEL[t.task_type] ?? t.task_type} ${j + 1}`,
+      label: getTaskCardLabelForUnit(tasks, t, j),
       taskType: t.task_type,
       minutes: t.estimated_minutes,
       x: side === 1 ? stemX + 14 : stemX - 14 - CANVAS.tkW,
       y: taskStartY + j * (CANVAS.tkH + CANVAS.tkGap),
       w: CANVAS.tkW,
       h: CANVAS.tkH,
-    };
-    });
+    }));
     const chapter: ChapterNode = {
       id: unit.id,
       title: unit.title || `单元 ${unit.position + 1}`,
@@ -524,12 +742,6 @@ function PlanOverviewCanvas({
 
 /* ── 右栏：详情 ── */
 
-const DELIVERY_LABEL: Record<string, string> = {
-  self_paced: "自学",
-  live: "直播",
-  hybrid: "混合",
-};
-
 const DEPTH_LABEL: Record<string, string> = {
   understand: "理解",
   apply: "应用",
@@ -561,6 +773,7 @@ function PhaseDetail({
   onRequestComplete,
   onCancelConfirm,
   onConfirmComplete,
+  courseId,
 }: {
   phase: PlanPhase;
   units: PlanUnit[];
@@ -572,7 +785,9 @@ function PhaseDetail({
   onRequestComplete: (taskId: string) => void;
   onCancelConfirm: () => void;
   onConfirmComplete: () => void;
+  courseId: string;
 }) {
+  const navigate = useNavigate();
   const info = useMemo<DetailInfo | null>(() => {
     if (!selected) return null;
     if (selected.kind === "phase") {
@@ -604,29 +819,21 @@ function PhaseDetail({
           { label: "目标深度", value: DEPTH_LABEL[u.target_depth] ?? u.target_depth },
           { label: "预估时长", value: formatMinutes(u.estimated_minutes) },
         ],
-        summary: `本章节包含 ${u.tasks.length} 个学习任务，涵盖${u.tasks.map((t) => TASK_TYPE_LABEL[t.task_type] ?? t.task_type).join("、")}等类型，预计用时 ${formatMinutes(u.estimated_minutes)}。`,
+        summary: summarizeUnitTasks(u.tasks, u.estimated_minutes),
         materials: [],
         showStartButton: false,
         isKnowledgeTask: false,
       };
     }
     for (const u of units) {
-      const rawTask = u.tasks.find((task) => task.id === selected.id);
-      if (rawTask) {
-        const t = asSummaryTask(rawTask);
-        const typeLabel = TASK_TYPE_LABEL[t.task_type] ?? t.task_type;
-        const isExercise = t.task_type === "exercise";
-        // 讲解任务的任务类型显示为「知识点」
-        const typeDisplay = t.task_type === "lecture" ? "知识点" : typeLabel;
-        // 标题：讲解/项目用知识点名，练习用「练习 N」
+      const t = u.tasks.find((t) => t.id === selected.id);
+      if (t) {
         const taskIdx = u.tasks.indexOf(t);
-        const title = (t.task_type === "lecture" || t.task_type === "project")
-          ? (t.knowledge_point ?? `${typeLabel} ${taskIdx + 1}`)
-          : `${typeLabel} ${taskIdx + 1}`;
-        // 交付方式：讲解→自主确认，练习→完成练习，其他沿用 delivery_mode 映射
-        const delivery = isExercise ? "完成练习"
-          : t.task_type === "lecture" ? "自主确认"
-          : (DELIVERY_LABEL[t.delivery_mode] ?? t.delivery_mode);
+        const title = getTaskDetailTitle(t, taskIdx);
+        const knowledgePoint = t.knowledge_point?.trim();
+        const isExercise = t.task_type === "exercise";
+        const typeDisplay = getTaskTypeDetailLabel(t.task_type);
+        const delivery = getTaskDeliveryLabel(t.task_type, t.delivery_mode);
         return {
           type: "task",
           title,
@@ -636,11 +843,12 @@ function PhaseDetail({
             { label: "预估时长", value: formatMinutes(t.estimated_minutes) },
             { label: "是否必修", value: t.required ? "必修" : "选修" },
           ],
-          summary: isExercise
-            ? `通过完成练习巩固「${u.title || "本章节"}」的知识点，预计用时 ${formatMinutes(t.estimated_minutes)}。`
-            : t.task_type === "lecture"
-            ? `学习知识点「${t.knowledge_point ?? title}」，理解其在「${u.title || "本章节"}」中的应用，预计用时 ${formatMinutes(t.estimated_minutes)}。`
-            : `通过项目实践巩固「${t.knowledge_point ?? title}」，预计用时 ${formatMinutes(t.estimated_minutes)}。`,
+          summary: buildTaskDetailSummary(
+            t,
+            u.title || `单元 ${u.position + 1}`,
+            taskIdx,
+            t.estimated_minutes,
+          ),
           materials: t.materials ?? [],
           showStartButton: isExercise,
           isKnowledgeTask: !isExercise,
@@ -711,19 +919,23 @@ function PhaseDetail({
         <>
           {completedTasks.has(selected.id) ? (
             <div className="ps-detail-done-badge">✓ 已完成</div>
-          ) : info.showStartButton ? (
-            <button type="button" className="ps-detail-start-btn" onClick={onClose}>
-              开始练习
-            </button>
           ) : (
             <button
               type="button"
-              className="ps-detail-complete-btn"
-              onClick={(e) => { e.stopPropagation(); onRequestComplete(selected.id); }}
+              className="ps-detail-start-btn"
+              onClick={() => navigate(resolveTaskStartPath(courseId, selected.id))}
             >
-              确认完成
+              开始学习
             </button>
           )}
+          <button
+            type="button"
+            className="ps-detail-complete-btn"
+            onClick={(e) => { e.stopPropagation(); onRequestComplete(selected.id); }}
+            style={{ marginTop: 8 }}
+          >
+            确认完成
+          </button>
         </>
       )}
 
@@ -759,23 +971,21 @@ function phaseTrackOffsetOf(index: number, blockBasis: number) {
 
 export function PhaseSummary({
   onClose,
-  plan: planProp,
-  profileItems,
-  loading = false,
-  courseId: _courseId,
+  activePlan,
+  phases: phasesData,
+  courseId,
 }: {
   onClose: () => void;
-  plan: ActivePlan | null;
-  profileItems: ProfileItem[];
-  loading?: boolean;
+  activePlan: ActivePlan | null;
+  phases: CoursePhasesResponse | null;
   courseId: string;
 }) {
-  const plan = planProp ?? EMPTY_PLAN;
+  const navigate = useNavigate();
+  const plan = activePlan?.phases?.length ? activePlan : { phases: [] };
+  const firstPhaseId = plan.phases[0]?.id ?? "";
   const [activePhase, setActivePhase] = useState(0);
-  const [selected, setSelected] = useState<Selection>(
-    plan.phases[0] ? { kind: "phase", id: plan.phases[0].id } : null,
-  );
-  const [completedTasks, setCompletedTasks] = useState<Set<string>>(() => new Set());
+  const [selected, setSelected] = useState<Selection>({ kind: "phase", id: firstPhaseId });
+  const [completedTasks, setCompletedTasks] = useState<Set<string>>(new Set());
   const [confirmTaskId, setConfirmTaskId] = useState<string | null>(null);
   const [adjustMode, setAdjustMode] = useState(false);
   // 调整面板状态
@@ -784,7 +994,7 @@ export function PhaseSummary({
   const [selectedOption, setSelectedOption] = useState("");
   const [profileEditing, setProfileEditing] = useState(false);
   const [profileValues, setProfileValues] = useState<ProfileItem[]>(() =>
-    profileItems.map((p) => ({ ...p })),
+    MOCK_PROFILE.map((p) => ({ ...p })),
   );
   const [planEditing, setPlanEditing] = useState(false);
   // 三区变更追踪
@@ -793,25 +1003,11 @@ export function PhaseSummary({
   const [planChanged, setPlanChanged] = useState(false);
   const [planGenerated, setPlanGenerated] = useState(false);
   // 阶段编辑表格状态
-  const [editPhases, setEditPhases] = useState<PlanPhase[]>([]);
+  const [editPhases, setEditPhases] = useState<{ id: string; title: string; objective: string }[]>([]);
   const [showAddPhase, setShowAddPhase] = useState(false);
   const [dragIndex, setDragIndex] = useState<number | null>(null);
 
-  useEffect(() => {
-    setProfileValues(profileItems.map((p) => ({ ...p })));
-  }, [profileItems]);
-
-  useEffect(() => {
-    if (!plan.phases.length) {
-      setSelected(null);
-      setActivePhase(0);
-      return;
-    }
-    setActivePhase(0);
-    setSelected({ kind: "phase", id: plan.phases[0].id });
-  }, [plan.plan_id, plan.revision_id, plan.phases.length]);
-
-  const phase = plan.phases[activePhase];
+  const phase = plan.phases[activePhase] ?? null;
 
   // 已完成的阶段索引
   const completedPhaseIndices = useMemo(() => {
@@ -901,14 +1097,15 @@ export function PhaseSummary({
 
   const handleProfileEditCancel = useCallback(() => {
     setProfileEditing(false);
-    setProfileValues(profileItems.map((p) => ({ ...p })));
-  }, [profileItems]);
+    // 恢复到本次编辑前的状态（可能已是 dirty 状态的旧值）
+    setProfileValues(MOCK_PROFILE.map((p) => ({ ...p })));
+  }, []);
 
   /** 撤回档案更改：恢复原始值 + 清除 dirty */
   const handleProfileUndo = useCallback(() => {
     setProfileChanged(false);
-    setProfileValues(profileItems.map((p) => ({ ...p })));
-  }, [profileItems]);
+    setProfileValues(MOCK_PROFILE.map((p) => ({ ...p })));
+  }, []);
 
   const handleProfileValueChange = useCallback((key: string, value: string) => {
     setProfileValues((prev) => prev.map((p) => (p.key === key ? { ...p, value } : p)));
@@ -926,9 +1123,9 @@ export function PhaseSummary({
     } else {
       setPlanEditing(true);
       // 进入编辑时拷贝原始阶段列表
-      setEditPhases(structuredClone(plan.phases));
+      setEditPhases(plan.phases.map((p) => ({ id: p.id, title: p.title, objective: p.objective })));
     }
-  }, [planEditing, planChanged, plan.phases]);
+  }, [planEditing, planChanged]);
 
   const handlePlanEditCancel = useCallback(() => {
     // ✕ → 退出编辑，恢复原始阶段列表
@@ -998,6 +1195,7 @@ export function PhaseSummary({
 
   const [trackPhaseIndex, setTrackPhaseIndex] = useState(0);
   const [overviewSelectedUnitId, setOverviewSelectedUnitId] = useState<string | null>(null);
+  const [overviewSelectedTaskId, setOverviewSelectedTaskId] = useState<string | null>(null);
   const trackTargetRef = useRef(0);
   const trackNavRef = useRef<HTMLDivElement>(null);
   const trackN = plan.phases.length;
@@ -1063,19 +1261,6 @@ export function PhaseSummary({
 
   return (
     <div className="phase-summary">
-      {loading ? (
-        <div className="ps-loading">
-          <MentoraLoader />
-        </div>
-      ) : !plan.phases.length ? (
-        <div className="ps-empty">
-          <p>该课程尚未生成学习计划</p>
-          <button type="button" className="quiz-hint-close" onClick={onClose} title="关闭">
-            <X size={14} />
-          </button>
-        </div>
-      ) : (
-      <>
       {/* 顶部栏：关闭按钮 → 返回按钮 */}
       <div className="quiz-swipe-hint" onPointerDown={(e) => e.stopPropagation()}>
         <div className="quiz-swipe-hint-left">
@@ -1325,7 +1510,7 @@ export function PhaseSummary({
                       <div className="ps-plan-edit-add-popup">
                         {(() => {
                           const selectedIds = new Set(editPhases.map((ep) => ep.id));
-                          const available = PHASE_POOL_TEMPLATES.filter((pp) => !selectedIds.has(pp.id));
+                          const available = MOCK_PHASE_POOL.filter((pp) => !selectedIds.has(pp.id));
                           if (available.length === 0) {
                             return <div className="ps-plan-edit-add-empty">没有更多可选阶段</div>;
                           }
@@ -1348,6 +1533,8 @@ export function PhaseSummary({
               </div>
             ) : (
               <>
+                {plan.phases[trackPhaseIndex] ? (
+                  <>
                 <div className="phase-track" ref={trackNavRef}>
                   <div className="phase-track-window">
                     {plan.phases.map((p, i) => (
@@ -1366,7 +1553,10 @@ export function PhaseSummary({
                 <PlanOverviewCanvas
                   units={plan.phases[trackPhaseIndex].units}
                   selectedUnitId={overviewSelectedUnitId}
-                  onSelectUnit={(id) => setOverviewSelectedUnitId(id)}
+                  onSelectUnit={(id) => {
+                    setOverviewSelectedUnitId(id);
+                    setOverviewSelectedTaskId(null);
+                  }}
                 />
 
                 <div className="ps-adjust-plan-detail">
@@ -1377,14 +1567,65 @@ export function PhaseSummary({
                       : null;
 
                     if (selUnit) {
+                      const selectedTask = overviewSelectedTaskId
+                        ? selUnit.tasks.find((t) => t.id === overviewSelectedTaskId) ?? null
+                        : null;
+
+                      if (selectedTask) {
+                        const taskIdx = selUnit.tasks.findIndex((t) => t.id === selectedTask.id);
+                        return (
+                          <>
+                            <div className="ps-adjust-plan-detail-head">
+                              <span className="ps-adjust-plan-detail-badge">任务</span>
+                              <span className="ps-adjust-plan-detail-title">
+                                {getTaskDetailTitle(selectedTask, taskIdx)}
+                              </span>
+                            </div>
+                            <div className="ps-detail-section">
+                              <div className="ps-detail-section-head">基础信息</div>
+                              <dl className="ps-detail-basics">
+                                <div className="ps-detail-basic-row">
+                                  <dt>任务类型</dt>
+                                  <dd>{getTaskTypeDetailLabel(selectedTask.task_type)}</dd>
+                                </div>
+                                <div className="ps-detail-basic-row">
+                                  <dt>交付方式</dt>
+                                  <dd>{getTaskDeliveryLabel(selectedTask.task_type, selectedTask.delivery_mode)}</dd>
+                                </div>
+                                <div className="ps-detail-basic-row">
+                                  <dt>预估时长</dt>
+                                  <dd>{formatMinutes(selectedTask.estimated_minutes)}</dd>
+                                </div>
+                              </dl>
+                            </div>
+                            <div className="ps-detail-section">
+                              <div className="ps-detail-section-head">概述</div>
+                              <p className="ps-detail-summary">
+                                {buildTaskDetailSummary(
+                                  selectedTask,
+                                  selUnit.title || `第 ${selUnit.position + 1} 章`,
+                                  taskIdx,
+                                  selectedTask.estimated_minutes,
+                                )}
+                              </p>
+                            </div>
+                            <button
+                              className="ps-task-card-back"
+                              type="button"
+                              onClick={() => setOverviewSelectedTaskId(null)}
+                            >
+                              返回章节任务列表
+                            </button>
+                          </>
+                        );
+                      }
+
                       const taskCount = selUnit.tasks.length;
                       const allMaterials: { id: string; title: string }[] = [];
-                      for (const rawTask of selUnit.tasks) {
-                        const t = asSummaryTask(rawTask);
+                      for (const t of selUnit.tasks) {
                         if (t.materials) allMaterials.push(...t.materials);
                       }
-                      const typeSet = new Set(selUnit.tasks.map((t) => TASK_TYPE_LABEL[t.task_type] ?? t.task_type));
-                      const summary = `本章节包含 ${taskCount} 个学习任务，涵盖${[...typeSet].join("、")}等类型，预计用时 ${formatMinutes(selUnit.estimated_minutes)}。`;
+                      const summary = summarizeUnitTasks(selUnit.tasks, selUnit.estimated_minutes);
 
                       return (
                         <>
@@ -1404,6 +1645,21 @@ export function PhaseSummary({
                           <div className="ps-detail-section">
                             <div className="ps-detail-section-head">概述</div>
                             <p className="ps-detail-summary">{summary}</p>
+                          </div>
+                          <div className="ps-detail-section">
+                            <div className="ps-detail-section-head">学习任务</div>
+                            <div className="ps-task-type-card-list">
+                              {selUnit.tasks.map((task, taskIdx) => (
+                                <button
+                                  className="ps-task-type-card"
+                                  key={task.id}
+                                  type="button"
+                                  onClick={() => setOverviewSelectedTaskId(task.id)}
+                                >
+                                  {getTaskCardLabelForUnit(selUnit.tasks, task, taskIdx)}
+                                </button>
+                              ))}
+                            </div>
                           </div>
                           {allMaterials.length > 0 && (
                             <div className="ps-detail-section">
@@ -1445,6 +1701,12 @@ export function PhaseSummary({
                     );
                   })()}
                 </div>
+                  </>
+                ) : (
+                  <div className="ps-detail">
+                    <p className="ps-detail-empty">学习计划暂时不可用</p>
+                  </div>
+                )}
               </>
             )}
           </div>
@@ -1463,25 +1725,34 @@ export function PhaseSummary({
       ) : (
         <>
           {/* 三栏主体 */}
-          <div className="ps-layout">
-            {/* 左栏：纵向阶段导航 */}
-            <PhaseNav phases={plan.phases} activeIndex={activePhase} completedIndices={completedPhaseIndices} onSelect={handleSelectPhase} />
-            {/* 中栏：主干 + 分支画板 */}
-            <PhaseCanvas units={phase.units} selected={selected} completedTasks={completedTasks} onSelect={setSelected} />
-            {/* 右栏：详情 */}
-            <PhaseDetail
-              phase={phase}
-              units={phase.units}
-              selected={selected}
-              completedTasks={completedTasks}
-              confirmTaskId={confirmTaskId}
-              onOpenMaterial={handleOpenMaterial}
-              onClose={onClose}
-              onRequestComplete={handleRequestComplete}
-              onCancelConfirm={handleCancelConfirm}
-              onConfirmComplete={handleConfirmComplete}
-            />
-          </div>
+          {phase ? (
+            <div className="ps-layout">
+              {/* 左栏：纵向阶段导航 */}
+              <PhaseNav phases={plan.phases} activeIndex={activePhase} completedIndices={completedPhaseIndices} onSelect={handleSelectPhase} />
+              {/* 中栏：主干 + 分支画板 */}
+              <PhaseCanvas units={phase.units} selected={selected} completedTasks={completedTasks} onSelect={setSelected} />
+              {/* 右栏：详情 */}
+              <PhaseDetail
+                phase={phase}
+                units={phase.units}
+                selected={selected}
+                completedTasks={completedTasks}
+                confirmTaskId={confirmTaskId}
+                onOpenMaterial={handleOpenMaterial}
+                onClose={onClose}
+                onRequestComplete={handleRequestComplete}
+                onCancelConfirm={handleCancelConfirm}
+                onConfirmComplete={handleConfirmComplete}
+                courseId={courseId}
+              />
+            </div>
+          ) : (
+            <div className="ps-layout">
+              <div className="ps-detail">
+                <p className="ps-detail-empty">当前课程还没有可展示的学习计划</p>
+              </div>
+            </div>
+          )}
 
           {/* 底部按钮 */}
           <div className="ps-layout-actions">
@@ -1490,8 +1761,6 @@ export function PhaseSummary({
             </button>
           </div>
         </>
-      )}
-      </>
       )}
     </div>
   );

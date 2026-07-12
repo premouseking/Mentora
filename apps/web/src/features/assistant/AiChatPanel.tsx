@@ -1,9 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   AtSign,
-  Check,
   ChevronLeft,
-  Copy,
   File,
   FolderClosed,
   History,
@@ -15,35 +13,58 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import { AiKeywordPill } from "../../components/AiKeywordPill";
-import { AiMarkdownContent } from "../../components/AiMarkdownContent";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import type { AiExplanation } from "../../data/aiExplanations";
 import type { FileNode } from "../../data/files";
+import type { MistakeItem } from "../../data/mistakes";
 import {
-  commitExplanationSave,
-  previewExplanationSave,
-  type ExplanationPreview,
-} from "../../services/learningApi";
-import { AssistantMessageBody } from "./AssistantMessageBody";
-import { flattenAssistantBlocksContent, applyAssistantStreamEvent } from "./assistantBlocks";
-import { getAssistantMessagePlainText } from "./assistantStorage";
-import type { AssistantChatMessage, ChatMessage } from "./assistantTypes";
-import { isAssistantMessage } from "./assistantTypes";
-import { runAssistantChatStream } from "./runAssistantChatStream";
+  getCourseAgentSession,
+  listCourseAgentSessions,
+  streamCourseAgentMessage,
+  type CourseAgentStreamEvent,
+} from "../../services/courseAgentApi";
+import { postJsonStream } from "../../services/streamClient";
+import { consumeAssistantStream } from "./assistantStream";
+import { ChatCitationList } from "./ChatCitationList";
 
 /* ── 类型定义 ── */
+
+interface ChatMessage {
+  role: "user" | "assistant";
+  content: string;
+  statuses?: ChatStatus[];
+  citations?: ChatCitation[];
+}
+
+interface ChatStatus {
+  event: string;
+  message: string;
+  toolName?: string;
+  success?: boolean;
+}
+
+interface ChatCitation {
+  content?: string;
+  content_preview: string;
+  page_number?: number | null;
+  source_title?: string;
+}
+
+type ChatStreamEvent =
+  | { type: "chunk"; content: string }
+  | { type: "status"; event: string; message: string; tool_name?: string; success?: boolean }
+  | { type: "citations"; tool_name?: string; citations: ChatCitation[] }
+  | { type: "session_created"; session_id: string; title?: string; course_id?: string }
+  | { type: "error"; message: string }
+  | { type: "done" };
 
 interface ChatSession {
   id: string;
   name: string;
   messages: ChatMessage[];
   createdAt: number;
-  updatedAt: number;
-}
-
-interface AiChatPersistedState {
-  sessions: ChatSession[];
-  openSessionIds: string[];
-  activeSessionId: string;
+  agentSessionId?: string | null;
 }
 
 interface SelectedTextSnippet {
@@ -68,28 +89,40 @@ interface AiChatMention {
   source: string;
 }
 
-interface AiChatExplanationContextItem {
-  id: string;
-  title: string;
-  topic: string;
-}
-
-interface AiChatMistakeContextItem {
-  id?: string;
-  item_id?: string;
-  title: string;
-  topic: string;
-}
-
 export interface AiChatContext {
-  courseId?: string;
   files?: FileNode[];
-  aiItems?: AiChatExplanationContextItem[];
-  mistakeItems?: AiChatMistakeContextItem[];
+  aiItems?: AiExplanation[];
+  mistakeItems?: MistakeItem[];
   selectedFileId?: string | null;
   selectedAiId?: string | null;
   selectedMistakeId?: string | null;
-  onExplanationSaved?: (docId: string) => void;
+}
+
+export interface CourseAgentBinding {
+  courseId: string;
+  courseSessionId: string;
+  courseTitle?: string;
+  courseGoal?: string;
+  currentTaskId?: string | null;
+  currentSourceVersionId?: string | null;
+}
+
+function buildWelcomeMessage(courseBinding?: CourseAgentBinding) {
+  if (courseBinding) {
+    const title = courseBinding.courseTitle || courseBinding.courseGoal || "当前课程";
+    return `你好！我是「${title}」的 AI 助教。我可以结合课程资料、学习方案和当前任务为你答疑。`;
+  }
+  return "你好！我是 Mentora AI 助手。关于你的学习课程，有什么我可以帮你的吗？";
+}
+
+function createEmptySession(courseBinding?: CourseAgentBinding): ChatSession {
+  return {
+    id: crypto.randomUUID(),
+    name: "新对话",
+    createdAt: Date.now(),
+    agentSessionId: null,
+    messages: [{ role: "assistant", content: buildWelcomeMessage(courseBinding) }],
+  };
 }
 
 interface MentionMenuItem extends AiChatMention {
@@ -99,10 +132,27 @@ interface MentionMenuItem extends AiChatMention {
 
 /* ── 工具函数 ── */
 
-function groupByDate<T extends { createdAt: number; updatedAt?: number }>(items: T[]) {
+function AiMarkdownMessage({ content }: { content: string }) {
+  return (
+    <div className="ai-chat-markdown">
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        components={{
+          a: ({ ...props }) => (
+            <a {...props} target="_blank" rel="noreferrer noopener" />
+          ),
+        }}
+      >
+        {content}
+      </ReactMarkdown>
+    </div>
+  );
+}
+
+function groupByDate<T extends { createdAt: number }>(items: T[]) {
   const groups = new Map<string, T[]>();
   for (const item of items) {
-    const date = new Date(item.updatedAt ?? item.createdAt);
+    const date = new Date(item.createdAt);
     const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
     const arr = groups.get(key) ?? [];
     arr.push(item);
@@ -134,10 +184,6 @@ const SELECTED_TEXT_PREVIEW_LENGTH = 80;
 const MAX_MENTION_MENU_ITEMS = 12;
 const AI_CHAT_INPUT_MIN_HEIGHT = 28;
 const AI_CHAT_INPUT_MAX_HEIGHT = 140;
-const AI_CHAT_STORAGE_KEY = "mentora.aiChatPanel.v2";
-const DEFAULT_SESSION_NAME = "新对话";
-const DEFAULT_ASSISTANT_GREETING =
-  "你好！我是 Mentora AI 助手。关于你的学习课程，有什么我可以帮你的吗？";
 
 function normalizeSelectedText(text: string) {
   return text.replace(/\s+/g, " ").trim();
@@ -145,129 +191,6 @@ function normalizeSelectedText(text: string) {
 
 function truncateText(text: string, maxLength: number) {
   return text.length > maxLength ? `${text.slice(0, maxLength)}…` : text;
-}
-
-function isSaveableAssistantMessage(msg: ChatMessage, assistantText: string) {
-  if (!isAssistantMessage(msg)) return false;
-  const text = assistantText.trim();
-  if (text.length < 20) return false;
-  if (text.startsWith("错误:") || text.startsWith("抱歉，AI 服务出错")) return false;
-  return true;
-}
-
-function buildSessionTitle(text: string) {
-  const normalized = normalizeSelectedText(text)
-    .replace(/^请(你)?(解释|介绍|说明|讲讲|说说)/, "")
-    .replace(/^什么是/, "")
-    .replace(/[？?。.!！]+$/g, "")
-    .trim();
-  const title = normalized || DEFAULT_SESSION_NAME;
-  return truncateText(title, 18);
-}
-
-function createDefaultSession(): ChatSession {
-  const now = Date.now();
-  return {
-    id: crypto.randomUUID(),
-    name: DEFAULT_SESSION_NAME,
-    createdAt: now,
-    updatedAt: now,
-    messages: [
-      {
-        role: "assistant",
-        blocks: [{ type: "text", content: DEFAULT_ASSISTANT_GREETING }],
-      },
-    ],
-  };
-}
-
-function isChatMessage(value: unknown): value is ChatMessage {
-  if (!value || typeof value !== "object") return false;
-  const message = value as ChatMessage;
-  if (message.role === "user") return typeof message.content === "string";
-  if (message.role === "assistant") return Array.isArray(message.blocks);
-  return false;
-}
-
-function normalizeStoredSession(value: unknown): ChatSession | null {
-  if (!value || typeof value !== "object") return null;
-  const item = value as Partial<ChatSession>;
-  if (typeof item.id !== "string" || !Array.isArray(item.messages)) return null;
-  const createdAt = typeof item.createdAt === "number" ? item.createdAt : Date.now();
-  const updatedAt = typeof item.updatedAt === "number" ? item.updatedAt : createdAt;
-  const messages = item.messages.filter(isChatMessage);
-  if (!messages.length) return null;
-  return {
-    id: item.id,
-    name: typeof item.name === "string" && item.name.trim() ? item.name : DEFAULT_SESSION_NAME,
-    createdAt,
-    updatedAt,
-    messages,
-  };
-}
-
-function loadPersistedAiChatState(): AiChatPersistedState {
-  const fallbackSession = createDefaultSession();
-  if (typeof window === "undefined") {
-    return {
-      sessions: [fallbackSession],
-      openSessionIds: [fallbackSession.id],
-      activeSessionId: fallbackSession.id,
-    };
-  }
-
-  try {
-    const raw = window.localStorage.getItem(AI_CHAT_STORAGE_KEY);
-    const parsed = raw ? JSON.parse(raw) : null;
-    const storedSessions = Array.isArray(parsed?.sessions)
-      ? parsed.sessions.map(normalizeStoredSession).filter(Boolean) as ChatSession[]
-      : [];
-    const sessions = storedSessions.length
-      ? storedSessions.sort((a, b) => (b.updatedAt ?? b.createdAt) - (a.updatedAt ?? a.createdAt))
-      : [fallbackSession];
-    const sessionIds = new Set(sessions.map((session) => session.id));
-    const storedOpenIds = Array.isArray(parsed?.openSessionIds)
-      ? parsed.openSessionIds.filter((id: unknown): id is string => typeof id === "string" && sessionIds.has(id))
-      : [];
-    const hasStoredOpenIds = Array.isArray(parsed?.openSessionIds);
-    const openSessionIds = hasStoredOpenIds
-      ? Array.from(new Set(storedOpenIds))
-      : [typeof parsed?.activeSessionId === "string" && sessionIds.has(parsed.activeSessionId)
-        ? parsed.activeSessionId
-        : sessions[0].id];
-    const activeSessionId =
-      typeof parsed?.activeSessionId === "string" && openSessionIds.includes(parsed.activeSessionId)
-        ? parsed.activeSessionId
-        : openSessionIds[0] ?? "";
-
-    return {
-      sessions,
-      openSessionIds,
-      activeSessionId,
-    };
-  } catch {
-    return {
-      sessions: [fallbackSession],
-      openSessionIds: [fallbackSession.id],
-      activeSessionId: fallbackSession.id,
-    };
-  }
-}
-
-function persistAiChatState(state: AiChatPersistedState) {
-  if (typeof window === "undefined") return;
-  try {
-    window.localStorage.setItem(AI_CHAT_STORAGE_KEY, JSON.stringify(state));
-  } catch {
-    // localStorage may be full or disabled; the chat still works in memory.
-  }
-}
-
-function formatSessionTime(value: number) {
-  return new Date(value).toLocaleTimeString("zh-CN", {
-    hour: "2-digit",
-    minute: "2-digit",
-  });
 }
 
 function buildSelectedTextMessage(text: string, snippets: SelectedTextSnippet[]) {
@@ -309,7 +232,7 @@ function buildMentionMenuItems(context?: AiChatContext, query = "") {
     subtitle: "AI 讲解",
   }));
   const mistakes: MentionMenuItem[] = (context?.mistakeItems ?? []).map((item) => ({
-    id: item.id ?? item.item_id ?? item.title,
+    id: item.id,
     type: "mistake",
     label: item.title,
     source: item.topic,
@@ -399,39 +322,30 @@ export function AiChatPanel({
   onClose,
   mode = "panel",
   context,
+  courseBinding,
 }: {
   width?: number;
   onClose?: () => void;
   mode?: "panel" | "page";
   context?: AiChatContext;
+  courseBinding?: CourseAgentBinding;
 }) {
   /* ── 会话状态管理 ── */
-  const [initialChatState] = useState(loadPersistedAiChatState);
-  const [sessions, setSessions] = useState<ChatSession[]>(initialChatState.sessions);
-  const [openSessionIds, setOpenSessionIds] = useState<string[]>(initialChatState.openSessionIds);
+  const [sessions, setSessions] = useState<ChatSession[]>(() => [createEmptySession(courseBinding)]);
   const [activeSessionId, setActiveSessionId] = useState<string>(
-    initialChatState.activeSessionId,
+    () => sessions[0]?.id ?? "",
   );
   const [historyOpen, setHistoryOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
 
   const filteredSessions = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
-    const sortedSessions = [...sessions].sort((a, b) => (b.updatedAt ?? b.createdAt) - (a.updatedAt ?? a.createdAt));
-    if (!q) return sortedSessions;
-    return sortedSessions.filter((s) =>
+    if (!q) return sessions;
+    return sessions.filter((s) =>
       getSessionTitle(s).toLowerCase().includes(q),
     );
   }, [sessions, searchQuery]);
 
-  const sessionMap = useMemo(
-    () => new Map(sessions.map((session) => [session.id, session])),
-    [sessions],
-  );
-  const openSessions = useMemo(
-    () => openSessionIds.map((id) => sessionMap.get(id)).filter(Boolean) as ChatSession[],
-    [openSessionIds, sessionMap],
-  );
   const activeSession = sessions.find((s) => s.id === activeSessionId);
 
   const [input, setInput] = useState("");
@@ -439,57 +353,190 @@ export function AiChatPanel({
   const listRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const [sending, setSending] = useState(false);
-  const [copiedMessageIndex, setCopiedMessageIndex] = useState<number | null>(null);
   const [selectedTextSnippets, setSelectedTextSnippets] = useState<SelectedTextSnippet[]>([]);
   const [selectionMenu, setSelectionMenu] = useState<SelectionMenuState | null>(null);
   const [mentions, setMentions] = useState<AiChatMention[]>([]);
   const [mentionMenuOpen, setMentionMenuOpen] = useState(false);
-  const [savePreview, setSavePreview] = useState<{
-    messageIndex: number;
-    preview: ExplanationPreview | null;
-    loading: boolean;
-    committing: boolean;
-    error: string;
-  } | null>(null);
   const [mentionQuery, setMentionQuery] = useState("");
   const [mentionActiveIndex, setMentionActiveIndex] = useState(0);
+  const [courseSessionsLoaded, setCourseSessionsLoaded] = useState(false);
 
   const mentionItems = buildMentionMenuItems(context, mentionQuery);
 
+  useEffect(() => {
+    if (!courseBinding?.courseId || courseSessionsLoaded) return;
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const items = await listCourseAgentSessions(courseBinding.courseId);
+        if (cancelled || items.length === 0) {
+          if (!cancelled) setCourseSessionsLoaded(true);
+          return;
+        }
+
+        const detail = await getCourseAgentSession(courseBinding.courseId, items[0].id);
+        if (cancelled) return;
+
+        const restored: ChatSession = {
+          id: crypto.randomUUID(),
+          agentSessionId: detail.id,
+          name: detail.title || "新对话",
+          createdAt: detail.updated_at ? Date.parse(detail.updated_at) : Date.now(),
+          messages: detail.messages.length > 0
+            ? detail.messages.map((message) => ({
+                role: message.role,
+                content: message.content,
+                citations: message.citations,
+              }))
+            : [{ role: "assistant", content: buildWelcomeMessage(courseBinding) }],
+        };
+
+        const others: ChatSession[] = items.slice(1).map((item) => ({
+          id: crypto.randomUUID(),
+          agentSessionId: item.id,
+          name: item.title || "新对话",
+          createdAt: item.updated_at ? Date.parse(item.updated_at) : Date.now(),
+          messages: [{ role: "assistant", content: buildWelcomeMessage(courseBinding) }],
+        }));
+
+        setSessions([restored, ...others]);
+        setActiveSessionId(restored.id);
+      } catch {
+        // 恢复失败时保留本地空会话
+      } finally {
+        if (!cancelled) setCourseSessionsLoaded(true);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [courseBinding, courseSessionsLoaded]);
+
   function createSession() {
-    const newSession = createDefaultSession();
+    const newSession = createEmptySession(courseBinding);
     setSessions((prev) => [...prev, newSession]);
-    setOpenSessionIds((prev) => [...prev.filter((id) => id !== newSession.id), newSession.id]);
     setActiveSessionId(newSession.id);
     setInput("");
   }
 
   function closeSession(id: string) {
-    setOpenSessionIds((prev) => {
-      const next = prev.filter((sessionId) => sessionId !== id);
-      if (id === activeSessionId) {
-        const currentIndex = prev.findIndex((sessionId) => sessionId === id);
-        const nextActiveId = next[Math.min(currentIndex, next.length - 1)];
-        if (nextActiveId) {
-          setActiveSessionId(nextActiveId);
-        } else {
-          setActiveSessionId("");
-        }
+    setSessions((prev) => {
+      const next = prev.filter((s) => s.id !== id);
+      if (id === activeSessionId && next.length > 0) {
+        const idx = prev.findIndex((s) => s.id === id);
+        const targetIdx = Math.min(idx, next.length - 1);
+        setActiveSessionId(next[targetIdx].id);
       }
       return next;
     });
   }
 
   function switchSession(id: string) {
-    setOpenSessionIds((prev) => (prev.includes(id) ? prev : [...prev, id]));
     setActiveSessionId(id);
     setInput("");
+    void hydrateCourseSession(id);
   }
 
   function openSessionFromHistory(id: string) {
-    setOpenSessionIds((prev) => (prev.includes(id) ? prev : [...prev, id]));
     setActiveSessionId(id);
     setHistoryOpen(false);
+    void hydrateCourseSession(id);
+  }
+
+  async function hydrateCourseSession(localSessionId: string) {
+    if (!courseBinding?.courseId) return;
+    const target = sessions.find((session) => session.id === localSessionId);
+    if (!target?.agentSessionId) return;
+    const hasUserMessage = target.messages.some((message) => message.role === "user");
+    if (hasUserMessage) return;
+
+    try {
+      const detail = await getCourseAgentSession(courseBinding.courseId, target.agentSessionId);
+      setSessions((prev) =>
+        prev.map((session) => {
+          if (session.id !== localSessionId) return session;
+          return {
+            ...session,
+            name: detail.title || session.name,
+            messages: detail.messages.length > 0
+              ? detail.messages.map((message) => ({
+                  role: message.role,
+                  content: message.content,
+                  citations: message.citations,
+                }))
+              : session.messages,
+          };
+        }),
+      );
+    } catch {
+      // 历史加载失败时保留当前占位消息
+    }
+  }
+
+  function applyStreamEvent(data: ChatStreamEvent | CourseAgentStreamEvent) {
+    if (data.type === "session_created") {
+      setSessions((prev) =>
+        prev.map((session) =>
+          session.id === activeSessionId
+            ? {
+                ...session,
+                agentSessionId: data.session_id,
+                name: data.title || session.name,
+              }
+            : session,
+        ),
+      );
+      return;
+    }
+
+    if (data.type === "chunk") {
+      updateLastAssistant((last) => ({
+        ...last,
+        content: last.content + data.content,
+      }));
+      return;
+    }
+
+    if (data.type === "status") {
+      updateLastAssistant((last) => ({
+        ...last,
+        statuses: [
+          ...(last.statuses ?? []),
+          {
+            event: data.event,
+            message: data.message,
+            toolName: data.tool_name,
+            success: data.success,
+          },
+        ],
+      }));
+      return;
+    }
+
+    if (data.type === "citations") {
+      updateLastAssistant((last) => ({
+        ...last,
+        citations: [...(last.citations ?? []), ...data.citations],
+      }));
+      return;
+    }
+
+    if (data.type === "error") {
+      setSessions((prev) =>
+        prev.map((session) => {
+          if (session.id !== activeSessionId) return session;
+          const msgs = [...session.messages];
+          const last = msgs[msgs.length - 1];
+          msgs[msgs.length - 1] = {
+            ...last,
+            content: last.content || `错误: ${data.message}`,
+          };
+          return { ...session, messages: msgs };
+        }),
+      );
+    }
   }
 
   function deleteSession(id: string) {
@@ -498,20 +545,10 @@ export function AiChatPanel({
       if (id === activeSessionId && next.length > 0) {
         const idx = prev.findIndex((s) => s.id === id);
         const targetIdx = Math.min(idx, next.length - 1);
-        const nextActiveId = next[targetIdx].id;
-        setActiveSessionId(nextActiveId);
-        setOpenSessionIds((openIds) => {
-          const filteredOpenIds = openIds.filter((sessionId) => sessionId !== id);
-          return filteredOpenIds.includes(nextActiveId)
-            ? filteredOpenIds
-            : [...filteredOpenIds, nextActiveId];
-        });
-      } else {
-        setOpenSessionIds((openIds) => openIds.filter((sessionId) => sessionId !== id));
+        setActiveSessionId(next[targetIdx].id);
       }
       if (next.length === 0) {
-        const empty = createDefaultSession();
-        setOpenSessionIds([empty.id]);
+        const empty = createEmptySession(courseBinding);
         setActiveSessionId(empty.id);
         return [empty];
       }
@@ -520,118 +557,28 @@ export function AiChatPanel({
   }
 
   function deleteAllSessions() {
-    const empty = createDefaultSession();
+    const empty = createEmptySession(courseBinding);
     setSessions([empty]);
-    setOpenSessionIds([empty.id]);
     setActiveSessionId(empty.id);
   }
 
   function getSessionTitle(session: ChatSession) {
     const firstUser = session.messages.find((m) => m.role === "user");
-    return session.name !== DEFAULT_SESSION_NAME ? session.name : firstUser?.content?.trim() || DEFAULT_SESSION_NAME;
+    return firstUser?.content?.trim() || "新对话";
   }
 
-  function getSessionPreview(session: ChatSession) {
-    const latest = [...session.messages].reverse().find((message) => {
-      if (message.role === "user") return message.content.trim().length > 0;
-      return flattenAssistantBlocksContent(message.blocks).trim().length > 0;
-    });
-    const preview = latest
-      ? getAssistantMessagePlainText(latest)
-      : DEFAULT_ASSISTANT_GREETING;
-    return truncateText(normalizeSelectedText(preview), 72);
-  }
-
-  function updateMessageAt(index: number, update: (message: ChatMessage) => ChatMessage) {
-    setSessions((prev) =>
-      prev.map((s) => {
-        if (s.id !== activeSessionId) return s;
-        const msgs = [...s.messages];
-        if (index < 0 || index >= msgs.length) return s;
-        msgs[index] = update(msgs[index]);
-        return { ...s, messages: msgs, updatedAt: Date.now() };
-      }),
-    );
-  }
-
-  async function handleStartSaveExplanation(messageIndex: number) {
-    if (!context?.courseId || !activeSession) return;
-    const assistantMsg = activeSession.messages[messageIndex];
-    const userMsg = activeSession.messages[messageIndex - 1];
-    if (!isAssistantMessage(assistantMsg) || !userMsg || userMsg.role !== "user") return;
-
-    const assistantText = flattenAssistantBlocksContent(assistantMsg.blocks);
-    setSavePreview({ messageIndex, preview: null, loading: true, committing: false, error: "" });
-    updateMessageAt(messageIndex, (m) =>
-      isAssistantMessage(m) ? { ...m, saveState: "previewing" } : m,
-    );
-
-    try {
-      const preview = await previewExplanationSave({
-        course_id: context.courseId,
-        user_message: userMsg.content,
-        assistant_message: assistantText,
-        citations: assistantMsg.citations,
-      });
-      setSavePreview({ messageIndex, preview, loading: false, committing: false, error: "" });
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "生成预览失败";
-      setSavePreview({ messageIndex, preview: null, loading: false, committing: false, error: message });
-      updateMessageAt(messageIndex, (m) =>
-        isAssistantMessage(m) ? { ...m, saveState: "idle" } : m,
-      );
-    }
-  }
-
-  async function handleConfirmSaveExplanation() {
-    if (!context?.courseId || !savePreview?.preview) return;
-    setSavePreview((prev) => (prev ? { ...prev, committing: true, error: "" } : prev));
-    try {
-      const result = await commitExplanationSave(context.courseId, savePreview.preview.preview_id);
-      updateMessageAt(savePreview.messageIndex, (m) =>
-        isAssistantMessage(m)
-          ? { ...m, saveState: "saved", savedDocId: result.doc_id }
-          : m,
-      );
-      context.onExplanationSaved?.(result.doc_id);
-      setSavePreview(null);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "保存失败";
-      setSavePreview((prev) => (prev ? { ...prev, committing: false, error: message } : prev));
-    }
-  }
-
-  function handleCancelSaveExplanation() {
-    if (savePreview) {
-      updateMessageAt(savePreview.messageIndex, (m) =>
-        isAssistantMessage(m) ? { ...m, saveState: "idle" } : m,
-      );
-    }
-    setSavePreview(null);
-  }
-
-  function updateLastAssistant(update: (message: AssistantChatMessage) => AssistantChatMessage) {
+  function updateLastAssistant(update: (message: ChatMessage) => ChatMessage) {
     if (!activeSession) return;
     setSessions((prev) =>
       prev.map((s) => {
         if (s.id !== activeSessionId) return s;
         const msgs = [...s.messages];
         const last = msgs[msgs.length - 1];
-        if (!last || !isAssistantMessage(last)) return s;
+        if (!last || last.role !== "assistant") return s;
         msgs[msgs.length - 1] = update(last);
-        return { ...s, messages: msgs, updatedAt: Date.now() };
+        return { ...s, messages: msgs };
       }),
     );
-  }
-
-  async function handleCopyAssistantMessage(content: string, index: number) {
-    const value = content.trim();
-    if (!value) return;
-    await navigator.clipboard.writeText(value);
-    setCopiedMessageIndex(index);
-    window.setTimeout(() => {
-      setCopiedMessageIndex((current) => (current === index ? null : current));
-    }, 1200);
   }
 
   function closeSelectionMenu() {
@@ -794,28 +741,6 @@ export function AiChatPanel({
   }, [input]);
 
   useEffect(() => {
-    const sessionIds = new Set(sessions.map((session) => session.id));
-    setOpenSessionIds((prev) => {
-      const filtered = prev.filter((id) => sessionIds.has(id));
-      return filtered.length === prev.length ? prev : filtered;
-    });
-
-    if (activeSessionId && (!sessionIds.has(activeSessionId) || !openSessionIds.includes(activeSessionId))) {
-      const nextActiveId = openSessionIds.find((id) => sessionIds.has(id)) ?? "";
-      setActiveSessionId(nextActiveId);
-    }
-  }, [activeSessionId, openSessionIds, sessions]);
-
-  useEffect(() => {
-    const sessionIds = new Set(sessions.map((session) => session.id));
-    persistAiChatState({
-      sessions,
-      openSessionIds: openSessionIds.filter((id) => sessionIds.has(id)),
-      activeSessionId: sessionIds.has(activeSessionId) ? activeSessionId : sessions[0]?.id ?? "",
-    });
-  }, [activeSessionId, openSessionIds, sessions]);
-
-  useEffect(() => {
     function handleDocumentMouseDown(event: MouseEvent) {
       const target = event.target as Node | null;
       if (target && panelRef.current?.contains(target)) {
@@ -844,32 +769,25 @@ export function AiChatPanel({
       document.removeEventListener("keydown", handleDocumentKeyDown);
       document.removeEventListener("keyup", handleDocumentKeyUp);
     };
-  }, []);
+  });
 
   async function handleSend() {
     const text = input.trim();
     if (!text || !activeSession) return;
 
-    const nextTitle = buildSessionTitle(text);
     const snippetsForRequest = selectedTextSnippets;
     const mentionsForRequest = mentions.filter((mention) => text.includes(`@${mention.label}`));
     const requestMessage = buildSelectedTextMessage(text, snippetsForRequest);
-    const historyForRequest = activeSession.messages.map((m) => ({
-      role: m.role,
-      content: getAssistantMessagePlainText(m),
-    }));
 
     setSessions((prev) =>
       prev.map((s) => {
         if (s.id !== activeSessionId) return s;
         return {
           ...s,
-          name: s.name === DEFAULT_SESSION_NAME ? nextTitle : s.name,
-          updatedAt: Date.now(),
           messages: [
             ...s.messages,
             { role: "user", content: text },
-            { role: "assistant", blocks: [] },
+            { role: "assistant", content: "" },
           ],
         };
       }),
@@ -883,22 +801,47 @@ export function AiChatPanel({
     window.setTimeout(syncInputHeight, 0);
 
     try {
-      await runAssistantChatStream(
-        {
+      if (courseBinding) {
+        await streamCourseAgentMessage({
+          courseId: courseBinding.courseId,
           message: requestMessage,
-          history: historyForRequest,
+          agentSessionId: activeSession.agentSessionId,
+          currentTaskId: courseBinding.currentTaskId,
+          currentSourceVersionId: courseBinding.currentSourceVersionId ?? context?.selectedFileId,
           mentions: mentionsForRequest,
-        },
-        (assistant) => {
-          updateLastAssistant(() => assistant);
-        },
+          onEvent: applyStreamEvent,
+        });
+      } else {
+        const historyMessages =
+          sessions.find((s) => s.id === activeSessionId)?.messages ?? [];
+        const body = await postJsonStream(
+          "/api/chat/stream/",
+          {
+            message: requestMessage,
+            history: historyMessages.map((m) => ({
+              role: m.role,
+              content: m.content,
+            })),
+            mentions: mentionsForRequest,
+          },
+        );
+        await consumeAssistantStream(body, (event) => applyStreamEvent(event as ChatStreamEvent));
+      }
+    } catch (err: any) {
+      setSessions((prev) =>
+        prev.map((s) => {
+          if (s.id !== activeSessionId) return s;
+          const msgs = [...s.messages];
+          const last = msgs[msgs.length - 1];
+          const errorMsg = err?.message || "连接失败";
+          msgs[msgs.length - 1] = {
+            ...last,
+            content:
+              last.content || `抱歉，AI 服务出错: ${errorMsg}`,
+          };
+          return { ...s, messages: msgs };
+        }),
       );
-    } catch (err: unknown) {
-      const errorMsg = err instanceof Error ? err.message : "连接失败";
-      updateLastAssistant((last) => applyAssistantStreamEvent(last, {
-        type: "error",
-        message: last.blocks.length ? errorMsg : `抱歉，AI 服务出错: ${errorMsg}`,
-      }));
     } finally {
       setSending(false);
     }
@@ -948,7 +891,19 @@ export function AiChatPanel({
       aria-label="AI 对话面板"
     >
       <header className="ai-chat-header">
-        <strong className="ai-chat-header-brand">Mentora</strong>
+        <div className="ai-chat-header-main">
+          <strong className="ai-chat-header-brand">Mentora</strong>
+          {courseBinding && (
+            <div className="ai-chat-course-tags">
+              <span className="ai-chat-course-tag">
+                {courseBinding.courseTitle || courseBinding.courseGoal || "当前课程"}
+              </span>
+              {activeSession?.agentSessionId ? (
+                <span className="ai-chat-course-tag bound">已绑定课程</span>
+              ) : null}
+            </div>
+          )}
+        </div>
         <div className="ai-chat-header-actions">
           <button
             className="ai-chat-action-btn"
@@ -982,13 +937,6 @@ export function AiChatPanel({
       </header>
 
       {historyOpen ? (
-        <>
-        <button
-          className="ai-chat-history-mask"
-          type="button"
-          aria-label="关闭历史会话"
-          onClick={() => setHistoryOpen(false)}
-        />
         <div className="ai-chat-history" aria-label="历史会话">
           <header className="ai-chat-history-header">
             <button
@@ -1061,18 +1009,8 @@ export function AiChatPanel({
                           <span className="ai-chat-history-item-icon">
                             <MessageSquare size={14} />
                           </span>
-                          <span className="ai-chat-history-item-main">
-                            <span className="ai-chat-history-item-head">
-                              <span className="ai-chat-history-item-title">
-                                {getSessionTitle(session)}
-                              </span>
-                              <span className="ai-chat-history-item-time">
-                                {formatSessionTime(session.updatedAt ?? session.createdAt)}
-                              </span>
-                            </span>
-                            <span className="ai-chat-history-item-preview">
-                              {getSessionPreview(session)}
-                            </span>
+                          <span className="ai-chat-history-item-title">
+                            {getSessionTitle(session)}
                           </span>
                           <button
                             className="ai-chat-history-item-delete"
@@ -1094,32 +1032,33 @@ export function AiChatPanel({
             )}
           </div>
         </div>
-        </>
-      ) : null}
-
+      ) : (
+        <>
           <nav className="ai-chat-tab-bar" aria-label="会话标签">
-            {openSessions.map((session) => (
+            {sessions.map((session) => (
               <button
                 key={session.id}
                 className={`ai-chat-tab${
                   session.id === activeSessionId ? " active" : ""
                 }`}
                 onClick={() => switchSession(session.id)}
-                title={getSessionTitle(session)}
+                title={session.name}
                 type="button"
               >
-                <span className="ai-chat-tab-label">{getSessionTitle(session)}</span>
-                <span
-                  className="ai-chat-tab-close"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    closeSession(session.id);
-                  }}
-                  role="button"
-                  aria-label={`关闭 ${getSessionTitle(session)}`}
-                >
-                  <X size={12} />
-                </span>
+                <span className="ai-chat-tab-label">{session.name}</span>
+                {sessions.length > 1 && (
+                  <span
+                    className="ai-chat-tab-close"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      closeSession(session.id);
+                    }}
+                    role="button"
+                    aria-label={`关闭 ${session.name}`}
+                  >
+                    <X size={12} />
+                  </span>
+                )}
               </button>
             ))}
           </nav>
@@ -1130,64 +1069,42 @@ export function AiChatPanel({
             onMouseUp={handleSelectionEnd}
             onScroll={closeSelectionMenu}
           >
-            {!activeSession ? (
-              <div className="ai-chat-empty-session">
-                从历史恢复会话，或新建对话继续。
-              </div>
-            ) : null}
-            {activeSession?.messages.map((msg, i) => {
-              const assistantText = isAssistantMessage(msg)
-                ? flattenAssistantBlocksContent(msg.blocks)
-                : "";
-              return (
+            {activeSession?.messages.map((msg, i) => (
               <div className={`ai-chat-message ${msg.role}`} data-message-index={i} key={i}>
-                {isAssistantMessage(msg) ? (
-                  <>
-                    <div className="ai-chat-assistant-header">
-                      <span className="ai-chat-avatar">
-                        <Sparkles size={13} />
-                      </span>
-                      <strong>AI 助手</strong>
-                    </div>
-                    <div className="ai-chat-assistant-block">
-                      <AssistantMessageBody message={msg} />
-                    </div>
-                    {assistantText.trim() ? (
-                      <div className="ai-chat-message-toolbar">
-                        <button
-                          type="button"
-                          onClick={() => void handleCopyAssistantMessage(assistantText, i)}
-                          aria-label={copiedMessageIndex === i ? "已复制" : "复制回复"}
-                          title={copiedMessageIndex === i ? "已复制" : "复制回复"}
-                        >
-                          {copiedMessageIndex === i ? <Check size={14} /> : <Copy size={14} />}
-                        </button>
-                        {context?.courseId && msg.saveState === "saved" ? (
-                          <span className="ai-chat-save-done">已保存到 AI 讲解</span>
-                        ) : null}
-                        {context?.courseId
-                          && isSaveableAssistantMessage(msg, assistantText)
-                          && msg.saveState !== "saved"
-                          && !(sending && i === activeSession.messages.length - 1) ? (
-                          <button
-                            type="button"
-                            className="ai-chat-save-btn"
-                            disabled={savePreview?.loading && savePreview.messageIndex === i}
-                            onClick={() => void handleStartSaveExplanation(i)}
-                          >
-                            保存到 AI 讲解
-                          </button>
-                        ) : null}
-                      </div>
-                    ) : null}
-                  </>
-                ) : (
-                  <div className="ai-chat-bubble">
-                    <div className="ai-chat-content">{msg.content}</div>
-                  </div>
+                {msg.role === "assistant" && (
+                  <span className="ai-chat-avatar">
+                    <Sparkles size={13} />
+                  </span>
                 )}
+                <div className="ai-chat-bubble">
+                  {msg.statuses?.length ? (
+                    <div className="ai-chat-status-list">
+                      {msg.statuses.map((status, index) => (
+                        <div
+                          className={`ai-chat-status ${
+                            status.success === false ? "failed" : ""
+                          }`}
+                          key={`${status.event}-${index}`}
+                        >
+                          <span className="ai-chat-status-dot" />
+                          <span>{status.message}</span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
+                  {msg.content && (
+                    msg.role === "assistant" ? (
+                      <AiMarkdownMessage content={msg.content} />
+                    ) : (
+                      <div className="ai-chat-content">{msg.content}</div>
+                    )
+                  )}
+                  {msg.citations?.length ? (
+                    <ChatCitationList citations={msg.citations} />
+                  ) : null}
+                </div>
               </div>
-            );})}
+            ))}
           </div>
 
           <div className="ai-chat-input-area">
@@ -1249,12 +1166,11 @@ export function AiChatPanel({
               <textarea
                 ref={inputRef}
                 className="ai-chat-input"
-                placeholder={activeSession ? "输入消息…" : "先新建或从历史恢复会话"}
+                placeholder="输入消息…"
                 value={input}
                 onChange={handleInputChange}
                 onKeyDown={handleKeyDown}
                 onClick={(event) => syncMentionMenu(input, (event.target as HTMLTextAreaElement).selectionStart)}
-                disabled={!activeSession}
                 rows={1}
               />
               <div className="ai-chat-input-actions">
@@ -1270,7 +1186,7 @@ export function AiChatPanel({
                   className="ai-chat-send"
                   type="button"
                   onClick={handleSend}
-                  disabled={!activeSession || !input.trim() || sending}
+                  disabled={!input.trim() || sending}
                   aria-label="发送"
                 >
                   <Send size={16} />
@@ -1278,6 +1194,8 @@ export function AiChatPanel({
               </div>
             </div>
           </div>
+        </>
+      )}
       {selectionMenu && (
         <div
           className="ai-selection-menu"
@@ -1287,47 +1205,6 @@ export function AiChatPanel({
             <MessageSquare size={15} />
             添加到对话
           </button>
-        </div>
-      )}
-      {savePreview && (
-        <div className="ai-explanation-save-overlay" role="dialog" aria-modal="true">
-          <div className="ai-explanation-save-dialog">
-            <h3>保存到 AI 讲解</h3>
-            {savePreview.loading ? (
-              <p>正在生成摘要并匹配目标文件…</p>
-            ) : savePreview.error ? (
-              <p className="ai-explanation-error">{savePreview.error}</p>
-            ) : savePreview.preview ? (
-              <>
-                <p className="ai-explanation-save-target">
-                  {savePreview.preview.action === "append"
-                    ? `追加到：${savePreview.preview.target_title}（关键词重叠 ${savePreview.preview.overlap_count} 个）`
-                    : `新建文件：${savePreview.preview.target_title}`}
-                </p>
-                <div className="ai-mentioned-context-list ai-explanation-save-keywords">
-                  {savePreview.preview.keywords.map((kw) => (
-                    <AiKeywordPill key={kw} label={kw} />
-                  ))}
-                </div>
-                <div className="ai-explanation-save-preview-body">
-                  <AiMarkdownContent content={savePreview.preview.summary_md} />
-                </div>
-              </>
-            ) : null}
-            <div className="ai-explanation-save-dialog-actions">
-              <button type="button" onClick={handleCancelSaveExplanation} disabled={savePreview.committing}>
-                取消
-              </button>
-              <button
-                type="button"
-                className="primary"
-                onClick={() => void handleConfirmSaveExplanation()}
-                disabled={!savePreview.preview || savePreview.committing}
-              >
-                {savePreview.committing ? "保存中…" : "确认保存"}
-              </button>
-            </div>
-          </div>
         </div>
       )}
     </div>

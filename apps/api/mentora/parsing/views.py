@@ -12,6 +12,7 @@ from drf_spectacular.utils import extend_schema
 from mentora.parsing.adapters import parse
 from mentora.parsing.adapters.exceptions import ParsingError
 from mentora.parsing.benchmark import run_benchmark
+from mentora.parsing.contract import serialize_parsed_bundle
 from mentora.parsing.evidence import split_evidence
 
 
@@ -46,7 +47,7 @@ def preview_parse(request):
         evidence_units = split_evidence(bundle)
 
         return Response({
-            "bundle": bundle.model_dump(mode="json"),
+            "bundle": serialize_parsed_bundle(bundle),
             "evidence_units": [eu.model_dump(mode="json") for eu in evidence_units],
             "elapsed_ms": round(elapsed_ms, 1),
         })

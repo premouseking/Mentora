@@ -22,54 +22,21 @@ import {
 } from "lucide-react";
 
 import { AppShell } from "../components/AppShell";
+import {
+  type BoundingBox,
+  type ParsingPreviewResult,
+} from "../services/parsedBundleContract";
+import {
+  fetchParsingBenchmark,
+  previewParsing,
+  type BenchmarkData,
+} from "../services/parsingApi";
 
 /* ── types ─────────────────────────────────────────── */
-
-interface BoundingBox {
-  x0: number; y0: number; x1: number; y1: number;
-}
-
-interface ParsedElementRaw {
-  type: string; text: string; bbox: BoundingBox | null; heading_level: number | null;
-}
-
-interface PageRaw {
-  page_number: number; elements: ParsedElementRaw[]; warnings: string[];
-}
-
-interface BundleRaw {
-  id: string; page_count: number; element_count: number;
-  content_hash: string; quality: { score: number | null };
-  pages: PageRaw[]; warnings: string[];
-  parser: { name: string; version: string };
-}
-
-interface EvidenceRaw {
-  id: string; content: string; page_number: number; element_indices: number[];
-}
-
-interface PreviewResult {
-  bundle: BundleRaw; evidence_units: EvidenceRaw[]; elapsed_ms: number;
-}
-
-interface BenchmarkFixture {
-  name: string; status: string; page_count: number; element_count: number;
-  evidence_count: number; heading_count: number; paragraph_count: number;
-  quality_score: number | null; elapsed_ms: number; error_type?: string; warnings: string[];
-}
-
-interface BenchmarkData {
-  parser_name: string; parser_version: string;
-  total_fixtures: number; ok_count: number; skipped_count: number; error_count: number;
-  fixtures: BenchmarkFixture[];
-  generated_at: string;
-}
 
 type Tab = "preview" | "benchmark";
 
 /* ── helpers ───────────────────────────────────────── */
-
-const API = "/api";
 
 const typeColors: Record<string, string> = {
   heading: "#197367", paragraph: "#2778c4", table: "#7253a7",
@@ -89,7 +56,7 @@ export function ParsingLabPage() {
   /* preview state */
   const [file, setFile] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState<PreviewResult | null>(null);
+  const [result, setResult] = useState<ParsingPreviewResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
   const [expandedPages, setExpandedPages] = useState<Set<number>>(new Set([0]));
@@ -120,15 +87,7 @@ export function ParsingLabPage() {
   async function uploadAndParse(f: File) {
     setLoading(true); setError(null);
     try {
-      const form = new FormData();
-      form.append("file", f);
-      const res = await fetch(`${API}/parsing/preview`, { method: "POST", body: form });
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.message ?? err.error ?? `HTTP ${res.status}`);
-      }
-      const data: PreviewResult = await res.json();
-      setResult(data);
+      setResult(await previewParsing(f));
     } catch (err) {
       setError(err instanceof Error ? err.message : "解析服务不可用，请启动 API 后重试。");
       setResult(null);
@@ -141,10 +100,7 @@ export function ParsingLabPage() {
   async function runBenchmark() {
     setBenchLoading(true); setBenchError(null);
     try {
-      const res = await fetch(`${API}/parsing/benchmark`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data: BenchmarkData = await res.json();
-      setBenchmark(data);
+      setBenchmark(await fetchParsingBenchmark());
     } catch (err) {
       setBenchError(err instanceof Error ? err.message : "Benchmark 服务不可用，请启动 API 后重试。");
       setBenchmark(null);

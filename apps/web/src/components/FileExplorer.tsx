@@ -135,6 +135,7 @@ export function FileExplorer({
   onContextMenu,
   detachedSections,
   onToggleDetach,
+  onSectionExpanded,
 }: {
   files: FileNode[];
   aiItems: ExplanationItem[];
@@ -148,6 +149,7 @@ export function FileExplorer({
   onContextMenu?: (event: React.MouseEvent, target: ExplorerContextMenuTarget) => void;
   detachedSections: Set<SectionKey>;
   onToggleDetach: (section: SectionKey) => void;
+  onSectionExpanded?: (section: SectionKey) => void;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const initialHeightsRef = useRef<number[] | null>(null);
@@ -162,11 +164,15 @@ export function FileExplorer({
   const toggleCollapse = useCallback((key: SectionKey) => {
     setCollapsedSections((prev) => {
       const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
+      if (next.has(key)) {
+        next.delete(key);
+        onSectionExpanded?.(key);
+      } else {
+        next.add(key);
+      }
       return next;
     });
-  }, []);
+  }, [onSectionExpanded]);
 
   // Reset heights to flex mode when sections or collapse state change
   useEffect(() => {
@@ -213,6 +219,16 @@ export function FileExplorer({
     document.removeEventListener("mousemove", onMoveHandler);
     document.removeEventListener("mouseup", onUpHandler);
   }, [onMoveHandler]);
+
+  useEffect(
+    () => () => {
+      document.removeEventListener("mousemove", onMoveHandler);
+      document.removeEventListener("mouseup", onUpHandler);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    },
+    [onMoveHandler, onUpHandler],
+  );
 
   const renderSectionContent = (section: SectionInfo) => {
     switch (section.key) {

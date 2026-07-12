@@ -24,13 +24,13 @@ class WorkflowRuntime:
         self,
         workflow_type: str,
         input_json: dict,
-        owner_id: str = "",
+        owner,
     ) -> WorkflowState:
         """提交新工作流，状态为 pending。"""
         return WorkflowState.objects.create(
             workflow_type=workflow_type,
             input_json=input_json,
-            owner_id=owner_id,
+            owner=owner,
             status="pending",
         )
 
@@ -156,18 +156,16 @@ class WorkflowRuntime:
         expired_leases.delete()
         return recovered_count
 
-    def get(self, workflow_id: str) -> WorkflowState | None:
+    def get(self, workflow_id: str, *, owner=None) -> WorkflowState | None:
         """按 ID 查询工作流。"""
-        return WorkflowState.objects.filter(id=workflow_id).first()
+        return WorkflowState.objects.filter(
+            id=workflow_id, **({"owner": owner} if owner is not None else {}),
+        ).first()
 
-    def list_by_owner(
-        self,
-        owner_id: str,
-        limit: int = 20,
-    ) -> list[WorkflowState]:
+    def list_by_owner(self, owner, limit: int = 20) -> list[WorkflowState]:
         """按用户查询工作流列表（按创建时间倒序）。"""
         return list(
             WorkflowState.objects
-            .filter(owner_id=owner_id)
+            .filter(owner=owner)
             .order_by("-created_at")[:limit]
         )

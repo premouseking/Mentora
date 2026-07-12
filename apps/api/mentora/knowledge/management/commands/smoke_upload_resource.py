@@ -49,11 +49,12 @@ class Command(BaseCommand):
         if options["via_http"]:
             result = self._smoke_via_http(fixture_name, sha256, size, file_bytes)
         else:
+            from config.authentication import get_development_user
             result = upload_file_direct(
                 file_bytes=file_bytes,
                 filename=fixture_name,
                 content_sha256=sha256,
-                owner_id=settings.DEV_OWNER_ID,
+                owner=get_development_user(),
                 sync_processing=True,
             )
 
@@ -119,7 +120,6 @@ class Command(BaseCommand):
                     "uploadId": upload_id,
                     "sha256": sha256,
                     "size": size,
-                    "ownerId": settings.DEV_OWNER_ID,
                 }
             ),
             content_type="application/json",

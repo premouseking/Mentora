@@ -6,6 +6,8 @@
 
 import { apiClient } from "./client";
 
+const API = "/api";
+
 export interface UploadCreateResult {
   uploadId: string;
   uploadUrl: string;
@@ -35,7 +37,11 @@ function getMediaType(filename: string): string {
   return map[ext] ?? "application/octet-stream";
 }
 
-async function computeSHA256(file: File): Promise<string> {
+async function computeSHA256(file: File): Promise<string | undefined> {
+  // HTTP 非 localhost 时浏览器禁用 crypto.subtle，改由 complete 接口服务端计算
+  if (!globalThis.crypto?.subtle) {
+    return undefined;
+  }
   const buffer = await file.arrayBuffer();
   const hashBuffer = await crypto.subtle.digest("SHA-256", buffer);
   const hashArray = Array.from(new Uint8Array(hashBuffer));
@@ -53,13 +59,16 @@ export async function uploadFile(
 ): Promise<UploadCompleteResult> {
   // Step 1: 创建上传会话
   onProgress?.({ step: "create", message: "正在创建上传会话…" });
-  const { uploadId, uploadUrl } = await apiClient.post<UploadCreateResult>("/api/uploads/", {
-    filename: file.name,
-    size: file.size,
-    mediaType: getMediaType(file.name),
-  });
+  const { uploadId, uploadUrl } = await apiClient.post<UploadCreateResult>(
+    `${API}/uploads/`,
+    {
+      filename: file.name,
+      size: file.size,
+      mediaType: getMediaType(file.name),
+    },
+  );
 
-  // Step 2: 上传到预签名 URL（不经 apiClient，避免注入 JWT）
+  // Step 2: 上传到预签名 URL
   onProgress?.({ step: "upload", message: "正在上传文件…" });
   const putRes = await fetch(uploadUrl, {
     method: "PUT",
@@ -73,12 +82,16 @@ export async function uploadFile(
   // Step 3: 完成上传 → 触发解析
   onProgress?.({ step: "complete", message: "正在完成上传并触发解析…" });
   const sha256 = await computeSHA256(file);
-  const result = await apiClient.post<UploadCompleteResult>("/api/uploads/complete/", {
-    uploadId,
-    sha256,
-    size: file.size,
-    sync: true,
-  });
+  const result = await apiClient.post<UploadCompleteResult>(
+    `${API}/uploads/complete/`,
+    {
+      uploadId,
+      ...(sha256 ? { sha256 } : {}),
+      size: file.size,
+      sync: true,
+    },
+    { timeoutMs: 120_000 },
+  );
 
   onProgress?.({ step: "done", message: "上传完成" });
   return result;

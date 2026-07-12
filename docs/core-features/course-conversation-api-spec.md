@@ -201,10 +201,10 @@
       "content": "冯·诺依曼结构由五大部分组成：运算器、控制器……",
       "citations": [
         {
-          "source_name": "计组教材.pdf",
-          "page": 23,
-          "evidence_id": "...",
-          "snippet": "冯·诺依曼结构..."
+          "source_title": "计组教材.pdf",
+          "page_number": 23,
+          "content": "冯·诺依曼结构由运算器、控制器、存储器、输入设备和输出设备组成……",
+          "content_preview": "冯·诺依曼结构由运算器、控制器、存储器、输入设备和输出设备组成……"
         }
       ],
       "tool_calls_made": [
@@ -297,7 +297,7 @@ User ─── Course ─── ChatSession ─── ChatMessage
 |----------|------|
 | `agent_runtime/agents/tutor.py`（或对应文件） | 完善 `_extract_citations` 函数 |
 | 同上 | 从 `retrieve_evidence` 工具返回结果中提取 `SearchResult` 列表 |
-| 同上 | 填入 `AgentOutput.citations`，包含：evidence_id、source_name、page/coords、snippet |
+| 同上 | 填入用户可见 `AgentOutput.citations`，包含：source_title、page_number、content、content_preview；不向前端暴露 evidence_id |
 
 ### 5.4 学习进度感知
 

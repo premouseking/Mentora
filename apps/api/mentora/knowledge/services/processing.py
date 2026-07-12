@@ -13,6 +13,7 @@ import hashlib
 import os
 import tempfile
 
+import fitz  # PyMuPDF
 from django.db import transaction
 from django.utils import timezone
 
@@ -133,14 +134,30 @@ def _extract_and_upload_images(
     except Exception:
         return
 
+    from mentora.parsing.adapters.pymupdf import PyMuPDFAdapter
+
     try:
         for page_idx, page_data in enumerate(bundle.pages):
+            page = doc[page_idx]
+            page_height = page.rect.height
             for elem in page_data.elements:
                 if elem.type != ElementType.IMAGE:
                     continue
-                if not elem.extra or "xref" not in elem.extra:
+                xref = (elem.extra or {}).get("xref")
+                if xref is None and elem.bbox is not None:
+                    block_bbox = [
+                        elem.bbox.x0,
+                        page_height - elem.bbox.y1,
+                        elem.bbox.x1,
+                        page_height - elem.bbox.y0,
+                    ]
+                    xref = PyMuPDFAdapter._find_image_xref(page, {"bbox": block_bbox})
+                    if xref is not None:
+                        if elem.extra is None:
+                            elem.extra = {}
+                        elem.extra["xref"] = xref
+                if xref is None:
                     continue
-                xref = elem.extra["xref"]
                 try:
                     img_dict = doc.extract_image(xref)
                 except Exception:
@@ -221,21 +238,12 @@ def _execute_processing(
         evidence_units = split_evidence(bundle)
         count = persist_evidence_units(evidence_units, str(source_version.id))
 
-        # 解析完成后自动构建 Chunk 并异步生成 embedding
-        from mentora.retrieval.chunk_builder import build_chunks
-        from mentora.retrieval.models import EvidenceUnit as ORMEvidenceUnit
+        from mentora.retrieval.index_builder import build_retrieval_projections, enqueue_embeddings
 
-        units = list(
-            ORMEvidenceUnit.objects.filter(
-                source_version_id=str(source_version.id)
-            ).order_by("page_number")
-        )
-        for chunk in build_chunks(units):
-            chunk.save()
-
-        from mentora.retrieval.tasks import generate_chunk_embeddings, generate_sentence_embeddings
-        generate_chunk_embeddings.delay(str(source_version.id))
-        generate_sentence_embeddings.delay(str(source_version.id))
+        projection_stats = build_retrieval_projections(str(source_version.id))
+        if projection_stats["evidence"] == 0:
+            raise ParsingError("解析未产生任何证据单元")
+        enqueue_embeddings(str(source_version.id))
 
         source_version.processing_status = ProcessingStatus.COMPLETED
         source_version.artifact_ref = artifact_key

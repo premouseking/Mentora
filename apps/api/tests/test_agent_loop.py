@@ -197,7 +197,8 @@ def test_turn_loop_max_rounds():
             gateway=gateway,
         )
     )
-    assert output.finish_reason == "max_rounds"
+    # 最后一轮禁用工具并强制生成最终答复，避免以空 max_rounds 结束。
+    assert output.finish_reason == "completed"
     assert len(output.tool_calls_made) == 2
 
 
@@ -275,10 +276,10 @@ def test_citations_accumulate_from_tool_results():
     assert output.finish_reason == "completed"
     assert len(output.tool_calls_made) == 1
     assert len(output.citations) == 2
-    assert output.citations[0].evidence_id == "ev-001"
+    assert output.citations[0].content_preview.startswith("过拟合")
     assert output.citations[0].content_preview == "过拟合可以通过正则化、早停和 dropout 等方法解决"
     assert output.citations[0].page_number == 42
-    assert output.citations[1].evidence_id == "ev-002"
+    assert output.citations[1].content_preview.startswith("交叉验证")
     assert output.citations[1].page_number == 88
 
 
