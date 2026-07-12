@@ -17,7 +17,7 @@ import time
 from dataclasses import dataclass, field
 
 from mentora.parsing.schemas import EvidenceUnit
-from mentora.retrieval.search import SearchResultSet, load_corpus, search
+from mentora.retrieval.search import SearchResultSet, _search_memory, load_corpus
 
 
 @dataclass
@@ -103,7 +103,7 @@ def run_retrieval_benchmark(
         expected = set(bm["expected_ids"])
 
         t0 = time.perf_counter()
-        rs = search(bm["query"], top_k=10)
+        rs = _search_memory(bm["query"], top_k=10)
         elapsed = (time.perf_counter() - t0) * 1000
 
         result_ids = [str(r.evidence.id) for r in rs.results]
