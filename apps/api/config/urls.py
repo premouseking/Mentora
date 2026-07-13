@@ -29,11 +29,13 @@ from mentora.learning.views import (
 )
 from mentora.courses.views import (
     course_activate,
+    course_activity,
     course_confirm,
     course_detail,
     course_files,
     course_list,
     course_phases,
+    course_plan,
     course_profile_revise,
     course_scope_extend,
     course_scope_suggest,
@@ -126,6 +128,8 @@ urlpatterns = [
     path("api/courses/", course_list, name="course-list"),
     path("api/courses/confirm/", course_confirm, name="course-confirm"),
     path("api/courses/<uuid:course_id>/", course_detail, name="course-detail"),
+    path("api/courses/<uuid:course_id>/plan/", course_plan, name="course-plan"),
+    path("api/courses/<uuid:course_id>/activity/", course_activity, name="course-activity"),
     path("api/courses/<uuid:course_id>/profile/", course_profile_revise, name="course-profile-revise"),
     path("api/courses/<uuid:course_id>/scope/", course_scope_extend, name="course-scope-extend"),
     path("api/courses/<uuid:course_id>/scope-suggest/", course_scope_suggest, name="course-scope-suggest"),

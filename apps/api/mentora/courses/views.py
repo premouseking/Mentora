@@ -1121,6 +1121,57 @@ def course_detail(request, course_id):
     })
 
 
+@api_view(["GET"])
+@extend_schema(summary="Course Plan")
+def course_plan(request, course_id):
+    """Return the active plan and topic tree for a formal course."""
+    from mentora.courses.services import resolve_course_required
+    from mentora.learning.services import get_active_plan
+    from mentora.topics.services import get_topic_tree
+
+    try:
+        course, session = resolve_course_required(str(course_id), owner=request.user)
+    except (Course.DoesNotExist, CourseCreationSession.DoesNotExist, ValueError):
+        return Response({"error": "课程不存在"}, status=404)
+
+    return Response({
+        "course_id": str(course.id),
+        "plan": get_active_plan(str(session.id)),
+        "topics": get_topic_tree(str(course.id)),
+    })
+
+
+@api_view(["PATCH"])
+@extend_schema(summary="Update Course Activity")
+def course_activity(request, course_id):
+    """Record the latest time a user entered a course workspace."""
+    from django.utils import timezone
+
+    try:
+        course = Course.objects.select_related("session").get(id=course_id, owner=request.user)
+    except Course.DoesNotExist:
+        return Response({"error": "课程不存在"}, status=404)
+
+    try:
+        body = _parse_json(request)
+    except ValueError as exc:
+        return Response({"error": str(exc)}, status=400)
+
+    raw_value = body.get("last_studied_at")
+    if raw_value:
+        from django.utils.dateparse import parse_datetime
+
+        studied_at = parse_datetime(raw_value)
+        if studied_at is None:
+            return Response({"error": "last_studied_at 必须是 ISO 8601 时间"}, status=400)
+    else:
+        studied_at = timezone.now()
+
+    course.session.last_studied_at = studied_at
+    course.session.save(update_fields=["last_studied_at", "updated_at"])
+    return Response({"course_id": str(course.id), "last_studied_at": studied_at.isoformat()})
+
+
 @api_view(["PATCH"])
 @extend_schema(summary="Course Profile Revise")
 def course_profile_revise(request, course_id):

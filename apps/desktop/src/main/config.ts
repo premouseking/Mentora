@@ -1,5 +1,31 @@
 import { app } from "electron";
+import fs from "node:fs";
 import path from "node:path";
+
+function loadRootEnv(): void {
+  const candidates = [
+    path.resolve(process.cwd(), "..", "..", ".env"),
+    path.resolve(__dirname, "..", "..", "..", "..", ".env"),
+  ];
+  const envPath = candidates.find((candidate) => fs.existsSync(candidate));
+  if (!envPath) return;
+
+  for (const line of fs.readFileSync(envPath, "utf8").split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+    const separatorIndex = trimmed.indexOf("=");
+    if (separatorIndex <= 0) continue;
+
+    const name = trimmed.slice(0, separatorIndex).trim();
+    const rawValue = trimmed.slice(separatorIndex + 1).trim();
+    const value = rawValue.replace(/^(['"])(.*)\1$/, "$2");
+    if (process.env[name] === undefined) {
+      process.env[name] = value;
+    }
+  }
+}
+
+loadRootEnv();
 
 export const DEV_SERVER_URL = process.env.MENTORA_DEV_SERVER_URL ?? null;
 export const OBJECT_STORAGE_ORIGIN = process.env.MENTORA_OBJECT_STORAGE_ORIGIN ?? null;

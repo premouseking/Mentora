@@ -4,34 +4,41 @@
 约定：
 - parent_index 为输入数组中的序号，-1/null 表示根节点
 - link_evidence 批量写入后更新 Topic.evidence_count
+- 运行时以 Course FK 为主键；建课期 legacy_course_key 存 session_id
 
 @module mentora/topics/services
 """
 
 from django.db import transaction
+from django.db.models import Q
 
+from mentora.courses.services import resolve_course
 from mentora.topics.models import Topic, TopicEvidence
 
 
+def _topics_qs(resource_id: str):
+    resolved = resolve_course(resource_id)
+    if resolved.course_id:
+        return Topic.objects.filter(
+            Q(course_id=resolved.course_id)
+            | Q(legacy_course_key=resolved.session_id)
+        )
+    return Topic.objects.filter(legacy_course_key=resolved.session_id)
+
+
 @transaction.atomic
-def build_topic_tree(course_id: str, topics_data: list[dict]) -> dict:
-    """从结构化数据创建主题树。
+def build_topic_tree(resource_id: str, topics_data: list[dict]) -> dict:
+    """从结构化数据创建主题树。"""
+    resolved = resolve_course(resource_id)
+    legacy_key = resolved.course_id or resolved.session_id
 
-    topics_data: [
-        {"name": str, "level": int, "parent_index": int, "position": int, "estimated_minutes": int},
-        ...
-    ]
-    parent_index: topics_data 数组中的序号，-1 或 None 表示根节点
-
-    返回: {topic_count: int, root_ids: [...]}
-    """
-    # 清空旧主题树
-    Topic.objects.filter(course_id=course_id).delete()
+    _topics_qs(resource_id).delete()
 
     created: list[Topic] = []
     for data in topics_data:
         topic = Topic.objects.create(
-            course_id=course_id,
+            course=resolved.course,
+            legacy_course_key=legacy_key,
             name=data["name"],
             level=data.get("level", 0),
             position=data.get("position", 0),
@@ -39,7 +46,6 @@ def build_topic_tree(course_id: str, topics_data: list[dict]) -> dict:
         )
         created.append(topic)
 
-    # 设置 parent 关联（两遍：第一遍创建，第二遍设 parent）
     for i, data in enumerate(topics_data):
         parent_index = data.get("parent_index")
         if parent_index is not None and parent_index >= 0 and parent_index < len(created):
@@ -53,11 +59,19 @@ def build_topic_tree(course_id: str, topics_data: list[dict]) -> dict:
     }
 
 
-def get_topic_tree(course_id: str) -> list[dict]:
-    """获取课程的主题树（嵌套结构）。"""
-    topics = Topic.objects.filter(course_id=course_id).order_by("level", "position")
+def rebind_topics_to_course(session_id: str, course_id: str) -> int:
+    """将 session 键下的 Topic 改绑 Course FK。"""
+    updated = Topic.objects.filter(legacy_course_key=session_id).update(
+        course_id=course_id,
+        legacy_course_key=course_id,
+    )
+    return updated
 
-    # 构建 id→node 映射
+
+def get_topic_tree(resource_id: str) -> list[dict]:
+    """获取课程的主题树（嵌套结构）。"""
+    topics = _topics_qs(resource_id).order_by("level", "position")
+
     node_map: dict[str, dict] = {}
     for t in topics:
         node_map[str(t.id)] = {
@@ -71,7 +85,6 @@ def get_topic_tree(course_id: str) -> list[dict]:
             "children": [],
         }
 
-    # 嵌套组装
     roots = []
     for t in topics:
         node = node_map[str(t.id)]

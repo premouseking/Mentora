@@ -19,6 +19,48 @@ from mentora.courses.models import (
 )
 
 
+class CourseResolution:
+    """A course and its creation session resolved from either public identifier."""
+
+    __slots__ = ("course", "session", "course_id", "session_id")
+
+    def __init__(self, *, course: Course | None, session: CourseCreationSession) -> None:
+        self.course = course
+        self.session = session
+        self.course_id = str(course.id) if course else None
+        self.session_id = str(session.id)
+
+
+def resolve_course(resource_id: str, *, owner=None) -> CourseResolution:
+    """Resolve a formal course ID first, then fall back to a creation-session ID."""
+    course_filters = {"id": resource_id}
+    session_filters = {"id": resource_id}
+    if owner is not None:
+        course_filters["owner"] = owner
+        session_filters["owner"] = owner
+
+    try:
+        course = Course.objects.select_related("session").get(**course_filters)
+        return CourseResolution(course=course, session=course.session)
+    except Course.DoesNotExist:
+        pass
+
+    session = CourseCreationSession.objects.get(**session_filters)
+    related_filters = {"session": session}
+    if owner is not None:
+        related_filters["owner"] = owner
+    course = Course.objects.filter(**related_filters).first()
+    return CourseResolution(course=course, session=session)
+
+
+def resolve_course_required(resource_id: str, *, owner=None) -> tuple[Course, CourseCreationSession]:
+    """Resolve a learning-stage resource and require a formal course."""
+    resolved = resolve_course(resource_id, owner=owner)
+    if resolved.course is None:
+        raise ValueError(f"课程 {resource_id} 尚未创建，请先开始学习")
+    return resolved.course, resolved.session
+
+
 @transaction.atomic
 def confirm_course_from_session(session_id: str, *, owner) -> dict:
     """从建课会话创建正式课程。
