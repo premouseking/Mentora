@@ -10,7 +10,7 @@ import os
 
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
-from django.test import Client
+from rest_framework.test import APIClient
 
 from mentora.knowledge.models import ProcessingStatus, SourceVersion
 from mentora.knowledge.services.upload import upload_file_direct
@@ -95,7 +95,10 @@ class Command(BaseCommand):
         size: int,
         file_bytes: bytes,
     ) -> dict:
-        client = Client()
+        from config.authentication import get_development_user
+
+        client = APIClient()
+        client.force_authenticate(user=get_development_user())
         from mentora.common.storage import ObjectStorageService
 
         create_resp = client.post(
