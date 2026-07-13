@@ -612,6 +612,25 @@ export function CourseWorkspacePage() {
     };
   }, [contextMenu]);
 
+  /* ESC 全局返回（bubble 阶段兜底）：刷题 / 学习方案上划栏（调整方案内的 ESC 由 PhaseSummary capture 截断） */
+  useEffect(() => {
+    if (!quizPracticeOpen && !phaseSummaryOpen) return;
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key !== "Escape") return;
+      if (quizPracticeOpen) {
+        e.preventDefault();
+        setQuizPracticeOpen(false);
+        return;
+      }
+      if (phaseSummaryOpen) {
+        e.preventDefault();
+        setPhaseSummaryOpen(false);
+      }
+    }
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [quizPracticeOpen, phaseSummaryOpen]);
+
   const openItem = useCallback((kind: WorkspaceTabKind, itemId: string, mode: "replace" | "new") => {
     const nextTab = {
       id: getTabId(kind, itemId),
