@@ -15,7 +15,7 @@ Orchestrator：Agent 调度器。
 import asyncio
 import json
 import time
-from typing import AsyncGenerator, Type
+from typing import AsyncGenerator
 
 from mentora.agent_runtime.agents.base import Agent, AgentInput
 from mentora.agent_runtime.context.manager import ContextManager
@@ -23,7 +23,7 @@ from mentora.agent_runtime.events import EventEmitter
 from mentora.agent_runtime.prompts.manager import PromptManager
 from mentora.agent_runtime.schemas.context import AgentContext
 from mentora.agent_runtime.schemas.output import AgentOutput, OrchestratorResult
-from mentora.agent_runtime.schemas.task import OrchestratorTask, PipelineStep
+from mentora.agent_runtime.schemas.task import OrchestratorTask
 from mentora.model_gateway.exceptions import ProviderError
 
 

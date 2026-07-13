@@ -21,18 +21,19 @@ from mentora.model_gateway.schemas import ChatResponse, FunctionCall, Message, T
 
 
 class ResolveRoundToolsTests(SimpleTestCase):
-    def test_disables_tools_after_tool_records_exist(self):
+    def test_keeps_tools_available_until_round_limit(self):
         tools = [{"type": "function", "function": {"name": "retrieve_evidence"}}]
         records = [
             ToolInvocationRecord(tool_name="retrieve_evidence", arguments={}, success=True),
         ]
-        self.assertIsNone(
+        self.assertEqual(
             _resolve_round_tools(
                 tools,
                 round_num=1,
                 max_tool_rounds=3,
                 tool_records=records,
-            )
+            ),
+            tools,
         )
 
 
@@ -189,7 +190,7 @@ class TurnLoopPostRetrievalTests(SimpleTestCase):
         self.assertEqual(stream_calls["value"], 1)
         self.assertEqual(chat_calls["value"], 1)
         self.assertEqual(tools_seen[0], tool_defs)
-        self.assertIsNone(tools_seen[1])
+        self.assertEqual(tools_seen[1], tool_defs)
 
     def test_tool_preamble_is_not_streamed_before_status(self):
         gateway = MagicMock()
@@ -393,7 +394,7 @@ class TurnLoopPostRetrievalTests(SimpleTestCase):
         self.assertIn("get_learning_progress", names)
         registry.execute.assert_not_called()
 
-    def test_post_retrieval_dsml_does_not_trigger_second_retrieval(self):
+    def test_post_retrieval_dsml_can_trigger_second_retrieval(self):
         gateway = MagicMock()
         chat_calls = {"value": 0}
         tool_defs = [{"type": "function", "function": {"name": "retrieve_evidence"}}]
@@ -477,4 +478,4 @@ class TurnLoopPostRetrievalTests(SimpleTestCase):
         self.assertEqual(output.finish_reason, "completed")
         self.assertIn("操作系统", output.final_message)
         self.assertEqual(chat_calls["value"], 2)
-        registry.execute.assert_awaited_once()
+        self.assertEqual(registry.execute.await_count, 2)

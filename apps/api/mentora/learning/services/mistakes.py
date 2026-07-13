@@ -9,15 +9,13 @@
 @module mentora/learning/services/mistakes
 """
 
-from collections import defaultdict
 
-from django.db.models import Count, Max, Q
+from django.db.models import Count, Max
 
 from mentora.assessment.models import (
     AssessmentAttempt,
     AssessmentItem,
     AssessmentItemRevision,
-    AssessmentSession,
 )
 from mentora.courses.models import Course
 

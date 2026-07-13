@@ -16,7 +16,6 @@ import { useQueryClient } from "@tanstack/react-query";
 
 import { AppShell } from "../components/AppShell";
 import { deleteCourseSession, type CourseSessionListItem } from "../services/courseApi";
-import { queryKeys } from "../lib/queryKeys";
 import { useCourseSessions } from "../hooks/useCourseSessions";
 import { usePrefetchCourseWorkspace } from "../hooks/usePrefetchCourseWorkspace";
 

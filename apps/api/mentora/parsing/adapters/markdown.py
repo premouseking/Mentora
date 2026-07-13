@@ -15,7 +15,6 @@ import re
 from hashlib import sha256
 
 from mentora.parsing.schemas import (
-    BoundingBox,
     ElementType,
     Page,
     ParsedBundle,
@@ -181,7 +180,6 @@ class MarkdownAdapter:
 
             # 列表 -
             if re.match(r'^-\s+', stripped):
-                list_start = i + 1
                 while i < n and re.match(r'^-\s+', lines[i].strip()):
                     text = _parse_inline(re.sub(r'^-\s+', '', lines[i].strip()))
                     elements.append(ParsedElement(

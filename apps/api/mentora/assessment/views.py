@@ -9,7 +9,7 @@ import time
 from django.conf import settings
 from rest_framework.response import Response
 from rest_framework.decorators import api_view
-from drf_spectacular.utils import extend_schema, OpenApiParameter
+from drf_spectacular.utils import extend_schema
 
 from mentora.assessment.models import AssessmentSession
 from mentora.assessment.services import complete_session, submit_attempt

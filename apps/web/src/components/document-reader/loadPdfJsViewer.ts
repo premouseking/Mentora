@@ -10,9 +10,6 @@ export type PdfJsViewerModule = typeof import("pdfjs-dist/legacy/web/pdf_viewer.
 
 let viewerModulePromise: Promise<PdfJsViewerModule> | null = null;
 
-const RANGE_CHUNK_SIZE = 65536;
-const rangeSupportCache = new Map<string, boolean>();
-
 export async function loadPdfJsViewer(): Promise<PdfJsViewerModule> {
   if (!viewerModulePromise) {
     viewerModulePromise = import("pdfjs-dist/legacy/web/pdf_viewer.mjs");
@@ -39,23 +36,6 @@ const pdfBytesCache = new Map<string, Promise<ArrayBuffer>>();
 export function evictPdfBytesCache(urls: string[]): void {
   for (const url of urls) {
     if (url) pdfBytesCache.delete(url);
-  }
-}
-
-async function probeRangeSupport(url: string, signal?: AbortSignal): Promise<boolean> {
-  const cached = rangeSupportCache.get(url);
-  if (cached !== undefined) return cached;
-
-  try {
-    const response = await requestRaw("HEAD", url, {
-      signal,
-    });
-    const supported = response.ok && response.headers.get("accept-ranges") === "bytes";
-    rangeSupportCache.set(url, supported);
-    return supported;
-  } catch {
-    rangeSupportCache.set(url, false);
-    return false;
   }
 }
 
@@ -134,32 +114,6 @@ async function loadPdfDocumentFromBuffer(
   task.onProgress = (progress: { loaded: number; total: number }) => {
     onProgress?.({
       phase: "parse",
-      loaded: progress.loaded,
-      total: progress.total > 0 ? progress.total : null,
-    });
-  };
-  return task.promise;
-}
-
-async function loadPdfDocumentFromUrl(
-  url: string,
-  onProgress?: (progress: PdfLoadProgress) => void,
-  signal?: AbortSignal,
-): Promise<Awaited<ReturnType<typeof pdfjsLib.getDocument>>["promise"]> {
-  const task = pdfjsLib.getDocument({
-    url,
-    rangeChunkSize: RANGE_CHUNK_SIZE,
-    useSystemFonts: true,
-    disableStream: false,
-    disableAutoFetch: false,
-  });
-  task.onProgress = (progress: { loaded: number; total: number }) => {
-    if (signal?.aborted) {
-      task.destroy();
-      return;
-    }
-    onProgress?.({
-      phase: progress.total > 0 && progress.loaded >= progress.total ? "parse" : "download",
       loaded: progress.loaded,
       total: progress.total > 0 ? progress.total : null,
     });

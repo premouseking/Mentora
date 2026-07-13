@@ -1,4 +1,5 @@
 import os
+from datetime import timedelta
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -72,8 +73,6 @@ INSTALLED_APPS = [
     "mentora.workflow_runtime",
     "drf_spectacular",
 ]
-
-from datetime import timedelta
 
 # 开发模式认证旁路仍注入真实 User，业务层始终只依赖 request.user。
 MENTORA_DEV_AUTH_BYPASS = DEBUG and os.getenv("MENTORA_DEV_AUTH_BYPASS", "0") == "1"

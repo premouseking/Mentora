@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  BookmarkPlus,
   Check,
   Copy,
   FileText,
@@ -12,6 +13,7 @@ import {
   Square,
   X,
 } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
 
 import { AssistantMarkdown } from "./AssistantMarkdown";
 import { ChatCitationList } from "./ChatCitationList";
@@ -37,6 +39,12 @@ import {
 } from "./assistantPanelStream";
 import { consumeAssistantStream, type ChatStreamEvent } from "./assistantStream";
 import { postJsonStream } from "../../services/streamClient";
+import {
+  commitExplanationSave,
+  previewExplanationSave,
+  type ExplanationPreview,
+} from "../../services/learningApi";
+import { queryKeys } from "../../lib/queryKeys";
 
 interface AssistantPanelProps {
   width: number;
@@ -73,8 +81,6 @@ const MODEL_OPTIONS = [
   { id: "balanced", label: "Balanced", hint: "默认导师模型" },
   { id: "fast", label: "Fast", hint: "快速答疑" },
 ];
-
-const INITIAL_MESSAGE: ChatMessage = buildWelcomeMessage();
 
 function createId(prefix: string) {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
@@ -134,6 +140,7 @@ export function AssistantPanel({
   courseBinding,
   context,
 }: AssistantPanelProps) {
+  const queryClient = useQueryClient();
   const storageKey = conversationStorageKey(courseBinding);
   const [conversations, setConversations] = useState<ConversationSnapshot[]>(() => {
     const loaded = loadConversations(storageKey);
@@ -147,6 +154,9 @@ export function AssistantPanel({
   const [sending, setSending] = useState(false);
   const [copiedMessageId, setCopiedMessageId] = useState<number | null>(null);
   const [courseSessionsLoaded, setCourseSessionsLoaded] = useState(false);
+  const [explanationPreview, setExplanationPreview] = useState<ExplanationPreview | null>(null);
+  const [savingExplanationIndex, setSavingExplanationIndex] = useState<number | null>(null);
+  const [explanationSaveError, setExplanationSaveError] = useState("");
   const imageInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messageListRef = useRef<HTMLDivElement>(null);
@@ -353,6 +363,47 @@ export function AssistantPanel({
     await navigator.clipboard.writeText(content);
     setCopiedMessageId(index);
     window.setTimeout(() => setCopiedMessageId(null), 1200);
+  }
+
+  async function handlePreviewExplanation(message: ChatMessage, index: number) {
+    if (!courseBinding?.courseId) return;
+    const userMessage = [...messages.slice(0, index)]
+      .reverse()
+      .find((candidate) => candidate.role === "user");
+    if (!userMessage) return;
+
+    setSavingExplanationIndex(index);
+    setExplanationSaveError("");
+    try {
+      const preview = await previewExplanationSave({
+        course_id: courseBinding.courseId,
+        user_message: userMessage.content,
+        assistant_message: message.content,
+        citations: message.citations,
+      });
+      setExplanationPreview(preview);
+    } catch (error) {
+      setExplanationSaveError(error instanceof Error ? error.message : "无法生成保存预览");
+    } finally {
+      setSavingExplanationIndex(null);
+    }
+  }
+
+  async function handleCommitExplanation() {
+    if (!courseBinding?.courseId || !explanationPreview) return;
+    setSavingExplanationIndex(-1);
+    setExplanationSaveError("");
+    try {
+      await commitExplanationSave(courseBinding.courseId, explanationPreview.preview_id);
+      await queryClient.invalidateQueries({
+        queryKey: queryKeys.course.explanations(courseBinding.courseId),
+      });
+      setExplanationPreview(null);
+    } catch (error) {
+      setExplanationSaveError(error instanceof Error ? error.message : "保存讲解失败");
+    } finally {
+      setSavingExplanationIndex(null);
+    }
   }
 
   function handleStopGeneration() {
@@ -569,6 +620,17 @@ export function AssistantPanel({
                         >
                           {copiedMessageId === index ? <Check size={14} /> : <Copy size={14} />}
                         </button>
+                        {courseBinding && messages[index - 1]?.role === "user" ? (
+                          <button
+                            type="button"
+                            onClick={() => void handlePreviewExplanation(message, index)}
+                            disabled={savingExplanationIndex !== null}
+                            aria-label="保存为 AI 讲解"
+                            title="保存为 AI 讲解"
+                          >
+                            <BookmarkPlus size={14} />
+                          </button>
+                        ) : null}
                       </div>
                     ) : null}
                   </>
@@ -673,6 +735,28 @@ export function AssistantPanel({
               }}
             />
           </div>
+          {explanationSaveError ? <p className="ai-explanation-error">{explanationSaveError}</p> : null}
+          {explanationPreview ? (
+            <div className="ai-explanation-confirm-overlay" role="dialog" aria-modal="true" aria-label="保存 AI 讲解">
+              <div className="ai-explanation-confirm-dialog explanation-save-preview">
+                <div>
+                  <p className="ai-explanation-type">
+                    {explanationPreview.action === "append" ? "追加到已有讲解" : "创建新讲解"}
+                  </p>
+                  <h3>{explanationPreview.target_title}</h3>
+                </div>
+                <AssistantMarkdown content={explanationPreview.summary_md} />
+                <div className="ai-explanation-confirm-actions">
+                  <button type="button" onClick={() => setExplanationPreview(null)} disabled={savingExplanationIndex !== null}>
+                    取消
+                  </button>
+                  <button type="button" className="primary" onClick={() => void handleCommitExplanation()} disabled={savingExplanationIndex !== null}>
+                    {savingExplanationIndex === -1 ? "保存中..." : "确认保存"}
+                  </button>
+                </div>
+              </div>
+            </div>
+          ) : null}
         </>
       )}
     </div>

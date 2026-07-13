@@ -25,12 +25,20 @@ class SearchResult:
     fts_score: float = 0.0
     trgm_score: float = 0.0
     vector_score: float = 0.0
+    semantic_content: str = ""
+    matched_preview: str = ""
+    block_evidence_count: int = 1
+    source_title: str = ""
 
     def to_dict(self) -> dict:
         return {
             "evidence_id": str(self.evidence.id),
-            "content_preview": self.evidence.content[:200],
+            "content": self.semantic_content or self.evidence.content,
+            "content_preview": (self.semantic_content or self.evidence.content)[:200],
+            "matched_preview": self.matched_preview or self.evidence.content,
             "page_number": self.evidence.page_number,
+            "block_evidence_count": self.block_evidence_count,
+            "source_title": self.source_title,
             "score": round(self.score, 4),
             "fts_score": round(self.fts_score, 4),
             "trgm_score": round(self.trgm_score, 4),
@@ -195,6 +203,22 @@ async def _materialize_results(
     return results
 
 
+def _apply_semantic_blocks(
+    results: list[SearchResult],
+    *,
+    source_version_ids: list[str] | None = None,
+) -> list[SearchResult]:
+    """Expand anchor evidence into complete semantic blocks."""
+    del source_version_ids
+    from mentora.retrieval.semantic_blocks import expand_results_to_semantic_blocks
+
+    return expand_results_to_semantic_blocks(results)
+
+
+async def _apply_semantic_blocks_async(results: list[SearchResult]) -> list[SearchResult]:
+    return await sync_to_async(_apply_semantic_blocks, thread_sensitive=True)(results)
+
+
 def _empty_result(query: str, started_at: float) -> SearchResultSet:
     return SearchResultSet(query=query, elapsed_ms=(time.perf_counter() - started_at) * 1000)
 
@@ -241,6 +265,7 @@ async def async_search(
         {"fts": fts_ranking, "trgm": trgm_ranking, "vector": vector_ranking},
         top_k,
     )
+    results = await _apply_semantic_blocks_async(results)
     return SearchResultSet(
         query=query,
         results=results,

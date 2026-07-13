@@ -16,226 +16,6 @@ import {
 
 /* ── Mock 数据（v6：全部 mock，不连后端）── */
 
-const MOCK_PLAN = {
-  plan_id: "mock-plan",
-  revision_id: "mock-rev-1",
-  status: "active",
-  feasibility_status: "feasible",
-  profile_revision_id: "mock-profile-1",
-  phases: [
-    {
-      id: "p1",
-      position: 0,
-      title: "基础入门",
-      objective: "掌握集合、函数等核心概念与基本方法",
-      estimated_minutes: 480,
-      units: [
-        {
-          id: "p1-u1",
-          title: "集合与逻辑",
-          position: 0,
-          topic_id: null,
-          target_depth: "understand",
-          estimated_minutes: 160,
-          prerequisite_unit_ids: [],
-          priority: 1,
-          tasks: [
-            { id: "p1-u1-t1", task_type: "lecture", delivery_mode: "self_paced", estimated_minutes: 40, required: true, knowledge_point: "集合的概念", materials: [{ id: "m-1-1", title: "集合概念讲义.pdf" }] },
-            { id: "p1-u1-t2", task_type: "exercise", delivery_mode: "self_paced", estimated_minutes: 40, required: true, materials: [{ id: "m-1-2", title: "集合运算练习.pdf" }] },
-            { id: "p1-u1-t3", task_type: "lecture", delivery_mode: "self_paced", estimated_minutes: 40, required: true, knowledge_point: "命题与逻辑", materials: [{ id: "m-1-3", title: "命题与逻辑讲义.pdf" }] },
-            { id: "p1-u1-t4", task_type: "review", delivery_mode: "self_paced", estimated_minutes: 40, required: true, materials: [] },
-          ],
-        },
-        {
-          id: "p1-u2",
-          title: "函数基础",
-          position: 1,
-          topic_id: null,
-          target_depth: "understand",
-          estimated_minutes: 150,
-          prerequisite_unit_ids: ["p1-u1"],
-          priority: 1,
-          tasks: [
-            { id: "p1-u2-t1", task_type: "lecture", delivery_mode: "self_paced", estimated_minutes: 50, required: true, knowledge_point: "函数的定义", materials: [{ id: "m-2-1", title: "函数定义讲义.pdf" }] },
-            { id: "p1-u2-t2", task_type: "exercise", delivery_mode: "self_paced", estimated_minutes: 50, required: true, materials: [{ id: "m-2-2", title: "定义域值域练习.pdf" }] },
-            { id: "p1-u2-t3", task_type: "lecture", delivery_mode: "self_paced", estimated_minutes: 50, required: true, knowledge_point: "函数的表示方法", materials: [] },
-          ],
-        },
-        {
-          id: "p1-u3",
-          title: "基本初等函数",
-          position: 2,
-          topic_id: null,
-          target_depth: "understand",
-          estimated_minutes: 170,
-          prerequisite_unit_ids: ["p1-u2"],
-          priority: 1,
-          tasks: [
-            { id: "p1-u3-t1", task_type: "lecture", delivery_mode: "self_paced", estimated_minutes: 40, required: true, knowledge_point: "正比例函数", materials: [{ id: "m-3-1", title: "正比例函数讲义.pdf" }] },
-            { id: "p1-u3-t2", task_type: "exercise", delivery_mode: "self_paced", estimated_minutes: 45, required: true, materials: [{ id: "m-3-2", title: "反比例函数练习.pdf" }] },
-            { id: "p1-u3-t3", task_type: "lecture", delivery_mode: "self_paced", estimated_minutes: 40, required: true, knowledge_point: "一次函数", materials: [{ id: "m-3-3", title: "一次函数讲义.pdf" }] },
-            { id: "p1-u3-t4", task_type: "review", delivery_mode: "self_paced", estimated_minutes: 45, required: true, materials: [{ id: "m-3-4", title: "二次函数复习题.pdf" }] },
-          ],
-        },
-      ],
-    },
-    {
-      id: "p2",
-      position: 1,
-      title: "知识梳理",
-      objective: "系统学习教材，按章节深入梳理知识体系",
-      estimated_minutes: 600,
-      units: [
-        {
-          id: "p2-u1",
-          title: "数列与极限",
-          position: 0,
-          topic_id: null,
-          target_depth: "apply",
-          estimated_minutes: 300,
-          prerequisite_unit_ids: [],
-          priority: 1,
-          tasks: [
-            { id: "p2-u1-t1", task_type: "lecture", delivery_mode: "self_paced", estimated_minutes: 60, required: true, knowledge_point: "数列的概念", materials: [{ id: "m-4-1", title: "数列概念讲义.pdf" }] },
-            { id: "p2-u1-t2", task_type: "exercise", delivery_mode: "self_paced", estimated_minutes: 60, required: true, materials: [{ id: "m-4-2", title: "数列求和练习.pdf" }] },
-            { id: "p2-u1-t3", task_type: "project", delivery_mode: "self_paced", estimated_minutes: 60, required: true, knowledge_point: "极限的探究", materials: [{ id: "m-4-3", title: "极限探究项目.pdf" }] },
-          ],
-        },
-        {
-          id: "p2-u2",
-          title: "三角函数",
-          position: 1,
-          topic_id: null,
-          target_depth: "apply",
-          estimated_minutes: 300,
-          prerequisite_unit_ids: ["p2-u1"],
-          priority: 1,
-          tasks: [
-            { id: "p2-u2-t1", task_type: "lecture", delivery_mode: "self_paced", estimated_minutes: 50, required: true, knowledge_point: "三角函数的定义", materials: [{ id: "m-5-1", title: "三角函数讲义.pdf" }] },
-            { id: "p2-u2-t2", task_type: "exercise", delivery_mode: "self_paced", estimated_minutes: 50, required: true, materials: [{ id: "m-5-2", title: "三角恒等变换练习.pdf" }] },
-          ],
-        },
-      ],
-    },
-    {
-      id: "p3",
-      position: 2,
-      title: "专项训练",
-      objective: "突破薄弱点，题型分类训练",
-      estimated_minutes: 540,
-      units: [
-        {
-          id: "p3-u1",
-          title: "函数题型专项",
-          position: 0,
-          topic_id: null,
-          target_depth: "apply",
-          estimated_minutes: 270,
-          prerequisite_unit_ids: [],
-          priority: 1,
-          tasks: [
-            { id: "p3-u1-t1", task_type: "exercise", delivery_mode: "self_paced", estimated_minutes: 90, required: true, materials: [{ id: "m-6-1", title: "函数题型专项训练.pdf" }] },
-            { id: "p3-u1-t2", task_type: "exercise", delivery_mode: "self_paced", estimated_minutes: 90, required: true, materials: [] },
-            { id: "p3-u1-t3", task_type: "review", delivery_mode: "self_paced", estimated_minutes: 90, required: true, materials: [{ id: "m-6-2", title: "函数易错题回顾.pdf" }] },
-          ],
-        },
-        {
-          id: "p3-u2",
-          title: "几何题型专项",
-          position: 1,
-          topic_id: null,
-          target_depth: "apply",
-          estimated_minutes: 270,
-          prerequisite_unit_ids: ["p3-u1"],
-          priority: 1,
-          tasks: [
-            { id: "p3-u2-t1", task_type: "exercise", delivery_mode: "self_paced", estimated_minutes: 90, required: true, materials: [{ id: "m-7-1", title: "几何题型专项训练.pdf" }] },
-            { id: "p3-u2-t2", task_type: "exercise", delivery_mode: "self_paced", estimated_minutes: 90, required: true, materials: [] },
-            { id: "p3-u2-t3", task_type: "project", delivery_mode: "self_paced", estimated_minutes: 90, required: true, knowledge_point: "立体几何综合", materials: [{ id: "m-7-2", title: "立体几何综合项目.pdf" }] },
-          ],
-        },
-      ],
-    },
-    {
-      id: "p4",
-      position: 3,
-      title: "综合应用",
-      objective: "跨知识点实战，真题与综合项目",
-      estimated_minutes: 480,
-      units: [
-        {
-          id: "p4-u1",
-          title: "综合真题训练",
-          position: 0,
-          topic_id: null,
-          target_depth: "analyze",
-          estimated_minutes: 240,
-          prerequisite_unit_ids: [],
-          priority: 1,
-          tasks: [
-            { id: "p4-u1-t1", task_type: "project", delivery_mode: "self_paced", estimated_minutes: 120, required: true, knowledge_point: "高考真题实战", materials: [{ id: "m-8-1", title: "2025高考真题集.pdf" }] },
-            { id: "p4-u1-t2", task_type: "exercise", delivery_mode: "self_paced", estimated_minutes: 120, required: true, materials: [{ id: "m-8-2", title: "真题分类训练.pdf" }] },
-          ],
-        },
-        {
-          id: "p4-u2",
-          title: "跨章节综合",
-          position: 1,
-          topic_id: null,
-          target_depth: "analyze",
-          estimated_minutes: 240,
-          prerequisite_unit_ids: ["p4-u1"],
-          priority: 1,
-          tasks: [
-            { id: "p4-u2-t1", task_type: "project", delivery_mode: "self_paced", estimated_minutes: 80, required: true, knowledge_point: "跨章节综合", materials: [{ id: "m-9-1", title: "跨章节综合项目.pdf" }] },
-            { id: "p4-u2-t2", task_type: "exercise", delivery_mode: "self_paced", estimated_minutes: 80, required: true, materials: [] },
-            { id: "p4-u2-t3", task_type: "review", delivery_mode: "self_paced", estimated_minutes: 80, required: true, materials: [{ id: "m-9-2", title: "综合题解题思路.pdf" }] },
-          ],
-        },
-      ],
-    },
-    {
-      id: "p5",
-      position: 4,
-      title: "考前冲刺",
-      objective: "考点回顾，临场策略与限时模拟",
-      estimated_minutes: 360,
-      units: [
-        {
-          id: "p5-u1",
-          title: "考点回顾",
-          position: 0,
-          topic_id: null,
-          target_depth: "analyze",
-          estimated_minutes: 180,
-          prerequisite_unit_ids: [],
-          priority: 1,
-          tasks: [
-            { id: "p5-u1-t1", task_type: "review", delivery_mode: "self_paced", estimated_minutes: 90, required: true, materials: [{ id: "m-10-1", title: "考点全回顾.pdf" }] },
-            { id: "p5-u1-t2", task_type: "lecture", delivery_mode: "self_paced", estimated_minutes: 90, required: true, knowledge_point: "临场策略", materials: [{ id: "m-10-2", title: "临场策略讲义.pdf" }] },
-          ],
-        },
-        {
-          id: "p5-u2",
-          title: "限时模拟",
-          position: 1,
-          topic_id: null,
-          target_depth: "analyze",
-          estimated_minutes: 180,
-          prerequisite_unit_ids: ["p5-u1"],
-          priority: 1,
-          tasks: [
-            { id: "p5-u2-t1", task_type: "project", delivery_mode: "self_paced", estimated_minutes: 120, required: true, knowledge_point: "限时模拟", materials: [{ id: "m-11-1", title: "限时模拟卷A.pdf" }, { id: "m-11-2", title: "限时模拟卷B.pdf" }] },
-            { id: "p5-u2-t2", task_type: "review", delivery_mode: "self_paced", estimated_minutes: 60, required: true, materials: [{ id: "m-11-3", title: "模拟卷讲评.pdf" }] },
-          ],
-        },
-      ],
-    },
-  ],
-};
-
-/* ── 阶段池：可添加的额外阶段（mock） ── */
-
 interface PoolPhase {
   id: string;
   title: string;
@@ -268,13 +48,6 @@ const MOCK_PROFILE: ProfileItem[] = [
 ];
 
 /* ── 初始已完成任务（mock 数据） ── */
-const COMPLETED_TASKS_INIT = [
-  // 第一阶段第一章「集合与逻辑」：全部完成
-  "p1-u1-t1", "p1-u1-t2", "p1-u1-t3", "p1-u1-t4",
-  // 第一阶段第二章「函数基础」：前两个任务完成
-  "p1-u2-t1", "p1-u2-t2",
-];
-
 /* ── AI 对话阶段 ── */
 type ChatStage = "input" | "options" | "ai-thinking" | "ai-result";
 
@@ -769,7 +542,6 @@ function PhaseDetail({
   completedTasks,
   confirmTaskId,
   onOpenMaterial,
-  onClose,
   onRequestComplete,
   onCancelConfirm,
   onConfirmComplete,
@@ -781,7 +553,6 @@ function PhaseDetail({
   completedTasks: Set<string>;
   confirmTaskId: string | null;
   onOpenMaterial: (m: Material) => void;
-  onClose: () => void;
   onRequestComplete: (taskId: string) => void;
   onCancelConfirm: () => void;
   onConfirmComplete: () => void;
@@ -830,7 +601,6 @@ function PhaseDetail({
       if (t) {
         const taskIdx = u.tasks.indexOf(t);
         const title = getTaskDetailTitle(t, taskIdx);
-        const knowledgePoint = t.knowledge_point?.trim();
         const isExercise = t.task_type === "exercise";
         const typeDisplay = getTaskTypeDetailLabel(t.task_type);
         const delivery = getTaskDeliveryLabel(t.task_type, t.delivery_mode);
@@ -972,7 +742,7 @@ function phaseTrackOffsetOf(index: number, blockBasis: number) {
 export function PhaseSummary({
   onClose,
   activePlan,
-  phases: phasesData,
+  phases: _phases,
   courseId,
 }: {
   onClose: () => void;
@@ -980,7 +750,6 @@ export function PhaseSummary({
   phases: CoursePhasesResponse | null;
   courseId: string;
 }) {
-  const navigate = useNavigate();
   const plan = activePlan?.phases?.length ? activePlan : { phases: [] };
   const firstPhaseId = plan.phases[0]?.id ?? "";
   const [activePhase, setActivePhase] = useState(0);
@@ -1739,7 +1508,6 @@ export function PhaseSummary({
                 completedTasks={completedTasks}
                 confirmTaskId={confirmTaskId}
                 onOpenMaterial={handleOpenMaterial}
-                onClose={onClose}
                 onRequestComplete={handleRequestComplete}
                 onCancelConfirm={handleCancelConfirm}
                 onConfirmComplete={handleConfirmComplete}

@@ -79,7 +79,6 @@ export function DocumentReaderShell({
       if (rafId !== null) return;
       rafId = window.requestAnimationFrame(() => {
         rafId = null;
-        const scrollTop = container.scrollTop;
         setCurrentPage(resolveVisiblePageNumber(pageNumbers, container));
         setActiveTocId(resolveActiveTocId(tocItems, container));
       });

@@ -54,8 +54,6 @@ async def async_post_json(
     for key, value in headers.items():
         req.add_header(key, value)
 
-    loop = asyncio.get_running_loop()
-
     def _do_request() -> dict:
         try:
             with urllib.request.urlopen(req, timeout=timeout) as resp:

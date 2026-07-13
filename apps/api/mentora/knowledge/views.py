@@ -5,7 +5,7 @@ import uuid
 
 from rest_framework.response import Response
 from rest_framework.decorators import api_view
-from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiExample
+from drf_spectacular.utils import extend_schema, OpenApiParameter
 
 from mentora.knowledge.models import CourseSource, LibraryFolder, Source, SourceStatus
 from mentora.knowledge.services.upload import complete_upload, create_upload_session
@@ -373,7 +373,7 @@ def source_delete(request, source_id):
 )
 @api_view(["POST"])
 def source_reparse(request, source_id):
-    from mentora.knowledge.models import ProcessingRun, ProcessingRunStatus, ProcessingStatus
+    from mentora.knowledge.models import ProcessingRun, ProcessingStatus
     from mentora.knowledge.services.processing import run_processing_for_version
 
     try:

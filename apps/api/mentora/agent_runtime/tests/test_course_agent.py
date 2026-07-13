@@ -1,7 +1,6 @@
 """课程 Agent 上下文与 API 测试。"""
 
 import json
-import uuid
 from unittest.mock import patch
 
 from django.core.cache import cache

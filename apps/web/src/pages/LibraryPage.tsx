@@ -8,16 +8,12 @@ import {
   ChevronDown,
   ChevronRight,
   Clock3,
-  ExternalLink,
   Eye,
   FileText,
   FileWarning,
   FolderClosed,
   FolderOpen,
   Folders,
-  Globe,
-  HardDrive,
-  History,
   Image,
   Link2,
   Loader,
@@ -39,7 +35,6 @@ import {
   type FolderItem,
 } from "../services/documentApi";
 import { buildLibraryReaderPath } from "../services/resourceCompat";
-import { queryKeys } from "../lib/queryKeys";
 import { useLibraryData } from "../hooks/useLibraryData";
 import { SourceUploadModal } from "../components/upload/SourceUploadModal";
 import { VirtualLibraryRows } from "../components/VirtualLibraryRows";

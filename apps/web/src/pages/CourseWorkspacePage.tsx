@@ -36,7 +36,6 @@ import {
   useCourseMistakes,
   useCoursePhases,
 } from "../hooks/useDeferredCourseSections";
-import type { TreeNode } from "../services/documentApi";
 import { archiveCourseSource } from "../services/documentApi";
 import {
   archiveMistake,
@@ -56,6 +55,9 @@ const QuizPracticeView = lazy(() =>
 );
 const SourceReader = lazy(() =>
   import("../components/document-reader/SourceReader").then((m) => ({ default: m.SourceReader })),
+);
+const AiExplanationView = lazy(() =>
+  import("../components/AiExplanationView").then((m) => ({ default: m.AiExplanationView })),
 );
 
 const MIN_EXPLORER = 170;
@@ -401,8 +403,6 @@ function TabBar({
 
 function ContentBody({
   tab,
-  files,
-  onOpenSourceFile,
   onStartQuiz,
   onArchiveMistake,
   aiItems,
@@ -410,10 +410,11 @@ function ContentBody({
   evidenceHighlight,
   onClearEvidenceHighlight,
   layoutRefreshKey,
+  courseId,
+  onExplanationDeleted,
+  onExplanationUpdated,
 }: {
   tab: WorkspaceTab;
-  files: FileNode[];
-  onOpenSourceFile: (id: string, newTab?: boolean) => void;
   onStartQuiz: (sourceId: string | null) => void;
   onArchiveMistake?: (itemId: string) => void;
   aiItems: ExplanationItem[];
@@ -421,16 +422,19 @@ function ContentBody({
   evidenceHighlight?: EvidenceHighlight | null;
   onClearEvidenceHighlight?: () => void;
   layoutRefreshKey?: number;
+  courseId: string;
+  onExplanationDeleted: () => void;
+  onExplanationUpdated: () => void;
 }) {
   const selectedAi = tab.kind === "ai" ? aiItems.find((item) => item.id === tab.itemId) : null;
   const selectedMistake = tab.kind === "mistake" ? mistakeItems.find((item) => item.item_id === tab.itemId) ?? null : null;
 
-  function canOpenSource(link: MistakeSourceLink) {
+  function canOpenSource(_link: MistakeSourceLink) {
     // source_links 来自后端，可能无对应本地 fileId
     return false;
   }
 
-  function handleOpenSource(link: MistakeSourceLink) {
+  function handleOpenSource(_link: MistakeSourceLink) {
     // 预留：后续通过 evidence_id 定位原文
   }
 
@@ -471,17 +475,16 @@ function ContentBody({
     );
   }
 
+  if (!selectedAi) return <p className="cw-preview-text">这份 AI 讲解暂时不可用。</p>;
   return (
-    <div className="cw-ai-preview">
-      <div className="cw-ai-preview-icon">
-        <BrainCircuit size={22} />
-      </div>
-      <div>
-        <p className="cw-ai-preview-kicker">{selectedAi?.type ?? "AI 讲解"}</p>
-        <h2>{selectedAi?.title ?? tab.title}</h2>
-        <p>{selectedAi?.topic ? `关联知识点：${selectedAi.topic}` : "AI 讲解内容将在这里显示。"}</p>
-      </div>
-    </div>
+    <Suspense fallback={<PageSkeleton />}>
+      <AiExplanationView
+        courseId={courseId}
+        docId={selectedAi.id}
+        onDeleted={onExplanationDeleted}
+        onUpdated={onExplanationUpdated}
+      />
+    </Suspense>
   );
 }
 
@@ -567,7 +570,7 @@ export function CourseWorkspacePage() {
   const assistantContext = useMemo(
     () => ({
       files: fileNodes,
-      aiItems: aiItems as unknown as import("../data/aiExplanations").AiExplanation[],
+      aiItems,
       mistakeItems: mistakeItems as unknown as import("../data/mistakes").MistakeItem[],
       selectedFileId: selectedFile,
       selectedAiId: selectedAi,
@@ -905,8 +908,6 @@ export function CourseWorkspacePage() {
                   {activeTab && (
                     <ContentBody
                       tab={activeTab}
-                      files={fileNodes}
-                      onOpenSourceFile={(id, newTab = false) => openItem("file", id, newTab ? "new" : "replace")}
                       onStartQuiz={startQuiz}
                       onArchiveMistake={handleArchiveMistake}
                       aiItems={aiItems}
@@ -914,6 +915,14 @@ export function CourseWorkspacePage() {
                       evidenceHighlight={evidenceHighlight}
                       onClearEvidenceHighlight={() => setEvidenceHighlight(null)}
                       layoutRefreshKey={readerLayoutRefreshKey}
+                      courseId={courseId!}
+                      onExplanationDeleted={() => {
+                        closeTab(activeTab.id);
+                        void queryClient.invalidateQueries({ queryKey: queryKeys.course.explanations(courseId!) });
+                      }}
+                      onExplanationUpdated={() => {
+                        void queryClient.invalidateQueries({ queryKey: queryKeys.course.explanations(courseId!) });
+                      }}
                     />
                   )}
                 </main>

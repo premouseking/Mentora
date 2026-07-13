@@ -4,7 +4,7 @@
 @module mentora/assessment/schemas
 """
 
-from pydantic import BaseModel, Field
+from pydantic import AliasChoices, BaseModel, Field, field_validator, model_validator
 
 
 class ItemValidationResult(BaseModel):
@@ -15,9 +15,6 @@ class ItemValidationResult(BaseModel):
         default_factory=list,
         description="未通过时的具体问题列表",
     )
-
-
-from pydantic import AliasChoices, BaseModel, Field, field_validator, model_validator
 
 
 class GeneratedQuizItem(BaseModel):

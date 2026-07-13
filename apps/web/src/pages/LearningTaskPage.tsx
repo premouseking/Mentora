@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import {
   ArrowLeft, BookOpen, Bot, Check, ChevronRight, Clock3,
   ExternalLink, Lightbulb, RefreshCw, Sparkles, X,

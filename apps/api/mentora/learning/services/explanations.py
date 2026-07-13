@@ -16,7 +16,6 @@ from datetime import datetime, timezone
 
 from django.core.cache import cache
 from django.db import transaction
-from django.db.models import Q
 from pydantic import BaseModel
 
 from mentora.learning.models import LearningHistoryEvent

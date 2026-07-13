@@ -223,10 +223,8 @@ def _resolve_round_tools(
     tool_records: list[ToolInvocationRecord],
 ) -> list[dict] | None:
     """检索完成后禁止再次 tool call，最后一轮也禁止。"""
-    if tool_records:
-        return None
-    remaining_rounds = max_tool_rounds - round_num
-    return tools if remaining_rounds > 1 else None
+    del round_num, max_tool_rounds, tool_records
+    return tools or None
 
 
 def _resolve_content_and_tool_calls(
@@ -485,13 +483,34 @@ async def run_tool_loop(
                 )
             )
 
+    final_resp = await gateway.chat(
+        task_type=agent_role,
+        messages=chat_messages,
+        tools=None,
+        model=agent_input.model_id,
+    )
+    total_usage = _merge_usage(total_usage, final_resp.usage)
+    final_content, _ = _resolve_content_and_tool_calls(
+        final_resp.content or "",
+        list(final_resp.tool_calls or []),
+        allow_tool_calls=False,
+    )
+    final_content, total_usage = await _maybe_force_final_answer(
+        gateway=gateway,
+        agent_role=agent_role,
+        agent_input=agent_input,
+        chat_messages=chat_messages,
+        content=final_content,
+        usage=total_usage,
+        allow_tool_calls=False,
+    )
     return AgentOutput(
         agent_role=agent_role,
         task_id=agent_input.task_id,
-        final_message="",
+        final_message=final_content,
         citations=all_citations,
         tool_calls_made=tool_records,
-        finish_reason="max_rounds",
+        finish_reason="completed",
         usage=total_usage,
     )
 
@@ -584,12 +603,21 @@ async def run_tool_loop_stream(
                 )
             )
 
+    round_usage, final_content, _ = await _run_blocking_model_round(
+        gateway=gateway,
+        agent_role=agent_role,
+        agent_input=agent_input,
+        chat_messages=chat_messages,
+        round_tools=None,
+        emitter=emitter,
+    )
+    total_usage = _merge_usage(total_usage, round_usage)
     return AgentOutput(
         agent_role=agent_role,
         task_id=agent_input.task_id,
-        final_message="",
+        final_message=final_content,
         citations=all_citations,
         tool_calls_made=tool_records,
-        finish_reason="max_rounds",
+        finish_reason="completed",
         usage=total_usage,
     )

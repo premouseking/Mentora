@@ -18,7 +18,13 @@
 @module mentora/retrieval/locator
 """
 
+from __future__ import annotations
+
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from mentora.retrieval.models import EvidenceUnit
 
 
 @dataclass
@@ -150,7 +156,6 @@ def _locate_from_orm(evidence_id: str) -> CitationLocation | None:
     """通过 Django ORM 查询引用定位。"""
     from mentora.retrieval.repository import (
         get_evidence_by_ids,
-        get_sentences_by_evidence,
     )
 
     units = list(get_evidence_by_ids([evidence_id]))
@@ -182,7 +187,6 @@ def _get_adjacent_context(unit) -> tuple[str | None, str | None]:
     约束：不跨页取上下文。如果前后没有同页证据，对应位置为 None。
     """
     from mentora.retrieval.models import EvidenceUnit
-    from django.db.models import Q
 
     # 前一个同页证据（按 id 排序取最近一个）
     prev_unit = (

@@ -7,7 +7,7 @@
  * @module services/authApi
  */
 
-import { apiClient, type TokenData } from "./client";
+import { apiClient } from "./client";
 
 /* ── 类型 ── */
 

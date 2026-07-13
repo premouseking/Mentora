@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "react";
+import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import {
   BookOpen,
   Check,
@@ -24,7 +24,6 @@ import {
   TODAY_DATE_KEY,
 } from "../data/history";
 import type { HistoryEvent } from "../services/learningApi";
-import type { CourseSessionListItem } from "../services/courseApi";
 
 /* ── 本地 Task 类型（与 history/Task 兼容）── */
 

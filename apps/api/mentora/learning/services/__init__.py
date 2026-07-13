@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """
 学习计划领域服务：计划创建、校验、激活与查询。
 
@@ -10,6 +8,8 @@ from __future__ import annotations
 
 @module mentora/learning/services
 """
+
+from __future__ import annotations
 
 import logging
 import uuid

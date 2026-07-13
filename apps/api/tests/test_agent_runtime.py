@@ -666,7 +666,7 @@ async def test_retrieve_evidence_awaits_async_search(monkeypatch):
         elapsed_ms = 12.5
         results = [FakeEvidence()]
 
-    def fake_search(*, query, top_k, source_version_ids=None):
+    async def fake_search(*, query, top_k, source_version_ids=None):
         calls.append({
             "query": query,
             "top_k": top_k,
@@ -674,7 +674,7 @@ async def test_retrieve_evidence_awaits_async_search(monkeypatch):
         })
         return FakeResultSet()
 
-    monkeypatch.setattr("mentora.retrieval.search.search", fake_search)
+    monkeypatch.setattr("mentora.retrieval.search.async_search", fake_search)
 
     result = await RetrieveEvidenceTool().execute(
         {"query": "mitosis", "top_k": 2},
@@ -1036,7 +1036,9 @@ def test_runtime_build_orchestrator_with_fake():
     assert "planner" in orch._agents
 
 
+@pytest.mark.django_db
 def test_chat_stream_builds_task_with_history_attachments_and_selected_model(monkeypatch):
+    from django.contrib.auth import get_user_model
     from django.test import override_settings
     from rest_framework.test import APIClient
     from mentora.agent_runtime import views
@@ -1057,7 +1059,12 @@ def test_chat_stream_builds_task_with_history_attachments_and_selected_model(mon
         LLM_MODEL_FAST="mentora-fast-model",
         LLM_MODEL_BALANCED="mentora-balanced-model",
     ):
-        response = APIClient().post(
+        client = APIClient()
+        user = get_user_model().objects.create_user(
+            email="agent-stream@example.com", password="test-pass-123"
+        )
+        client.force_authenticate(user=user)
+        response = client.post(
             "/api/chat/stream/",
             data=json.dumps(
                 {

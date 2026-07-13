@@ -284,7 +284,7 @@ export function FileExplorer({
     <aside className="file-explorer" ref={containerRef}>
       {/* Sections in fixed order, collapsed stays in place */}
       <div className="fe-expanded-area">
-        {visibleSections.map((section, i) => {
+        {visibleSections.map((section) => {
           const collapsed = collapsedSections.has(section.key);
           const expIdx = expandedSections.indexOf(section);
           const style = !collapsed && heights

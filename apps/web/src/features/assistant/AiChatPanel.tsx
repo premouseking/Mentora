@@ -15,7 +15,7 @@ import {
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import type { AiExplanation } from "../../data/aiExplanations";
+import type { ExplanationItem } from "../../services/learningApi";
 import type { FileNode } from "../../data/files";
 import type { MistakeItem } from "../../data/mistakes";
 import {
@@ -91,7 +91,7 @@ interface AiChatMention {
 
 export interface AiChatContext {
   files?: FileNode[];
-  aiItems?: AiExplanation[];
+  aiItems?: ExplanationItem[];
   mistakeItems?: MistakeItem[];
   selectedFileId?: string | null;
   selectedAiId?: string | null;

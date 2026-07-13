@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useLayoutEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { Check, Circle, ExternalLink, Eye, FileWarning, FolderOpen, Loader, Plus, Upload, X } from "lucide-react";
+import { Check, Circle, ExternalLink, Eye, FolderOpen, Loader, Plus } from "lucide-react";
 
 import { SetupShell } from "../components/AppShell";
 import { useCourseCreation } from "../components/CourseCreationContext";

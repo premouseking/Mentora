@@ -282,7 +282,7 @@ def flag_item(item_id: str, issue: str, *, student_note: str = "") -> dict:
     if unresolved >= 2:
         from mentora.assessment.models import AssessmentItem
         item = AssessmentItem.objects.get(id=item_id)
-        old_rev = AssessmentItemRevision.objects.get(id=item.current_revision_id)
+        AssessmentItemRevision.objects.get(id=item.current_revision_id)
 
         new_rev_result = revise_item(item_id)
         new_rev = AssessmentItemRevision.objects.get(id=new_rev_result["revision_id"])

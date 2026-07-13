@@ -8,9 +8,9 @@ import json
 
 from rest_framework.response import Response
 from rest_framework.decorators import api_view
-from drf_spectacular.utils import extend_schema, OpenApiParameter
+from drf_spectacular.utils import extend_schema
 
-from mentora.topics.models import Topic, TopicEdge, TopicEvidence
+from mentora.topics.models import Topic, TopicEdge
 from mentora.topics.services import build_topic_tree, get_topic_tree, link_evidence
 
 

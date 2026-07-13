@@ -13161,3 +13161,126 @@ button.mistake-source-row:hover {
   50% { opacity: 1; }
   100% { opacity: 0.85; }
 }
+.ai-explanation-view {
+  height: 100%;
+  overflow: auto;
+  padding: 24px 32px 40px;
+  background: var(--color-surface, #fff);
+}
+
+.ai-explanation-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  border-bottom: 1px solid #e5e7eb;
+  padding-bottom: 18px;
+}
+
+.ai-explanation-head-icon {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  flex: 0 0 34px;
+  place-items: center;
+  color: #2563eb;
+  background: #eff6ff;
+  border-radius: 6px;
+}
+
+.ai-explanation-head-main {
+  min-width: 0;
+  flex: 1;
+}
+
+.ai-explanation-head-main h2,
+.explanation-save-preview h3 {
+  margin: 0;
+  font-size: 18px;
+  letter-spacing: 0;
+}
+
+.ai-explanation-type {
+  margin: 5px 0 0;
+  color: #6b7280;
+  font-size: 12px;
+}
+
+.ai-explanation-actions,
+.ai-explanation-confirm-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.ai-explanation-btn,
+.ai-explanation-confirm-actions button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 30px;
+  border: 1px solid #d1d5db;
+  border-radius: 5px;
+  padding: 5px 10px;
+  background: #fff;
+  color: #374151;
+}
+
+.ai-explanation-btn.primary,
+.ai-explanation-confirm-actions .primary {
+  border-color: #2563eb;
+  background: #2563eb;
+  color: #fff;
+}
+
+.ai-explanation-btn.danger,
+.ai-explanation-confirm-actions .danger,
+.ai-explanation-error {
+  color: #b91c1c;
+}
+
+.ai-explanation-keywords {
+  margin: 16px 0;
+}
+
+.ai-explanation-title-input,
+.ai-explanation-editor,
+.ai-keyword-pill-add input {
+  width: 100%;
+  border: 1px solid #d1d5db;
+  border-radius: 5px;
+  padding: 8px 10px;
+  font: inherit;
+}
+
+.ai-explanation-editor {
+  min-height: 420px;
+  resize: vertical;
+}
+
+.ai-explanation-confirm-overlay {
+  position: fixed;
+  z-index: 1200;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgb(17 24 39 / 45%);
+}
+
+.ai-explanation-confirm-dialog {
+  width: min(440px, 100%);
+  max-height: min(620px, 90vh);
+  overflow: auto;
+  border-radius: 8px;
+  padding: 20px;
+  background: #fff;
+  box-shadow: 0 18px 48px rgb(0 0 0 / 20%);
+}
+
+.explanation-save-preview {
+  display: grid;
+  gap: 16px;
+}
+
+.ai-explanation-confirm-actions {
+  justify-content: flex-end;
+}

@@ -12,7 +12,6 @@
 
 import base64
 import json
-import time
 from typing import Protocol
 from urllib.request import Request, urlopen
 

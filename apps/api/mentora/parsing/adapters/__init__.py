@@ -29,6 +29,18 @@ _ADAPTERS: dict[str, type] = {
     ".markdown": MarkdownAdapter,
 }
 
+__all__ = [
+    "CorruptedPDFError",
+    "EncryptedPDFError",
+    "ImageOnlyPDFError",
+    "MarkdownAdapter",
+    "ParsingError",
+    "PyMuPDFAdapter",
+    "UnsupportedFormatError",
+    "get_adapter",
+    "parse",
+]
+
 
 def get_adapter(file_path: str):
     """根据文件扩展名返回解析器适配器实例。"""

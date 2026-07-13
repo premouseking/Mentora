@@ -249,7 +249,6 @@ def expand_memory_results_to_semantic_blocks(results: list[Any]) -> list[Any]:
 
     for item in results:
         unit = item.evidence
-        eid = str(getattr(unit, "id", ""))
         page_key = (
             str(getattr(unit, "source_version_id", "")),
             int(getattr(unit, "page_number", 0)),

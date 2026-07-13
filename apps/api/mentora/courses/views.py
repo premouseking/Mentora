@@ -17,13 +17,11 @@ import uuid
 
 from django.db import DatabaseError
 from django.http import JsonResponse
-from django.views.decorators.csrf import csrf_exempt
-from django.views.decorators.http import require_http_methods
 from rest_framework.response import Response
 from rest_framework.decorators import api_view
 from drf_spectacular.utils import extend_schema
 
-from mentora.courses.models import CourseCreationSession, SessionStatus
+from mentora.courses.models import Course, CourseCreationSession, SessionStatus
 from mentora.courses.scope_planning import (
     assess_scope_coverage,
     build_source_evidence_context,
@@ -303,6 +301,9 @@ def session_delete(request, session_id):
         session = _get_session(session_id, request.user)
     except ValueError as exc:
         return Response({"error": str(exc)}, status=404)
+    from mentora.knowledge.models import CourseSource
+
+    CourseSource.objects.filter(course_session_id=str(session_id)).delete()
     session.delete()
     return Response({"status": "deleted"})
 
@@ -379,7 +380,7 @@ def inquiry_next(request, session_id):
         Message(role="system", content=system_text),
         Message(
             role="user",
-            content=f"请根据以上信息，判断是否需要继续追问，并生成下一轮结构化问题。",
+            content="请根据以上信息，判断是否需要继续追问，并生成下一轮结构化问题。",
         ),
     ]
 
@@ -883,7 +884,7 @@ def course_sources_manage(request, session_id):
     POST body: { "source_version_ids": ["uuid1", "uuid2", ...] }
     注意：为幂等安全，先删后建，而非增量合并。
     """
-    from mentora.knowledge.models import CourseSource, Source, SourceStatus, SourceVersion
+    from mentora.knowledge.models import CourseSource, SourceStatus, SourceVersion
 
     try:
         _get_session(session_id, request.user)
@@ -1016,30 +1017,6 @@ def session_unarchive(request, session_id):
     session.archived_at = None
     session.save(update_fields=["archived_at", "updated_at"])
     return JsonResponse({"status": "active"})
-
-
-# ── 删除课程 ──
-
-
-@api_view(["DELETE"])
-def session_delete(request, session_id):
-    """
-    DELETE /api/courses/sessions/<uuid:id>/
-
-    删除建课会话及其课程资料关联。
-    """
-    try:
-        session = _get_session(session_id, request.user)
-    except ValueError as exc:
-        return JsonResponse({"error": str(exc)}, status=404)
-
-    from mentora.knowledge.models import CourseSource
-
-    # 清理课程资料关联（非 FK，需手动删）
-    CourseSource.objects.filter(course_session_id=session_id).delete()
-    session.delete()
-
-    return JsonResponse({"status": "deleted"})
 
 
 # ── Course list ──
@@ -1337,7 +1314,7 @@ def course_activate(request, course_id):
     流程: draft → confirmed → plan_generate → create_plan_revision → active
     """
     from mentora.courses.models import Course, CourseProfileRevision
-    from mentora.courses.services import activate_course, get_course_scope
+    from mentora.courses.services import activate_course
 
     try:
         course = Course.objects.get(id=course_id, owner=request.user)
