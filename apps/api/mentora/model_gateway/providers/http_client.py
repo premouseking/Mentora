@@ -169,4 +169,8 @@ async def async_post_sse(
                     continue
     finally:
         writer.close()
-        await writer.wait_closed()
+        try:
+            await writer.wait_closed()
+        except ssl.SSLError as exc:
+            if "APPLICATION_DATA_AFTER_CLOSE_NOTIFY" not in str(exc):
+                raise
