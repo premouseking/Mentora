@@ -20,6 +20,13 @@ describe("parseStreamDataLine", () => {
       content: "hi",
     });
   });
+
+  it("normalizes legacy chunk frames as content", () => {
+    expect(parseStreamDataLine({ type: "chunk", content: "hi" })).toEqual({
+      type: "content",
+      content: "hi",
+    });
+  });
 });
 
 describe("parseAssistantStreamChunk", () => {
@@ -27,6 +34,7 @@ describe("parseAssistantStreamChunk", () => {
     const result = parseAssistantStreamChunk(
       [
         'data: {"type":"content","content":"hello"}',
+        'data: {"type":"chunk","content":" world"}',
         "data: not-json",
         'data: {"type":"done"}',
         "",
@@ -35,6 +43,7 @@ describe("parseAssistantStreamChunk", () => {
 
     expect(result.events).toEqual([
       { type: "content", content: "hello" },
+      { type: "content", content: " world" },
       { type: "done" },
     ]);
     expect(result.buffer).toBe("");

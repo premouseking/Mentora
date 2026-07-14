@@ -81,6 +81,17 @@ describe("assistantBlocks", () => {
     expect(flattenAssistantBlocksContent(message.blocks)).toBe("柯西中值定理是……");
   });
 
+  it("keeps existing answer text when a late stream error arrives", () => {
+    let message: AssistantChatMessage = { role: "assistant", blocks: [] };
+    message = applyAssistantStreamEvent(message, { type: "content", content: "hello" });
+    message = applyAssistantStreamEvent(message, {
+      type: "error",
+      message: "[SSL: APPLICATION_DATA_AFTER_CLOSE_NOTIFY] application data after close notify",
+    });
+
+    expect(flattenAssistantBlocksContent(message.blocks)).toBe("hello");
+  });
+
   it("appendAssistantTextChunk merges into the last text block only", () => {
     const blocks = appendAssistantTextChunk(
       appendAssistantTextChunk([], "你好"),

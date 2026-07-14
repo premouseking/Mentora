@@ -68,7 +68,7 @@ export function parseStreamDataLine(raw: unknown): ChatStreamEvent | null {
     };
   }
 
-  if (wireType === "content") {
+  if (wireType === "content" || wireType === "chunk") {
     const content = asString(frame.content);
     return content ? { type: "content", content } : null;
   }
