@@ -13,6 +13,10 @@
 @module mentora/retrieval/repository
 """
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 from django.conf import settings
 from django.db import connection, transaction
 from django.db.models import QuerySet
@@ -24,6 +28,9 @@ from mentora.retrieval.models import (
     PageTextProjection,
     SentenceProjection,
 )
+
+if TYPE_CHECKING:
+    from mentora.retrieval.models import EvidenceSnapshot
 
 
 # ── EvidenceUnit ──────────────────────────────────────

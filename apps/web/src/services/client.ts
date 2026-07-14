@@ -48,11 +48,32 @@ export const tokenStore = {
 
 export class ApiError extends Error {
   status: number;
-  constructor(status: number, message: string) {
+  code?: string;
+  coverageGaps?: CoverageGap[];
+  details?: Record<string, unknown>;
+
+  constructor(
+    status: number,
+    message: string,
+    extras?: {
+      code?: string;
+      coverage_gaps?: CoverageGap[];
+      details?: Record<string, unknown>;
+    },
+  ) {
     super(message);
     this.name = "ApiError";
     this.status = status;
+    this.code = extras?.code;
+    this.coverageGaps = extras?.coverage_gaps;
+    this.details = extras?.details;
   }
+}
+
+export interface CoverageGap {
+  topic: string;
+  reason: string;
+  suggested_action?: string;
 }
 
 /* ── 内部工具 ── */
@@ -126,7 +147,11 @@ async function request<T>(
   const { body, signal: externalSignal, timeoutMs = DEFAULT_TIMEOUT_MS, skipAuth } = opts;
 
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  let timedOut = false;
+  const timeoutId = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, timeoutMs);
   const signal = externalSignal
     ? combineSignals(externalSignal, controller.signal)
     : controller.signal;
@@ -151,9 +176,38 @@ async function request<T>(
     });
 
   const handleResponse = async (resp: Response): Promise<T> => {
-    const data = await resp.json().catch(() => ({}));
+    if (resp.status === 204) return undefined as T;
+    let data: unknown = undefined;
+    if (typeof resp.text === "function") {
+      const text = await resp.text();
+      if (text) {
+        try {
+          data = JSON.parse(text);
+        } catch {
+          throw new ApiError(resp.status, "响应格式无效");
+        }
+      }
+    } else {
+      // 兼容单元测试和轻量运行时提供的最小 Response 实现。
+      data = await resp.json().catch(() => undefined);
+    }
     if (!resp.ok) {
-      throw new ApiError(resp.status, data.error ?? data.detail ?? `请求失败 (${resp.status})`);
+      const payload = (data ?? {}) as {
+        error?: string;
+        detail?: string;
+        code?: string;
+        coverage_gaps?: CoverageGap[];
+        [key: string]: unknown;
+      };
+      throw new ApiError(
+        resp.status,
+        payload.error ?? payload.detail ?? `请求失败 (${resp.status})`,
+        {
+          code: payload.code,
+          coverage_gaps: payload.coverage_gaps,
+          details: payload,
+        },
+      );
     }
     return data as T;
   };
@@ -174,12 +228,100 @@ async function request<T>(
   } catch (err: unknown) {
     if (err instanceof ApiError) throw err;
     if (err instanceof DOMException && err.name === "AbortError") {
-      throw new ApiError(0, "请求已取消或超时");
+      throw new ApiError(0, timedOut ? "请求超时，请稍后重试" : "请求已取消");
     }
     throw new ApiError(0, err instanceof Error ? err.message : "网络错误");
   } finally {
     clearTimeout(timeoutId);
   }
+}
+
+export interface RawRequestOptions {
+  body?: BodyInit;
+  headers?: HeadersInit;
+  signal?: AbortSignal;
+  timeoutMs?: number;
+  skipAuth?: boolean;
+}
+
+/**
+ * 统一的非 JSON 请求入口，供 FormData、SSE 等协议使用。
+ * 仍共享 token 注入、401 刷新、超时和取消语义。
+ */
+export async function requestRaw(
+  method: string,
+  url: string,
+  opts: RawRequestOptions = {},
+): Promise<Response> {
+  const {
+    body,
+    headers: initialHeaders,
+    signal: externalSignal,
+    timeoutMs = DEFAULT_TIMEOUT_MS,
+    skipAuth,
+  } = opts;
+  const controller = new AbortController();
+  let timedOut = false;
+  const timeoutId = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, timeoutMs);
+  const signal = externalSignal
+    ? combineSignals(externalSignal, controller.signal)
+    : controller.signal;
+  const headers = new Headers(initialHeaders);
+
+  const applyAuth = (access?: string) => {
+    if (skipAuth || !_shouldInjectAuth(url)) return;
+    const token = access ?? tokenStore.get()?.access;
+    if (token) headers.set("Authorization", `Bearer ${token}`);
+  };
+  applyAuth();
+
+  const doFetch = () => fetch(url, { method, body, headers, signal });
+
+  try {
+    let resp = await doFetch();
+    if (resp.status === 401 && !skipAuth && _shouldInjectAuth(url)) {
+      const refreshed = await _refreshAccessToken();
+      if (refreshed) {
+        applyAuth(refreshed.access);
+        resp = await doFetch();
+      }
+    }
+    return resp;
+  } catch (err: unknown) {
+    if (err instanceof DOMException && err.name === "AbortError") {
+      throw new ApiError(0, timedOut ? "请求超时，请稍后重试" : "请求已取消");
+    }
+    throw new ApiError(0, err instanceof Error ? err.message : "网络错误");
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+export async function parseRawJson<T>(resp: Response): Promise<T> {
+  const text = await resp.text();
+  let data: unknown = undefined;
+  if (text) {
+    try {
+      data = JSON.parse(text);
+    } catch {
+      if (resp.ok) throw new ApiError(resp.status, "响应格式无效");
+    }
+  }
+  if (!resp.ok) {
+    const payload = (data ?? {}) as Record<string, unknown>;
+    throw new ApiError(
+      resp.status,
+      String(payload.error ?? payload.detail ?? payload.message ?? `请求失败 (${resp.status})`),
+      {
+        code: typeof payload.code === "string" ? payload.code : undefined,
+        details: payload,
+      },
+    );
+  }
+  return data as T;
 }
 
 /* ── 公开 API ── */
@@ -204,63 +346,5 @@ export const apiClient = {
   },
   delete<T>(url: string, opts?: { signal?: AbortSignal; timeoutMs?: number }): Promise<T> {
     return request<T>("DELETE", url, opts);
-  },
-  /** SSE 流式 POST：返回 raw Response，由调用方读取 body stream。 */
-  async streamPost(
-    url: string,
-    body?: unknown,
-    opts?: { signal?: AbortSignal; timeoutMs?: number; skipAuth?: boolean },
-  ): Promise<Response> {
-    const { signal: externalSignal, timeoutMs = DEFAULT_TIMEOUT_MS, skipAuth } = opts ?? {};
-
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
-    const signal = externalSignal
-      ? combineSignals(externalSignal, controller.signal)
-      : controller.signal;
-
-    const headers: Record<string, string> = {
-      "Content-Type": "application/json",
-      // 不设 Accept: text/event-stream —— DRF @api_view 会在进入视图前做内容协商，
-      // 该 Accept 不在默认 renderer 列表内会 406；响应体仍是 SSE，由调用方读 stream。
-    };
-    if (!skipAuth && _shouldInjectAuth(url)) {
-      const token = tokenStore.get();
-      if (token) {
-        headers.Authorization = `Bearer ${token.access}`;
-      }
-    }
-
-    const doFetch = () =>
-      fetch(url, {
-        method: "POST",
-        signal,
-        headers,
-        body: body !== undefined ? JSON.stringify(body) : undefined,
-      });
-
-    try {
-      let resp = await doFetch();
-      if (resp.status === 401 && !skipAuth && _shouldInjectAuth(url)) {
-        const refreshed = await _refreshAccessToken();
-        if (refreshed) {
-          headers.Authorization = `Bearer ${refreshed.access}`;
-          resp = await doFetch();
-        }
-      }
-      if (!resp.ok) {
-        const data = await resp.json().catch(() => ({}));
-        throw new ApiError(resp.status, data.error ?? data.detail ?? `请求失败 (${resp.status})`);
-      }
-      return resp;
-    } catch (err: unknown) {
-      if (err instanceof ApiError) throw err;
-      if (err instanceof DOMException && err.name === "AbortError") {
-        throw new ApiError(0, "请求已取消或超时");
-      }
-      throw new ApiError(0, err instanceof Error ? err.message : "网络错误");
-    } finally {
-      clearTimeout(timeoutId);
-    }
   },
 };

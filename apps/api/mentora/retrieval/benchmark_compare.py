@@ -11,7 +11,6 @@
 
 import os
 import time
-from dataclasses import dataclass, field
 
 from django.db import connection
 

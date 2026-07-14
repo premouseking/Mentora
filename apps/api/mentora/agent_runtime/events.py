@@ -13,9 +13,8 @@ SSE 事件发射器。
 @module mentora/agent_runtime/events
 """
 
-import json
 import time
-from typing import Any, Callable
+from typing import Callable
 
 
 class EventEmitter:

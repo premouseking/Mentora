@@ -19,8 +19,50 @@ from mentora.courses.models import (
 )
 
 
+class CourseResolution:
+    """A course and its creation session resolved from either public identifier."""
+
+    __slots__ = ("course", "session", "course_id", "session_id")
+
+    def __init__(self, *, course: Course | None, session: CourseCreationSession) -> None:
+        self.course = course
+        self.session = session
+        self.course_id = str(course.id) if course else None
+        self.session_id = str(session.id)
+
+
+def resolve_course(resource_id: str, *, owner=None) -> CourseResolution:
+    """Resolve a formal course ID first, then fall back to a creation-session ID."""
+    course_filters = {"id": resource_id}
+    session_filters = {"id": resource_id}
+    if owner is not None:
+        course_filters["owner"] = owner
+        session_filters["owner"] = owner
+
+    try:
+        course = Course.objects.select_related("session").get(**course_filters)
+        return CourseResolution(course=course, session=course.session)
+    except Course.DoesNotExist:
+        pass
+
+    session = CourseCreationSession.objects.get(**session_filters)
+    related_filters = {"session": session}
+    if owner is not None:
+        related_filters["owner"] = owner
+    course = Course.objects.filter(**related_filters).first()
+    return CourseResolution(course=course, session=session)
+
+
+def resolve_course_required(resource_id: str, *, owner=None) -> tuple[Course, CourseCreationSession]:
+    """Resolve a learning-stage resource and require a formal course."""
+    resolved = resolve_course(resource_id, owner=owner)
+    if resolved.course is None:
+        raise ValueError(f"课程 {resource_id} 尚未创建，请先开始学习")
+    return resolved.course, resolved.session
+
+
 @transaction.atomic
-def confirm_course_from_session(session_id: str) -> dict:
+def confirm_course_from_session(session_id: str, *, owner) -> dict:
     """从建课会话创建正式课程。
 
     原子操作:
@@ -32,9 +74,9 @@ def confirm_course_from_session(session_id: str) -> dict:
 
     返回: {course_id, profile_revision_id, scope_revision_id, bindings}
     """
-    session = CourseCreationSession.objects.get(id=session_id)
+    session = CourseCreationSession.objects.get(id=session_id, owner=owner)
 
-    course = Course.objects.create(session=session)
+    course = Course.objects.create(session=session, owner=owner)
 
     # 画像：从 session 快照
     profile = CourseProfileRevision.objects.create(
@@ -55,6 +97,14 @@ def confirm_course_from_session(session_id: str) -> dict:
     )
 
     source_version_ids = session.extra.get("source_version_ids", [])
+    from mentora.knowledge.models import SourceVersion
+    owned_ids = set(
+        str(value) for value in SourceVersion.objects.filter(
+            id__in=source_version_ids, source__owner=owner,
+        ).values_list("id", flat=True)
+    )
+    if owned_ids != {str(value) for value in source_version_ids}:
+        raise ValueError("课程资料包含无权访问的资源")
     bindings = []
     for pos, sv_id in enumerate(source_version_ids):
         binding = CourseScopeBinding.objects.create(
@@ -79,10 +129,13 @@ def confirm_course_from_session(session_id: str) -> dict:
     }
 
 
-def get_course_scope(course_id: str) -> list[str] | None:
+def get_course_scope(course_id: str, *, owner=None) -> list[str] | None:
     """获取课程当前生效的资料版本 ID 列表。"""
     try:
-        course = Course.objects.get(id=course_id)
+        filters = {"id": course_id}
+        if owner is not None:
+            filters["owner"] = owner
+        course = Course.objects.get(**filters)
     except Course.DoesNotExist:
         return None
 
@@ -103,13 +156,21 @@ def extend_scope(
     *,
     role: str = CourseScopeBinding.Role.REFERENCE,
     label: str = "",
+    owner=None,
 ) -> dict:
     """扩展课程资料范围——克隆当前作用域并追加新绑定。
 
     旧作用域标记 superseded，新作用域写入 active 指针。
     返回: {scope_revision_id, source_version_ids, superseded_revision_id}
     """
-    course = Course.objects.get(id=course_id)
+    course = Course.objects.get(id=course_id, **({"owner": owner} if owner is not None else {}))
+    if owner is not None:
+        from mentora.knowledge.models import SourceVersion
+        count = SourceVersion.objects.filter(
+            id__in=source_version_ids, source__owner=owner,
+        ).count()
+        if count != len(set(source_version_ids)):
+            raise ValueError("课程资料包含无权访问的资源")
     old_scope = CourseKnowledgeScopeRevision.objects.get(
         id=course.active_scope_revision_id,
     )
@@ -162,12 +223,12 @@ def extend_scope(
 
 
 @transaction.atomic
-def activate_course(course_id: str) -> dict:
+def activate_course(course_id: str, *, owner=None) -> dict:
     """激活课程——profile + plan 原子切换为 active。
 
     LearningPlanRevision 激活委托 learning.services.activate_revision。
     """
-    course = Course.objects.get(id=course_id)
+    course = Course.objects.get(id=course_id, **({"owner": owner} if owner is not None else {}))
     profile = CourseProfileRevision.objects.get(
         id=course.active_profile_revision_id,
     )
@@ -182,10 +243,10 @@ def activate_course(course_id: str) -> dict:
         from mentora.learning.services import activate_revision
         activate_revision(str(profile.plan_revision_id))
 
-    # 写入学习记录；course_id 统一使用建课会话 ID，与其余写入点及历史查询保持同一 ID 空间
+    # 写入学习记录
     from mentora.learning.services import write_history_event
     write_history_event(
-        course_id=str(course.session_id),
+        course_id=str(course.id),
         event_type="course_started",
         title=f"开始课程：{profile.goal[:50] if profile.goal else '新课程'}",
         detail="课程已激活，学习计划已就绪。",
@@ -209,12 +270,13 @@ def revise_profile(
     school: str | None = None,
     topics_json: dict | None = None,
     plan_revision_id: str | None = None,
+    owner=None,
 ) -> dict:
     """克隆当前生效画像为新草稿，用户确认后调用 activate_course 激活。
 
     继承旧画像所有字段，仅覆盖传入的非 None 参数。
     """
-    course = Course.objects.get(id=course_id)
+    course = Course.objects.get(id=course_id, **({"owner": owner} if owner is not None else {}))
     old = CourseProfileRevision.objects.get(
         id=course.active_profile_revision_id,
     )
@@ -251,10 +313,10 @@ def revise_profile(
     }
 
 
-def get_course_info(course_id: str) -> dict | None:
+def get_course_info(course_id: str, *, owner=None) -> dict | None:
     """获取课程基本信息（画像 + 作用域），供外部模块查询。"""
     try:
-        course = Course.objects.get(id=course_id)
+        course = Course.objects.get(id=course_id, **({"owner": owner} if owner is not None else {}))
     except Course.DoesNotExist:
         return None
 
@@ -267,7 +329,7 @@ def get_course_info(course_id: str) -> dict | None:
         except CourseProfileRevision.DoesNotExist:
             pass
 
-    scope = get_course_scope(course_id) or []
+    scope = get_course_scope(course_id, owner=owner) or []
 
     return {
         "course_id": str(course.id),
@@ -280,9 +342,9 @@ def get_course_info(course_id: str) -> dict | None:
     }
 
 
-def suggest_scope_updates(course_id: str) -> dict:
+def suggest_scope_updates(course_id: str, *, owner=None) -> dict:
     """检查是否有已完成解析的新资料可加入课程作用域。"""
-    current_scope = get_course_scope(course_id) or []
+    current_scope = get_course_scope(course_id, owner=owner) or []
 
     from mentora.knowledge.services import get_completed_source_versions
     all_completed = get_completed_source_versions()

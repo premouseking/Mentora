@@ -6,7 +6,7 @@
  * @module services/courseApi
  */
 
-import { apiClient, ApiError } from "./client";
+import { apiClient, ApiError, type CoverageGap } from "./client";
 
 const BASE = "/api/courses/sessions";
 
@@ -27,9 +27,18 @@ export interface SessionDetail extends SessionResponse {
   time_budget: string;
   school: string;
   deadline: string | null;
+  profile_supplement: Record<string, string>;
   inquiry_history: InquiryEntry[];
+  source_version_ids?: string[];
+  sources?: SessionSourceItem[];
   created_at: string;
   updated_at: string;
+}
+
+export interface SessionSourceItem {
+  sourceVersionId: string;
+  displayTitle: string;
+  processingStatus?: string;
 }
 
 export interface InquiryEntry {
@@ -50,22 +59,26 @@ export interface InquiryResponse {
   summary?: string;
 }
 
-export interface PlanDraftPhase {
+export interface GeneratedPlanPhase {
   name: string;
   goal: string;
   share: number;
-  tasks: string[];
+  units?: unknown[];
+  tasks?: string[];
 }
 
 export interface PlanResponse {
   title: string;
-  phases: PlanDraftPhase[];
+  phases: GeneratedPlanPhase[];
   revision_id: string;
+  coverage_gaps?: CoverageGap[];
 }
+
+export type { CoverageGap };
 
 export interface CourseSessionListItem {
   id: string;
-  course_id?: string | null;
+  course_id: string | null;
   goal: string;
   title: string;
   status: string;
@@ -79,37 +92,49 @@ export interface CourseSessionListItem {
   created_at: string;
   updated_at: string;
   last_studied_at: string | null;
+  archived_at?: string | null;
 }
 
-export interface CourseSessionListResponse {
-  items: CourseSessionListItem[];
-  count?: number;
+export interface CourseSessionUpdatePayload {
+  goal?: string;
+  level?: string;
+  pace?: string;
+  time_budget?: string;
+  school?: string;
+  deadline?: string | null;
+  last_studied_at?: string;
+  profile_supplement?: Record<string, string>;
+  inquiry_history?: InquiryEntry[];
 }
 
-export interface ProfileItem {
-  key: string;
-  title: string;
-  value: string;
-}
-
-export function buildProfileItems(session: SessionDetail): ProfileItem[] {
-  return [
-    { key: "goal", title: "学习目标", value: session.goal || "" },
-    { key: "level", title: "当前基础", value: session.level || "" },
-    { key: "pace", title: "推进方式", value: session.pace || "" },
-    { key: "timeBudget", title: "每日时长", value: session.time_budget || "" },
-    { key: "deadline", title: "目标日期", value: session.deadline || "" },
-    { key: "school", title: "学校/地区", value: session.school || "" },
-  ];
+export interface CourseDetail {
+  course_id: string;
+  session_id: string;
+  goal: string;
+  level: string;
+  pace: string;
+  school: string;
+  status: string;
+  plan_revision_id: string | null;
+  source_version_ids: string[] | null;
+  created_at: string;
 }
 
 /* ── Session CRUD ── */
 
 export async function listCourseSessions(
   signal?: AbortSignal,
+  options?: { limit?: number; offset?: number; archived?: boolean },
 ): Promise<CourseSessionListItem[]> {
-  const data = await apiClient.get<CourseSessionListResponse>(`${BASE}/`, { signal });
-  return data.items;
+  const params = new URLSearchParams();
+  if (options?.limit != null) params.set("limit", String(options.limit));
+  if (options?.offset != null) params.set("offset", String(options.offset));
+  if (options?.archived) params.set("archived", "true");
+  const qs = params.toString();
+  const data = await apiClient.get<
+    CourseSessionListItem[] | { items: CourseSessionListItem[] }
+  >(`${BASE}/${qs ? `?${qs}` : ""}`, { signal });
+  return Array.isArray(data) ? data : (data.items ?? []);
 }
 
 export async function createCourseSession(
@@ -128,10 +153,50 @@ export async function getCourseSession(
 
 export async function updateCourseSession(
   id: string,
-  data: { level?: string; pace?: string; time_budget?: string; school?: string; deadline?: string | null; last_studied_at?: string },
+  data: CourseSessionUpdatePayload,
   signal?: AbortSignal,
 ): Promise<{ status: string }> {
   return apiClient.patch<{ status: string }>(`${BASE}/${encodeURIComponent(id)}/update/`, data, { signal });
+}
+
+export interface CoveragePreview {
+  sufficient: boolean;
+  gaps: CoverageGap[];
+  sources: Array<{ sourceVersionId: string; displayTitle: string }>;
+}
+
+export async function previewSourceCoverage(
+  id: string,
+  sourceVersionIds: string[],
+  signal?: AbortSignal,
+): Promise<CoveragePreview> {
+  return apiClient.post<CoveragePreview>(
+    `${BASE}/${encodeURIComponent(id)}/sources/coverage-preview/`,
+    { source_version_ids: sourceVersionIds },
+    { signal },
+  );
+}
+
+export async function fetchSessionSources(
+  id: string,
+  signal?: AbortSignal,
+): Promise<{ items: SessionSourceItem[]; count: number }> {
+  return apiClient.get<{ items: SessionSourceItem[]; count: number }>(
+    `${BASE}/${encodeURIComponent(id)}/sources/`,
+    { signal },
+  );
+}
+
+export async function bindSessionSources(
+  id: string,
+  sourceVersionIds: string[],
+  signal?: AbortSignal,
+): Promise<{ status: string; count: number }> {
+  return apiClient.post<{ status: string; count: number }>(
+    `${BASE}/${encodeURIComponent(id)}/sources/`,
+    { source_version_ids: sourceVersionIds },
+    { signal },
+  );
 }
 
 /* ── Inquiry 追问 ── */
@@ -144,35 +209,52 @@ export async function inquiryNext(
   const body = answer ? { answer } : {};
   return apiClient.post<InquiryResponse>(`${BASE}/${encodeURIComponent(id)}/inquiry/`, body, {
     signal,
-    timeoutMs: 30_000,
+    timeoutMs: 90_000,
   });
 }
 
 /* ── Plan 方案生成 ── */
 
+/** 学习方案生成可能含大量资料上下文，需与 LLM_STRUCTURED_TIMEOUT 对齐 */
+export const PLAN_GENERATION_TIMEOUT_MS = 300_000;
+
 export async function generatePlan(
   id: string,
-  signal?: AbortSignal,
+  options?: {
+    allow_partial_plan?: boolean;
+    signal?: AbortSignal;
+  },
 ): Promise<PlanResponse> {
-  return apiClient.post<PlanResponse>(`${BASE}/${encodeURIComponent(id)}/plan/`, undefined, {
-    signal,
-    timeoutMs: 90_000,
-  });
+  const { allow_partial_plan, signal } = options ?? {};
+  return apiClient.post<PlanResponse>(
+    `${BASE}/${encodeURIComponent(id)}/plan/`,
+    allow_partial_plan ? { allow_partial_plan: true } : {},
+    {
+      signal,
+      timeoutMs: PLAN_GENERATION_TIMEOUT_MS,
+    },
+  );
 }
 
 /* ── Active plan 方案查询 ── */
 
+export type PlanTaskType = "lecture" | "exercise" | "project" | "review";
+export type PlanDeliveryMode = "text" | "interactive" | "video" | "self_paced" | "live" | "hybrid";
+
 export interface PlanTask {
   id: string;
-  task_type: string;
-  delivery_mode: string;
+  title: string;
+  task_type: PlanTaskType | string;
+  delivery_mode: PlanDeliveryMode | string;
   estimated_minutes: number;
   required: boolean;
+  materials?: { id: string; title: string }[];
+  knowledge_point?: string;
 }
 
 export interface PlanUnit {
   id: string;
-  title?: string;
+  title: string;
   position: number;
   topic_id: string | null;
   target_depth: string;
@@ -182,7 +264,7 @@ export interface PlanUnit {
   tasks: PlanTask[];
 }
 
-export interface PlanPhase {
+export interface ActivePlanPhase {
   id: string;
   position: number;
   title: string;
@@ -191,13 +273,15 @@ export interface PlanPhase {
   units: PlanUnit[];
 }
 
+export type PlanPhase = ActivePlanPhase;
+
 export interface ActivePlan {
   plan_id: string;
   revision_id: string;
   status: string;
   feasibility_status: string;
   profile_revision_id: string;
-  phases: PlanPhase[];
+  phases: ActivePlanPhase[];
 }
 
 export async function getActivePlan(
@@ -207,14 +291,29 @@ export async function getActivePlan(
   return apiClient.get<ActivePlan>(`${BASE}/${encodeURIComponent(id)}/plan/`, { signal });
 }
 
+export async function getCourseDetail(
+  id: string,
+  signal?: AbortSignal,
+): Promise<CourseDetail> {
+  return apiClient.get<CourseDetail>(`/api/courses/${encodeURIComponent(id)}/`, { signal });
+}
+
 /* ── 删除 ── */
 
 export async function deleteCourseSession(id: string): Promise<void> {
   await apiClient.delete(`${BASE}/${encodeURIComponent(id)}/delete/`);
 }
 
+export async function archiveCourseSession(id: string): Promise<void> {
+  await apiClient.patch(`${BASE}/${encodeURIComponent(id)}/archive/`, {});
+}
+
+export async function unarchiveCourseSession(id: string): Promise<void> {
+  await apiClient.patch(`${BASE}/${encodeURIComponent(id)}/unarchive/`, {});
+}
+
 /* ── 开始学习 ── */
 
-export async function startCourse(id: string): Promise<{ status: string; revision_id: string }> {
-  return apiClient.post<{ status: string; revision_id: string }>(`${BASE}/${encodeURIComponent(id)}/start/`);
+export async function startCourse(id: string): Promise<{ status: string; revision_id: string; course_id: string; session_id: string }> {
+  return apiClient.post<{ status: string; revision_id: string; course_id: string; session_id: string }>(`${BASE}/${encodeURIComponent(id)}/start/`);
 }

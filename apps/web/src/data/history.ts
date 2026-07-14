@@ -70,7 +70,7 @@ export function getWeekDates(anchorDate: string): string[] {
 
 const WEEKDAY_LABELS = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
 
-export function formatWeekdayLabel(dateStr: string, dayIndex: number): string {
+export function formatWeekdayLabel(_dateStr: string, dayIndex: number): string {
   return WEEKDAY_LABELS[dayIndex];
 }
 

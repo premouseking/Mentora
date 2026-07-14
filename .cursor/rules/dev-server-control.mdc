@@ -1,0 +1,12 @@
+---
+description: Stop development servers before making code changes
+alwaysApply: true
+---
+
+# Development Server Control
+
+Before making development edits in this project, stop the frontend and backend dev servers if they are running.
+
+- Check existing terminals or ports before editing.
+- Stop `pnpm dev`, Vite, and Django `runserver` processes when code changes are about to begin.
+- Restart services only when verification or manual testing needs them.

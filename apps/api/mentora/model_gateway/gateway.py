@@ -66,7 +66,23 @@ class ModelGateway:
                 attempt_number += 1
                 started = time.perf_counter()
                 try:
-                    provider_resp = await provider.chat(messages=messages, tools=tools, model=model)
+                    from django.conf import settings as django_settings
+
+                    request_timeout = None
+                    if structured_output_schema is not None:
+                        request_timeout = getattr(
+                            django_settings,
+                            "LLM_STRUCTURED_TIMEOUT",
+                            django_settings.LLM_REQUEST_TIMEOUT,
+                        )
+                    provider_kwargs = {
+                        "messages": messages,
+                        "tools": tools,
+                        "model": model,
+                    }
+                    if request_timeout is not None:
+                        provider_kwargs["timeout"] = request_timeout
+                    provider_resp = await provider.chat(**provider_kwargs)
                     chat_resp = self._build_chat_response(provider, provider_resp)
 
                     if structured_output_schema is not None:
@@ -141,34 +157,36 @@ class ModelGateway:
         model: str | None = None,
     ) -> AsyncGenerator[ChatResponse, None]:
         candidates = self._router.resolve_candidates(task_type)
+        req = await self._create_request_audit(
+            task_type=task_type,
+            provider_name=candidates[0].name,
+            messages=messages,
+            tools=tools,
+            output_schema_name="",
+            structured_output=False,
+        )
+
         last_error: Exception | None = None
         attempt_number = 0
 
         for provider in candidates:
             for _ in range(self._max_retries_per_attempt + 1):
                 attempt_number += 1
-                req = await self._create_request_audit(
-                    task_type=task_type,
-                    provider_name=provider.name,
-                    messages=messages,
-                    tools=tools,
-                    output_schema_name="",
-                    structured_output=False,
-                )
-
+                started = time.perf_counter()
                 accumulated: list[str] = []
                 last_chunk: ChatResponse | None = None
-                started = time.perf_counter()
-                chunk_yielded = False
+                attempt_yielded = False
 
                 try:
                     async for provider_resp in provider.chat_stream(
-                        messages=messages, tools=tools, model=model
+                        messages=messages,
+                        tools=tools,
+                        model=model,
                     ):
+                        last_chunk = self._build_chat_response(provider, provider_resp)
                         if provider_resp.content:
                             accumulated.append(provider_resp.content)
-                        last_chunk = self._build_chat_response(provider, provider_resp)
-                        chunk_yielded = True
+                        attempt_yielded = True
                         yield last_chunk
 
                     usage = (last_chunk.usage if last_chunk else None) or TokenUsage()
@@ -176,7 +194,7 @@ class ModelGateway:
                         req=req,
                         attempt_number=attempt_number,
                         provider_name=provider.name,
-                        model_name=(last_chunk.model if last_chunk else "") or provider.default_model,
+                        model_name=self._resolve_audit_model_name(provider, model, last_chunk),
                         response_json={
                             "content": "".join(accumulated),
                             "tool_calls": (
@@ -198,15 +216,24 @@ class ModelGateway:
                         req=req,
                         attempt_number=attempt_number,
                         provider_name=provider.name,
-                        model_name=provider.default_model,
-                        response_json=None,
+                        model_name=self._resolve_audit_model_name(provider, model, last_chunk),
+                        response_json={
+                            "content": "".join(accumulated),
+                            "tool_calls": (
+                                [tc.model_dump(mode="json") for tc in last_chunk.tool_calls]
+                                if last_chunk and last_chunk.tool_calls
+                                else None
+                            ),
+                        }
+                        if attempt_yielded
+                        else None,
                         usage_json=None,
                         latency_ms=self._elapsed_ms(started),
                         success=False,
                         error_code="provider_stream_error",
                         error_message=type(exc).__name__,
                     )
-                    if chunk_yielded:
+                    if attempt_yielded:
                         raise
                     continue
 
@@ -261,6 +288,21 @@ class ModelGateway:
             error_code=error_code,
             error_message=error_message,
         )
+
+    @staticmethod
+    def _resolve_audit_model_name(
+        provider: BaseProvider,
+        model: str | None,
+        last_chunk: ChatResponse | None = None,
+    ) -> str:
+        if last_chunk and last_chunk.model:
+            return last_chunk.model
+        if model:
+            return model
+        configured = getattr(provider, "_model", None)
+        if configured:
+            return configured
+        return provider.default_model
 
     @staticmethod
     def _build_chat_response(provider: BaseProvider, resp: ProviderResponse) -> ChatResponse:

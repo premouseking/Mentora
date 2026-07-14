@@ -105,26 +105,16 @@ class ContextManager:
         else:
             # 需要裁剪：P4 先裁历史，P3 再裁证据
             # 优先保留最近的 2 条历史
-            recent_count = min(2, len(history_copy))
-            recent = history_copy[-recent_count:] if recent_count > 0 else []
-            older = history_copy[:-recent_count] if recent_count > 0 else history_copy
-
-            recent_tokens = self.counter.count_messages(recent)
+            history_copy, history_tokens_used = self._truncate_history(
+                history_copy, remaining
+            )
 
             # 先只保留最近消息
-            if recent_tokens + evidence_tokens <= remaining:
-                history_copy = recent
-                evidence_tokens_used = evidence_tokens
-                history_tokens_used = recent_tokens
-            else:
+            evidence_texts, evidence_tokens_used = self._truncate_evidence(
+                evidence_texts, remaining - history_tokens_used
+            )
                 # 证据也需截断
-                truncated_evidence, evidence_tokens_used = self._truncate_evidence(
-                    evidence_texts, remaining - recent_tokens
-                )
-                history_copy = recent
-                history_tokens_used = recent_tokens
                 # 替换 evidence_texts 引用（仅用于构建消息）
-                evidence_texts = truncated_evidence
 
         # 组装消息列表
         messages: list[Message] = []
@@ -176,10 +166,41 @@ class ContextManager:
                 break
         return result, used
 
+    def _truncate_history(
+        self, messages: list[Message], available: int
+    ) -> tuple[list[Message], int]:
+        """Keep the newest history that fits, truncating one oversized message."""
+        if available <= 0:
+            return [], 0
+
+        kept_reversed: list[Message] = []
+        used = 0
+        for message in reversed(messages):
+            tokens = self.counter.count_messages([message])
+            if used + tokens <= available:
+                kept_reversed.append(message)
+                used += tokens
+                continue
+
+            remaining = available - used
+            if remaining > 0 and message.content:
+                truncated = message.model_copy(
+                    update={"content": self._truncate_text(message.content, remaining)}
+                )
+                truncated_tokens = self.counter.count_messages([truncated])
+                if truncated_tokens <= remaining:
+                    kept_reversed.append(truncated)
+                    used += truncated_tokens
+            break
+
+        return list(reversed(kept_reversed)), used
+
     def _truncate_text(self, text: str, max_tokens: int) -> str:
         """截断单段文本到指定 Token 限制。"""
         # 粗略按字符数截断：token ≈ char_count / 3
+        if max_tokens <= 0:
+            return ""
         max_chars = max_tokens * 3
         if len(text) <= max_chars:
             return text
-        return text[:max_chars] + "…"
+        return text[:max_chars]

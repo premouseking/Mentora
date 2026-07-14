@@ -17,6 +17,7 @@ from django.core.management.base import BaseCommand
 from mentora.knowledge.models import ProcessingStatus, Source
 from mentora.knowledge.services.upload import upload_file_direct
 from mentora.retrieval.models import EvidenceUnit
+from config.authentication import get_development_user
 
 
 SEED_TITLE = "[seed] 计算机系统概述"
@@ -27,7 +28,7 @@ class Command(BaseCommand):
     help = "填充本地开发最小闭环样例数据（资源库 + 解析证据）"
 
     def handle(self, *args, **options):
-        owner_id = settings.DEV_OWNER_ID
+        owner = get_development_user()
         api_root = settings.BASE_DIR
         fixture_path = os.path.join(api_root, *FIXTURE_REL)
 
@@ -36,7 +37,7 @@ class Command(BaseCommand):
             return
 
         existing = Source.objects.filter(
-            owner_id=owner_id,
+            owner=owner,
             display_title=SEED_TITLE,
         ).first()
         if existing and existing.latest_version:
@@ -61,7 +62,7 @@ class Command(BaseCommand):
             file_bytes=file_bytes,
             filename="normal.pdf",
             content_sha256=sha256,
-            owner_id=owner_id,
+            owner=owner,
             sync_processing=True,
         )
 

@@ -1,24 +1,18 @@
 """
 评估工具：题目生成与管理。
 
-约定：
-- AssessorAgent 生成题目内容（通过 LLM），工具负责持久化
-- create_item / create_session / submit_attempt 调用 assessment.services
-
 @module mentora/agent_runtime/tools/assessment_tools
 """
 
 from asgiref.sync import sync_to_async
+
 from mentora.agent_runtime.schemas.context import ToolContext
 from mentora.agent_runtime.tools.base import Tool, ToolResult
+from mentora.assessment.services.quiz_item_normalization import normalize_raw_items
 
 
 class GenerateItemTool(Tool):
-    """生成评估题目工具。
-
-    AssessorAgent 通过 LLM 推理生成题目内容后，调用本工具持久化到 assessment 模块。
-    同时创建测验会话并关联题目，学生可立即开始作答。
-    """
+    """生成评估题目工具。"""
 
     async def execute(self, args: dict, ctx: ToolContext) -> ToolResult:
         items = args.get("items") or args.get("questions")
@@ -44,38 +38,60 @@ class GenerateItemTool(Tool):
                 error="缺少 course_session_id 参数",
             )
 
+        metadata = ctx.metadata or {}
+        allowed_evidence_ids = {
+            str(eid).strip()
+            for eid in (metadata.get("allowed_evidence_ids") or [])
+            if str(eid).strip()
+        }
+        fallback_evidence_ids = [
+            str(eid).strip()
+            for eid in (metadata.get("fallback_evidence_ids") or [])
+            if str(eid).strip()
+        ]
+        unit_id = str(args.get("unit_id") or metadata.get("unit_id") or "").strip()
+        evidence_context = str(metadata.get("evidence_context") or "")
+
         try:
-            from mentora.assessment.services import create_item, create_session
+            from mentora.assessment.services.quiz_generation import persist_normalized_items
 
-            created_ids = []
-            for item_data in items:
-                result = await sync_to_async(create_item)(
-                    course_session_id=course_session_id,
-                    question_type=item_data.get("question_type", "single_choice"),
-                    question_text=item_data["question_text"],
-                    correct_answer=item_data["correct_answer"],
-                    topic_id=item_data.get("topic_id", ""),
-                    difficulty=item_data.get("difficulty", 3),
-                    options_json=item_data.get("options_json"),
-                    explanation=item_data.get("explanation", ""),
-                    source_evidence_ids=item_data.get("source_evidence_ids", []),
-                )
-                created_ids.append(result["item_id"])
-
-            # 创建测验会话
-            session_result = await sync_to_async(create_session)(
-                course_session_id=course_session_id,
-                item_ids=created_ids,
-                unit_id=args.get("unit_id", ""),
+            normalized, skipped = normalize_raw_items(
+                items,
+                allowed_evidence_ids=allowed_evidence_ids,
+                fallback_evidence_ids=fallback_evidence_ids,
             )
+            if not normalized:
+                return ToolResult(
+                    tool_name="generate_item",
+                    success=False,
+                    error="题目格式无效",
+                    result={"skipped": skipped},
+                )
+
+            session_id, persist_skipped = await persist_normalized_items(
+                course_session_id=course_session_id,
+                normalized_items=normalized,
+                unit_id=unit_id,
+                run_batch_validation=bool(evidence_context),
+                evidence_context=evidence_context,
+            )
+            skipped.extend(persist_skipped)
+
+            if not session_id:
+                return ToolResult(
+                    tool_name="generate_item",
+                    success=False,
+                    error="没有通过质量评估的题目",
+                    result={"skipped": skipped},
+                )
 
             return ToolResult(
                 tool_name="generate_item",
                 success=True,
                 result={
-                    "session_id": session_result["session_id"],
-                    "item_ids": created_ids,
-                    "item_count": len(created_ids),
+                    "session_id": session_id,
+                    "item_count": len(normalized) - len(persist_skipped),
+                    "skipped": skipped,
                 },
             )
         except Exception as e:
@@ -87,10 +103,7 @@ class GenerateItemTool(Tool):
 
 
 class SubmitAnswerTool(Tool):
-    """提交作答工具。
-
-    记录学生单题作答并自动判分（对比题干 correct_answer）。
-    """
+    """提交作答工具。"""
 
     async def execute(self, args: dict, ctx: ToolContext) -> ToolResult:
         session_id = args.get("session_id", "")

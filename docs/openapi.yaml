@@ -4,6 +4,23 @@ info:
   version: 1.0.0
   description: Mentora 智能学习工作空间 API
 paths:
+  /api/assessment/generation-jobs/{job_id}/:
+    get:
+      operationId: assessment_generation_jobs_retrieve
+      parameters:
+      - in: path
+        name: job_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - assessment
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          description: No response body
   /api/assessment/sessions/{session_id}/:
     get:
       operationId: assessment_sessions_retrieve
@@ -17,9 +34,7 @@ paths:
       tags:
       - assessment
       security:
-      - cookieAuth: []
-      - basicAuth: []
-      - {}
+      - jwtAuth: []
       responses:
         '200':
           description: No response body
@@ -36,9 +51,7 @@ paths:
       tags:
       - assessment
       security:
-      - cookieAuth: []
-      - basicAuth: []
-      - {}
+      - jwtAuth: []
       responses:
         '200':
           description: No response body
@@ -55,9 +68,7 @@ paths:
       tags:
       - assessment
       security:
-      - cookieAuth: []
-      - basicAuth: []
-      - {}
+      - jwtAuth: []
       responses:
         '200':
           description: No response body
@@ -68,63 +79,516 @@ paths:
       summary: 生成测验试卷
       tags:
       - assessment
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/assessment/sessions/reuse/:
+    get:
+      operationId: assessment_sessions_reuse_retrieve
+      description: 按 cache key 参数查找可复用测验（任务练习预加载）。
+      tags:
+      - assessment
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/auth/change-password/:
+    post:
+      operationId: auth_change_password_create
+      summary: 修改密码
+      tags:
+      - auth
       requestBody:
         content:
           application/json:
             schema:
               type: object
               properties:
-                course_session_id:
+                old_password:
                   type: string
-                source_version_ids:
-                  type: array
-                  items:
-                    type: string
-                count:
-                  type: integer
-                  default: 5
-                difficulty:
+                new_password:
                   type: string
-                  default: 综合
+                  description: 新密码，≥8 位
+              required:
+              - old_password
+              - new_password
       security:
-      - cookieAuth: []
-      - basicAuth: []
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                description: 修改成功
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                description: 原密码错误或新密码太短
+          description: ''
+  /api/auth/login/:
+    post:
+      operationId: auth_login_create
+      description: 验证邮箱密码，返回 JWT。
+      summary: 用户登录
+      tags:
+      - auth
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email:
+                  type: string
+                  description: 邮箱
+                password:
+                  type: string
+                  description: 密码
+              required:
+              - email
+              - password
+      security:
+      - jwtAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                description: 登录成功，返回 JWT
+          description: ''
+        '401':
+          content:
+            application/json:
+              schema:
+                description: 邮箱或密码错误
+          description: ''
+  /api/auth/logout/:
+    post:
+      operationId: auth_logout_create
+      description: 将当前 refresh token 加入黑名单。
+      summary: 登出
+      tags:
+      - auth
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                refresh:
+                  type: string
+                  description: refresh token
+              required:
+              - refresh
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                description: 登出成功
+          description: ''
+  /api/auth/profile/:
+    get:
+      operationId: auth_profile_retrieve
+      description: 返回当前登录用户的资料。
+      summary: 获取用户资料
+      tags:
+      - auth
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                description: 用户资料
+          description: ''
+  /api/auth/profile/update/:
+    patch:
+      operationId: auth_profile_update_partial_update
+      description: 修改当前用户的显示名称。
+      summary: 更新用户资料
+      tags:
+      - auth
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                display_name:
+                  type: string
+                  description: 新显示名称
+              required:
+              - display_name
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                description: 更新成功
+          description: ''
+  /api/auth/refresh/:
+    post:
+      operationId: auth_refresh_create
+      description: 用 refresh token 换取新的 access token。
+      summary: 刷新 Token
+      tags:
+      - auth
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                refresh:
+                  type: string
+                  description: refresh token
+              required:
+              - refresh
+      security:
+      - jwtAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                description: 新的 access token
+          description: ''
+        '401':
+          content:
+            application/json:
+              schema:
+                description: refresh token 无效或过期
+          description: ''
+  /api/auth/register/:
+    post:
+      operationId: auth_register_create
+      description: 创建新用户并返回 JWT。
+      summary: 用户注册
+      tags:
+      - auth
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email:
+                  type: string
+                  description: 邮箱
+                password:
+                  type: string
+                  description: 密码，≥8 位
+                display_name:
+                  type: string
+                  description: 显示名称
+              required:
+              - email
+              - password
+      security:
+      - jwtAuth: []
       - {}
       responses:
         '201':
           content:
             application/json:
               schema:
-                type: object
-                additionalProperties: {}
-                description: Unspecified response body
+                description: 注册成功，返回 JWT
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                description: 参数无效或邮箱已注册
           description: ''
   /api/chat/:
     post:
       operationId: chat_create
-      description: POST /api/chat/
+      description: 发送消息给 AI 助教，返回完整回复。TutorAgent 会在必要时检索资料后回答。
+      summary: AI 聊天（非流式）
       tags:
-      - chat
+      - Agent 聊天
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                message:
+                  type: string
+                  description: 用户消息正文
+                history:
+                  type: array
+                  description: 历史对话消息列表
+                  items:
+                    type: object
+                    properties:
+                      role:
+                        type: string
+                        enum:
+                        - user
+                        - assistant
+                      content:
+                        type: string
+              required:
+              - message
       security:
-      - cookieAuth: []
-      - basicAuth: []
-      - {}
+      - jwtAuth: []
       responses:
         '200':
-          description: No response body
+          content:
+            application/json:
+              schema:
+                description: 回复成功
+                content:
+                  application/json:
+                    type: object
+                    properties:
+                      reply:
+                        type: string
+                        description: AI 回复正文
+                      status:
+                        type: string
+                        enum:
+                        - completed
+                        - failed
+                      usage:
+                        type: object
+                        description: Token 用量
+                        properties:
+                          prompt_tokens:
+                            type: integer
+                          completion_tokens:
+                            type: integer
+                          total_tokens:
+                            type: integer
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                description: 请求参数无效（message 为空或 JSON 格式错误）
+          description: ''
+        '500':
+          content:
+            application/json:
+              schema:
+                description: Agent 运行异常
+          description: ''
+        '503':
+          content:
+            application/json:
+              schema:
+                description: LLM_API_KEY 未配置
+          description: ''
+  /api/chat/pipeline/:
+    post:
+      operationId: chat_pipeline_create
+      description: 按顺序执行多步 Agent 编排。每一步指定 agent_role、任务指令和输出键名，后续步骤可通过 input_from
+        引用前面步骤的输出。
+      summary: Pipeline 编排（非流式）
+      tags:
+      - Agent 聊天
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                pipeline_steps:
+                  type: array
+                  description: Pipeline 步骤列表，按顺序执行
+                  items:
+                    type: object
+                    properties:
+                      agent_role:
+                        type: string
+                        enum:
+                        - tutor
+                        - clarifier
+                        - planner
+                        - assessor
+                        description: Agent 角色
+                      task_instruction:
+                        type: string
+                        description: 步骤任务指令
+                      output_key:
+                        type: string
+                        description: 输出键名，供后续步骤引用
+                      input_from:
+                        type: string
+                        description: 引用前面步骤的 output_key（可选）
+                      max_tool_rounds:
+                        type: integer
+                        description: 最大工具调用轮次，默认 5
+                    required:
+                    - agent_role
+                    - task_instruction
+                    - output_key
+                context_sources:
+                  type: array
+                  items:
+                    type: string
+                  description: 上下文资料版本 ID 列表
+              required:
+              - pipeline_steps
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                description: Pipeline 完整执行结果
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                description: 参数无效
+          description: ''
+        '500':
+          content:
+            application/json:
+              schema:
+                description: Pipeline 执行异常
+          description: ''
+        '503':
+          content:
+            application/json:
+              schema:
+                description: LLM_API_KEY 未配置
+          description: ''
+  /api/chat/pipeline/stream/:
+    post:
+      operationId: chat_pipeline_stream_create
+      description: 按顺序执行多步 Agent 编排，每步完成后推送 SSE 事件。事件类型包括 step_started/step_completed/error/done。
+      summary: Pipeline 编排（流式 SSE）
+      tags:
+      - Agent 聊天
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                pipeline_steps:
+                  type: array
+                  description: Pipeline 步骤列表
+                  items:
+                    type: object
+                    properties:
+                      agent_role:
+                        type: string
+                        enum:
+                        - tutor
+                        - clarifier
+                        - planner
+                        - assessor
+                      task_instruction:
+                        type: string
+                      output_key:
+                        type: string
+                      input_from:
+                        type: string
+                      max_tool_rounds:
+                        type: integer
+                    required:
+                    - agent_role
+                    - task_instruction
+                    - output_key
+                context_sources:
+                  type: array
+                  items:
+                    type: string
+                  description: 上下文资料版本 ID 列表
+              required:
+              - pipeline_steps
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            text/event-stream:
+              schema:
+                description: Pipeline SSE 事件流
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                description: 参数无效
+          description: ''
+        '503':
+          content:
+            application/json:
+              schema:
+                description: LLM_API_KEY 未配置
+          description: ''
   /api/chat/stream/:
     post:
       operationId: chat_stream_create
-      description: POST /api/chat/stream/
+      description: 发送消息给 AI 助教，通过 Server-Sent Events 流式返回回复内容。事件类型包括 chunk/status/citations/error/done。
+      summary: AI 聊天（流式 SSE）
       tags:
-      - chat
+      - Agent 聊天
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                message:
+                  type: string
+                  description: 用户消息正文
+                history:
+                  type: array
+                  description: 历史对话消息列表
+                  items:
+                    type: object
+                    properties:
+                      role:
+                        type: string
+                        enum:
+                        - user
+                        - assistant
+                      content:
+                        type: string
+              required:
+              - message
       security:
-      - cookieAuth: []
-      - basicAuth: []
-      - {}
+      - jwtAuth: []
       responses:
         '200':
-          description: No response body
+          content:
+            text/event-stream:
+              schema:
+                description: SSE 事件流
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                description: 请求参数无效
+          description: ''
+        '503':
+          content:
+            application/json:
+              schema:
+                description: LLM_API_KEY 未配置
+          description: ''
   /api/courses/:
     get:
       operationId: courses_retrieve
@@ -135,9 +599,7 @@ paths:
       tags:
       - courses
       security:
-      - cookieAuth: []
-      - basicAuth: []
-      - {}
+      - jwtAuth: []
       responses:
         '200':
           description: No response body
@@ -158,9 +620,7 @@ paths:
       tags:
       - courses
       security:
-      - cookieAuth: []
-      - basicAuth: []
-      - {}
+      - jwtAuth: []
       responses:
         '200':
           description: No response body
@@ -181,12 +641,131 @@ paths:
       tags:
       - courses
       security:
-      - cookieAuth: []
-      - basicAuth: []
-      - {}
+      - jwtAuth: []
       responses:
         '200':
           description: No response body
+  /api/courses/{course_id}/agent-sessions/:
+    get:
+      operationId: courses_agent_sessions_retrieve
+      description: GET /api/courses/<course_id>/agent-sessions/
+      summary: 列出课程 Agent 会话
+      parameters:
+      - in: path
+        name: course_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - 课程 Agent
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/courses/{course_id}/agent-sessions/{session_id}/:
+    get:
+      operationId: courses_agent_sessions_retrieve_2
+      description: GET /api/courses/<course_id>/agent-sessions/<session_id>/
+      summary: 读取课程 Agent 会话详情
+      parameters:
+      - in: path
+        name: course_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      - in: path
+        name: session_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - 课程 Agent
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/courses/{course_id}/agent-sessions/stream/:
+    post:
+      operationId: courses_agent_sessions_stream_create
+      description: POST /api/courses/<course_id>/agent-sessions/stream/
+      summary: 课程 Agent 流式对话
+      parameters:
+      - in: path
+        name: course_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - 课程 Agent
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/courses/{course_id}/files/:
+    get:
+      operationId: courses_files_retrieve
+      description: 返回课程资料的文件树，按学习阶段分组。每个阶段为文件夹节点，内含该阶段关联的资料来源文件。
+      summary: 课程文件树
+      parameters:
+      - in: path
+        name: course_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - 课程管理
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                description: 文件树
+          description: ''
+        '404':
+          content:
+            application/json:
+              schema:
+                description: 课程不存在
+          description: ''
+  /api/courses/{course_id}/phases/:
+    get:
+      operationId: courses_phases_retrieve
+      description: 返回课程的学习阶段列表及计划调整影响范围。阶段状态按学习进度推导。
+      summary: 课程阶段列表
+      parameters:
+      - in: path
+        name: course_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - 课程管理
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                description: 阶段列表 + 调整影响
+          description: ''
+        '404':
+          content:
+            application/json:
+              schema:
+                description: 课程不存在或无学习计划
+          description: ''
   /api/courses/{course_id}/profile/:
     patch:
       operationId: courses_profile_partial_update
@@ -205,9 +784,7 @@ paths:
       tags:
       - courses
       security:
-      - cookieAuth: []
-      - basicAuth: []
-      - {}
+      - jwtAuth: []
       responses:
         '200':
           description: No response body
@@ -229,9 +806,7 @@ paths:
       tags:
       - courses
       security:
-      - cookieAuth: []
-      - basicAuth: []
-      - {}
+      - jwtAuth: []
       responses:
         '200':
           description: No response body
@@ -252,12 +827,84 @@ paths:
       tags:
       - courses
       security:
-      - cookieAuth: []
-      - basicAuth: []
-      - {}
+      - jwtAuth: []
       responses:
         '200':
           description: No response body
+  /api/courses/{course_id}/topics/:
+    get:
+      operationId: courses_topics_retrieve
+      description: 返回课程主题的嵌套树结构。
+      summary: 获取主题树
+      parameters:
+      - in: path
+        name: course_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - courses
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                description: 主题树
+          description: ''
+  /api/courses/{course_id}/topics/create/:
+    post:
+      operationId: courses_topics_create_create
+      description: 从结构化数据批量创建课程主题树。已存在的主题会被清空重建。
+      summary: 创建/更新主题树
+      parameters:
+      - in: path
+        name: course_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - courses
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                topics:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      name:
+                        type: string
+                        description: 主题名称
+                      level:
+                        type: integer
+                        description: 层级
+                      parent_index:
+                        type: integer
+                        description: 父主题在数组中的序号，-1 为根
+                      position:
+                        type: integer
+                        description: 排序
+                      estimated_minutes:
+                        type: integer
+                        description: 预估时长
+              required:
+              - topics
+      security:
+      - jwtAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                description: 创建成功
+          description: ''
   /api/courses/confirm/:
     post:
       operationId: courses_confirm_create
@@ -269,64 +916,32 @@ paths:
       tags:
       - courses
       security:
-      - cookieAuth: []
-      - basicAuth: []
-      - {}
+      - jwtAuth: []
       responses:
         '200':
           description: No response body
   /api/courses/sessions/:
     get:
-      operationId: courses_sessions_list
+      operationId: courses_sessions_retrieve
       description: |-
         GET  /api/courses/sessions/ → 列出所有建课会话
-      tags:
-      - courses
-      security:
-      - cookieAuth: []
-      - basicAuth: []
-      - {}
-      responses:
-        '200':
-          description: 建课会话列表
-          content:
-            application/json:
-              schema:
-                type: object
-                required: [items]
-                properties:
-                  items:
-                    type: array
-                    items:
-                      type: object
-                      properties:
-                        id: { type: string, format: uuid }
-                        course_id: { type: string, format: uuid, nullable: true }
-                        goal: { type: string }
-                        title: { type: string }
-                        status: { type: string }
-                        level: { type: string }
-                        pace: { type: string }
-                        time_budget: { type: string }
-                        school: { type: string }
-                        deadline: { type: string, format: date, nullable: true }
-                        current_phase: { type: string, nullable: true }
-                        next_task: { type: string, nullable: true }
-                        created_at: { type: string, format: date-time }
-                        updated_at: { type: string, format: date-time }
-                        last_studied_at: { type: string, format: date-time, nullable: true }
-                  count:
-                    type: integer
-    post:
-      operationId: courses_sessions_create
-      description: |-
         POST /api/courses/sessions/ → 创建新会话
       tags:
       - courses
       security:
-      - cookieAuth: []
-      - basicAuth: []
-      - {}
+      - jwtAuth: []
+      responses:
+        '200':
+          description: No response body
+    post:
+      operationId: courses_sessions_create
+      description: |-
+        GET  /api/courses/sessions/ → 列出所有建课会话
+        POST /api/courses/sessions/ → 创建新会话
+      tags:
+      - courses
+      security:
+      - jwtAuth: []
       responses:
         '200':
           description: No response body
@@ -347,11 +962,48 @@ paths:
       tags:
       - courses
       security:
-      - cookieAuth: []
-      - basicAuth: []
-      - {}
+      - jwtAuth: []
       responses:
         '200':
+          description: No response body
+  /api/courses/sessions/{session_id}/archive/:
+    patch:
+      operationId: courses_sessions_archive_partial_update
+      description: PATCH /api/courses/sessions/<id>/archive/ — 软归档，保留数据。
+      parameters:
+      - in: path
+        name: session_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - courses
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/courses/sessions/{session_id}/delete/:
+    delete:
+      operationId: courses_sessions_delete_destroy
+      description: |-
+        DELETE /api/courses/sessions/<uuid:id>/
+
+        删除建课会话及其课程资料关联。
+      parameters:
+      - in: path
+        name: session_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - courses
+      security:
+      - jwtAuth: []
+      responses:
+        '204':
           description: No response body
   /api/courses/sessions/{session_id}/inquiry/:
     post:
@@ -378,9 +1030,7 @@ paths:
       tags:
       - courses
       security:
-      - cookieAuth: []
-      - basicAuth: []
-      - {}
+      - jwtAuth: []
       responses:
         '200':
           description: No response body
@@ -400,9 +1050,7 @@ paths:
       tags:
       - courses
       security:
-      - cookieAuth: []
-      - basicAuth: []
-      - {}
+      - jwtAuth: []
       responses:
         '200':
           description: No response body
@@ -421,9 +1069,165 @@ paths:
       tags:
       - courses
       security:
-      - cookieAuth: []
-      - basicAuth: []
-      - {}
+      - jwtAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/courses/sessions/{session_id}/sources/:
+    get:
+      operationId: courses_sessions_sources_retrieve
+      description: |-
+        GET  /api/courses/sessions/<uuid:id>/sources/  → 查课程已关联资料
+        POST /api/courses/sessions/<uuid:id>/sources/  → 批量设置关联
+
+        POST body: { "source_version_ids": ["uuid1", "uuid2", ...] }
+        注意：为幂等安全，先删后建，而非增量合并。
+      parameters:
+      - in: path
+        name: session_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - courses
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          description: No response body
+    post:
+      operationId: courses_sessions_sources_create
+      description: |-
+        GET  /api/courses/sessions/<uuid:id>/sources/  → 查课程已关联资料
+        POST /api/courses/sessions/<uuid:id>/sources/  → 批量设置关联
+
+        POST body: { "source_version_ids": ["uuid1", "uuid2", ...] }
+        注意：为幂等安全，先删后建，而非增量合并。
+      parameters:
+      - in: path
+        name: session_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - courses
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/courses/sessions/{session_id}/sources/{source_version_id}/archive/:
+    patch:
+      operationId: courses_sessions_sources_archive_partial_update
+      description: PATCH /api/courses/sessions/<id>/sources/<source_version_id>/archive/
+      parameters:
+      - in: path
+        name: session_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      - in: path
+        name: source_version_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - courses
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/courses/sessions/{session_id}/sources/{source_version_id}/unarchive/:
+    patch:
+      operationId: courses_sessions_sources_unarchive_partial_update
+      description: PATCH /api/courses/sessions/<id>/sources/<source_version_id>/unarchive/
+      parameters:
+      - in: path
+        name: session_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      - in: path
+        name: source_version_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - courses
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/courses/sessions/{session_id}/sources/coverage-preview/:
+    post:
+      operationId: courses_sessions_sources_coverage_preview_create
+      description: |-
+        POST /api/courses/sessions/<uuid:id>/sources/coverage-preview/
+
+        请求体：{ "source_version_ids": ["uuid1", ...] }（可选，默认读 session 已绑定资料）
+        返回：{ "sufficient", "gaps", "sources" }
+      parameters:
+      - in: path
+        name: session_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - courses
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/courses/sessions/{session_id}/start/:
+    post:
+      operationId: courses_sessions_start_create
+      description: |-
+        POST /api/courses/sessions/<uuid:id>/start/
+
+        1. 确认课程（如未 confirm 则先创建 Course 记录）
+        2. 激活 learning 模块中的 plan revision
+        3. 会话状态置为 STARTED
+
+        返回：{ "status": "started", "revision_id": "...", "course_id": "..." }
+      parameters:
+      - in: path
+        name: session_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - courses
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/courses/sessions/{session_id}/unarchive/:
+    patch:
+      operationId: courses_sessions_unarchive_partial_update
+      description: PATCH /api/courses/sessions/<id>/unarchive/
+      parameters:
+      - in: path
+        name: session_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - courses
+      security:
+      - jwtAuth: []
       responses:
         '200':
           description: No response body
@@ -445,29 +1249,280 @@ paths:
       tags:
       - courses
       security:
-      - cookieAuth: []
-      - basicAuth: []
-      - {}
+      - jwtAuth: []
       responses:
         '200':
           description: No response body
+  /api/history/:
+    get:
+      operationId: history_retrieve
+      description: 按课程获取学习事件时间线，倒序排列。
+      summary: 获取学习记录
+      parameters:
+      - in: query
+        name: courseId
+        schema:
+          type: string
+        description: 课程 ID（Course.id 或建课 session_id），省略则返回全部
+      - in: query
+        name: limit
+        schema:
+          type: integer
+        description: 返回条数，默认 50
+      tags:
+      - history
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                description: 学习事件列表
+          description: ''
+  /api/learning/explanations/:
+    get:
+      operationId: learning_explanations_retrieve
+      description: 返回课程中已完成的 AI 讲解记录，按时间倒序排列。
+      summary: AI 讲解列表
+      parameters:
+      - in: query
+        name: course_id
+        schema:
+          type: string
+        description: 课程 ID
+        required: true
+      tags:
+      - 学习记录
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                description: 讲解列表
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                description: 缺少 course_id
+          description: ''
+  /api/learning/explanations/{doc_id}/:
+    get:
+      operationId: learning_explanations_retrieve_2
+      parameters:
+      - in: path
+        name: doc_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - learning
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          description: No response body
+    patch:
+      operationId: learning_explanations_partial_update
+      parameters:
+      - in: path
+        name: doc_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - learning
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          description: No response body
+    delete:
+      operationId: learning_explanations_destroy
+      parameters:
+      - in: path
+        name: doc_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - learning
+      security:
+      - jwtAuth: []
+      responses:
+        '204':
+          description: No response body
+  /api/learning/explanations/commit/:
+    post:
+      operationId: learning_explanations_commit_create
+      tags:
+      - learning
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/learning/explanations/preview/:
+    post:
+      operationId: learning_explanations_preview_create
+      tags:
+      - learning
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/learning/mistakes/:
+    get:
+      operationId: learning_mistakes_retrieve
+      description: 返回课程中所有答错的题目，按错误次数降序排列。包含题干、选项、正确答案、解析及来源链接。
+      summary: 错题汇总
+      parameters:
+      - in: query
+        name: course_id
+        schema:
+          type: string
+        description: 课程 ID
+        required: true
+      tags:
+      - 学习记录
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                description: 错题列表
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                description: 缺少 course_id
+          description: ''
+  /api/learning/mistakes/{item_id}/archive/:
+    patch:
+      operationId: learning_mistakes_archive_partial_update
+      description: 将错题从默认错题集隐藏，不影响历史作答记录。
+      summary: 归档错题
+      parameters:
+      - in: query
+        name: course_id
+        schema:
+          type: string
+        description: 课程 ID
+        required: true
+      - in: path
+        name: item_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - 学习记录
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/learning/mistakes/{item_id}/unarchive/:
+    patch:
+      operationId: learning_mistakes_unarchive_partial_update
+      summary: 取消归档错题
+      parameters:
+      - in: query
+        name: course_id
+        schema:
+          type: string
+        description: 课程 ID
+        required: true
+      - in: path
+        name: item_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - 学习记录
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/learning/tasks/{task_id}/:
+    get:
+      operationId: learning_tasks_retrieve
+      description: 返回学习任务的完整内容，包含按序渲染的内容块（标题/段落/引用/图解/提示/测验）和来源资料。
+      summary: 学习任务详情
+      parameters:
+      - in: path
+        name: task_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - 学习记录
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                description: 任务详情
+          description: ''
+        '404':
+          content:
+            application/json:
+              schema:
+                description: 任务不存在
+          description: ''
+  /api/learning/tasks/{task_id}/complete/:
+    post:
+      operationId: learning_tasks_complete_create
+      description: POST /api/learning/tasks/<task_id>/complete/
+      summary: 标记学习任务完成
+      parameters:
+      - in: path
+        name: task_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - 学习记录
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                description: 任务已标记完成
+          description: ''
+        '404':
+          content:
+            application/json:
+              schema:
+                description: 任务不存在
+          description: ''
   /api/library/folders/:
     get:
       operationId: library_folders_retrieve
       description: 返回当前用户的文件夹列表，含子文件夹数和资料数。
       summary: 列出文件夹
-      parameters:
-      - in: query
-        name: ownerId
-        schema:
-          type: string
-        description: 所有者 ID
       tags:
       - library
       security:
-      - cookieAuth: []
-      - basicAuth: []
-      - {}
+      - jwtAuth: []
       responses:
         '200':
           content:
@@ -500,9 +1555,7 @@ paths:
               required:
               - name
       security:
-      - cookieAuth: []
-      - basicAuth: []
-      - {}
+      - jwtAuth: []
       responses:
         '200':
           content:
@@ -531,9 +1584,7 @@ paths:
       tags:
       - library
       security:
-      - cookieAuth: []
-      - basicAuth: []
-      - {}
+      - jwtAuth: []
       responses:
         '200':
           content:
@@ -571,15 +1622,10 @@ paths:
                 parentId:
                   type: string
                   description: 父文件夹 ID（可选）
-                ownerId:
-                  type: string
-                  description: 所有者 ID
               required:
               - name
       security:
-      - cookieAuth: []
-      - basicAuth: []
-      - {}
+      - jwtAuth: []
       responses:
         '201':
           content:
@@ -604,11 +1650,6 @@ paths:
           type: string
         description: 文件夹 ID，传入时仅返回该文件夹下的资料
       - in: query
-        name: ownerId
-        schema:
-          type: string
-        description: 所有者 ID
-      - in: query
         name: q
         schema:
           type: string
@@ -626,9 +1667,7 @@ paths:
       tags:
       - library
       security:
-      - cookieAuth: []
-      - basicAuth: []
-      - {}
+      - jwtAuth: []
       responses:
         '200':
           content:
@@ -651,9 +1690,7 @@ paths:
       tags:
       - library
       security:
-      - cookieAuth: []
-      - basicAuth: []
-      - {}
+      - jwtAuth: []
       responses:
         '200':
           content:
@@ -682,9 +1719,7 @@ paths:
       tags:
       - library
       security:
-      - cookieAuth: []
-      - basicAuth: []
-      - {}
+      - jwtAuth: []
       responses:
         '200':
           content:
@@ -726,9 +1761,7 @@ paths:
               required:
               - folderId
       security:
-      - cookieAuth: []
-      - basicAuth: []
-      - {}
+      - jwtAuth: []
       responses:
         '200':
           content:
@@ -757,9 +1790,7 @@ paths:
       tags:
       - library
       security:
-      - cookieAuth: []
-      - basicAuth: []
-      - {}
+      - jwtAuth: []
       responses:
         '200':
           content:
@@ -807,9 +1838,7 @@ paths:
               required:
               - tags
       security:
-      - cookieAuth: []
-      - basicAuth: []
-      - {}
+      - jwtAuth: []
       responses:
         '200':
           content:
@@ -838,9 +1867,7 @@ paths:
       tags:
       - library
       security:
-      - cookieAuth: []
-      - basicAuth: []
-      - {}
+      - jwtAuth: []
       responses:
         '200':
           content:
@@ -869,9 +1896,7 @@ paths:
       tags:
       - library
       security:
-      - cookieAuth: []
-      - basicAuth: []
-      - {}
+      - jwtAuth: []
       responses:
         '200':
           content:
@@ -885,23 +1910,60 @@ paths:
               schema:
                 description: 资料版本不存在
           description: ''
+  /api/library/sources/{source_version_id}/assets/:
+    get:
+      operationId: library_sources_assets_retrieve
+      description: 按对象存储键流式返回解析图片；kind=original 时返回原始上传文件。
+      summary: 获取资料版本对象资源
+      parameters:
+      - in: query
+        name: key
+        schema:
+          type: string
+        description: 对象存储键（解析图片）
+      - in: query
+        name: kind
+        schema:
+          type: string
+        description: original 表示原始文件
+      - in: path
+        name: source_version_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - library
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                description: 二进制流
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                description: 参数无效
+          description: ''
+        '404':
+          content:
+            application/json:
+              schema:
+                description: 资料版本或对象不存在
+          description: ''
   /api/library/tags/:
     get:
       operationId: library_tags_retrieve
       description: 返回当前用户所有资料中已使用的标签合集。
       summary: 列出所有标签
-      parameters:
-      - in: query
-        name: ownerId
-        schema:
-          type: string
-        description: 所有者 ID
       tags:
       - library
       security:
-      - cookieAuth: []
-      - basicAuth: []
-      - {}
+      - jwtAuth: []
       responses:
         '200':
           content:
@@ -909,6 +1971,26 @@ paths:
               schema:
                 description: 标签列表
           description: ''
+  /api/model-requests/:
+    get:
+      operationId: model_requests_retrieve
+      tags:
+      - model-requests
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/model-usage/:
+    get:
+      operationId: model_usage_retrieve
+      tags:
+      - model-usage
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          description: No response body
   /api/parsing/benchmark:
     get:
       operationId: parsing_benchmark_retrieve
@@ -919,9 +2001,7 @@ paths:
       tags:
       - parsing
       security:
-      - cookieAuth: []
-      - basicAuth: []
-      - {}
+      - jwtAuth: []
       responses:
         '200':
           description: No response body
@@ -936,9 +2016,120 @@ paths:
       tags:
       - parsing
       security:
-      - cookieAuth: []
-      - basicAuth: []
-      - {}
+      - jwtAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/resources/:
+    get:
+      operationId: resources_retrieve
+      tags:
+      - resources
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/resources/{resource_id}/info/:
+    get:
+      operationId: resources_info_retrieve
+      parameters:
+      - in: path
+        name: resource_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - resources
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/resources/{resource_id}/pages/thumbnail/:
+    get:
+      operationId: resources_pages_thumbnail_retrieve
+      description: 返回页元数据；缩略图由前端 pdf.js 渲染。
+      parameters:
+      - in: path
+        name: resource_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - resources
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/resources/{resource_id}/pdf/:
+    get:
+      operationId: resources_pdf_retrieve
+      parameters:
+      - in: path
+        name: resource_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - resources
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/resources/{resource_id}/reader/:
+    get:
+      operationId: resources_reader_retrieve
+      parameters:
+      - in: path
+        name: resource_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - resources
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/resources/{resource_id}/reader/blocks/:
+    get:
+      operationId: resources_reader_blocks_retrieve
+      parameters:
+      - in: path
+        name: resource_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - resources
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/resources/{resource_id}/reader/meta/:
+    get:
+      operationId: resources_reader_meta_retrieve
+      parameters:
+      - in: path
+        name: resource_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - resources
+      security:
+      - jwtAuth: []
       responses:
         '200':
           description: No response body
@@ -957,9 +2148,7 @@ paths:
       tags:
       - retrieval
       security:
-      - cookieAuth: []
-      - basicAuth: []
-      - {}
+      - jwtAuth: []
       responses:
         '200':
           description: No response body
@@ -971,12 +2160,211 @@ paths:
       tags:
       - retrieval
       security:
-      - cookieAuth: []
-      - basicAuth: []
-      - {}
+      - jwtAuth: []
       responses:
         '200':
           description: No response body
+  /api/runs/:
+    get:
+      operationId: runs_retrieve
+      description: 返回编排运行历史记录，按时间倒序排列。支持分页参数。
+      summary: Agent 运行历史列表
+      tags:
+      - Agent 审计
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                description: 运行历史列表
+          description: ''
+  /api/runs/{run_id}/:
+    get:
+      operationId: runs_retrieve_2
+      description: 返回单次编排运行的完整信息，包含子 Agent 运行记录和工具调用记录。
+      summary: Agent 运行详情
+      parameters:
+      - in: path
+        name: run_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - Agent 审计
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                description: 运行详情
+          description: ''
+        '404':
+          content:
+            application/json:
+              schema:
+                description: 运行记录不存在
+          description: ''
+  /api/topics/{topic_id}/:
+    patch:
+      operationId: topics_partial_update
+      summary: 编辑主题
+      parameters:
+      - in: path
+        name: topic_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - topics
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  description: 新名称
+                position:
+                  type: integer
+                  description: 新排序
+                estimated_minutes:
+                  type: integer
+                  description: 预估时长
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                description: 编辑成功
+          description: ''
+        '404':
+          content:
+            application/json:
+              schema:
+                description: 主题不存在
+          description: ''
+  /api/topics/{topic_id}/delete/:
+    delete:
+      operationId: topics_delete_destroy
+      description: 删除主题及 CASCADE 子节点、边和证据关联。
+      summary: 删除主题
+      parameters:
+      - in: path
+        name: topic_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - topics
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                description: 删除成功
+          description: ''
+        '404':
+          content:
+            application/json:
+              schema:
+                description: 主题不存在
+          description: ''
+  /api/topics/{topic_id}/edges/:
+    post:
+      operationId: topics_edges_create
+      summary: 添加前置关系
+      parameters:
+      - in: path
+        name: topic_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - topics
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                target_id:
+                  type: string
+                  description: 前置主题 ID
+                relation:
+                  type: string
+                  description: requires 或 suggests
+              required:
+              - target_id
+      security:
+      - jwtAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                description: 关系创建成功
+          description: ''
+        '404':
+          content:
+            application/json:
+              schema:
+                description: 主题不存在
+          description: ''
+  /api/topics/{topic_id}/evidence/:
+    post:
+      operationId: topics_evidence_create
+      description: 批量关联 EvidenceUnit 到主题。
+      summary: 关联证据
+      parameters:
+      - in: path
+        name: topic_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - topics
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                evidence_unit_ids:
+                  type: array
+                  items:
+                    type: string
+                  description: EvidenceUnit ID 列表
+              required:
+              - evidence_unit_ids
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                description: 关联成功
+          description: ''
+        '404':
+          content:
+            application/json:
+              schema:
+                description: 主题不存在
+          description: ''
   /api/uploads/:
     post:
       operationId: uploads_create
@@ -999,9 +2387,6 @@ paths:
                 mediaType:
                   type: string
                   description: MIME 类型，默认 application/pdf
-                ownerId:
-                  type: string
-                  description: 所有者 ID
                 uploadId:
                   type: string
                   description: 客户端生成的 UUID，用于幂等关联
@@ -1009,9 +2394,7 @@ paths:
               - filename
               - size
       security:
-      - cookieAuth: []
-      - basicAuth: []
-      - {}
+      - jwtAuth: []
       responses:
         '200':
           content:
@@ -1047,9 +2430,6 @@ paths:
                 size:
                   type: integer
                   description: 实际文件字节大小
-                ownerId:
-                  type: string
-                  description: 所有者 ID
                 sync:
                   type: boolean
                   description: 是否同步等待解析完成，默认 true
@@ -1058,9 +2438,7 @@ paths:
               - sha256
               - size
       security:
-      - cookieAuth: []
-      - basicAuth: []
-      - {}
+      - jwtAuth: []
       responses:
         '200':
           content:
@@ -1074,12 +2452,95 @@ paths:
               schema:
                 description: 校验失败（SHA256/大小不匹配）
           description: ''
+  /api/workflows/:
+    get:
+      operationId: workflows_retrieve
+      description: 返回当前用户提交的工作流列表，按创建时间倒序。
+      summary: 用户工作流列表
+      tags:
+      - Workflow
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                description: 工作流列表
+          description: ''
+  /api/workflows/{workflow_id}/:
+    get:
+      operationId: workflows_retrieve_2
+      description: 按 ID 查询工作流的当前状态和结果。
+      summary: 查询工作流状态
+      parameters:
+      - in: path
+        name: workflow_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - Workflow
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                description: 工作流详情
+          description: ''
+        '404':
+          content:
+            application/json:
+              schema:
+                description: 工作流不存在
+          description: ''
+  /api/workflows/submit/:
+    post:
+      operationId: workflows_submit_create
+      description: 创建一个新的异步工作流任务，返回 workflow_id 供后续查询。
+      summary: 提交异步工作流
+      tags:
+      - Workflow
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                workflow_type:
+                  type: string
+                  enum:
+                  - chat
+                  - pipeline
+                  - course_creation
+                  description: 工作流类型
+                input_json:
+                  type: object
+                  description: OrchestratorTask 序列化 JSON
+              required:
+              - workflow_type
+              - input_json
+      security:
+      - jwtAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                description: 工作流已提交
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                description: 参数无效
+          description: ''
 components:
   securitySchemes:
-    basicAuth:
+    jwtAuth:
       type: http
-      scheme: basic
-    cookieAuth:
-      type: apiKey
-      in: cookie
-      name: sessionid
+      scheme: bearer
+      bearerFormat: JWT

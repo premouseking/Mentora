@@ -10,11 +10,14 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useCallback, useEffect, useState } from "react";
+import { Link, useLocation, useNavigate } from "react-router-dom";
+import { useQueryClient } from "@tanstack/react-query";
 
 import { AppShell } from "../components/AppShell";
-import { deleteCourseSession, listCourseSessions, type CourseSessionListItem } from "../services/courseApi";
+import { deleteCourseSession, type CourseSessionListItem } from "../services/courseApi";
+import { useCourseSessions } from "../hooks/useCourseSessions";
+import { usePrefetchCourseWorkspace } from "../hooks/usePrefetchCourseWorkspace";
 
 /* ── 状态映射 ── */
 
@@ -138,8 +141,22 @@ const TASK_TYPE_LABEL: Record<string, string> = {
   review: "复习",
 };
 
-function CourseList({ courses, onDelete }: { courses: CourseSessionListItem[]; onDelete: (id: string) => void }) {
+function courseCardHref(course: CourseSessionListItem): string {
+  if (course.course_id) return `/courses/${course.course_id}`;
+  // 尚未绑定 Course 实体时，回到建课流程而非工作台（避免 session ID 404）
+  if (course.status === "completed") return "/courses/new/plan";
+  return "/courses/new";
+}
+
+function CourseList({
+  courses,
+  onDelete,
+}: {
+  courses: CourseSessionListItem[];
+  onDelete: (id: string) => void;
+}) {
   const [confirmId, setConfirmId] = useState<string | null>(null);
+  const prefetchCourse = usePrefetchCourseWorkspace();
 
   return (
     <div className="course-list">
@@ -151,12 +168,20 @@ function CourseList({ courses, onDelete }: { courses: CourseSessionListItem[]; o
         const isCompleted = course.status === "completed";
 
         const name = courseDisplayName(course.title, course.goal);
+        const cardHref = courseCardHref(course);
+        const workspaceId = course.course_id;
 
         return (
           <div className="course-card-wrapper" key={course.id}>
             <Link
               className={`course-card ${colorClasses[color] ?? ""}`}
-              to={`/courses/${course.id}`}
+              to={cardHref}
+              onMouseEnter={() => {
+                if (workspaceId) prefetchCourse(workspaceId, course.id);
+              }}
+              onFocus={() => {
+                if (workspaceId) prefetchCourse(workspaceId, course.id);
+              }}
             >
               <span className={`course-card-icon ${color}`}>
                 {name.charAt(0)}
@@ -205,7 +230,7 @@ function CourseList({ courses, onDelete }: { courses: CourseSessionListItem[]; o
               </div>
           </Link>
 
-          {/* 删除按钮 — 仅 hover 显示 */}
+          {/* 删除 — 仅 hover 显示 */}
           <button
             className="course-card-delete"
             onClick={(e) => { e.preventDefault(); setConfirmId(course.id); }}
@@ -215,14 +240,17 @@ function CourseList({ courses, onDelete }: { courses: CourseSessionListItem[]; o
             <Trash2 size={14} />
           </button>
 
-          {/* 二次确认浮层 */}
           {confirmId === course.id && (
             <div className="course-delete-confirm">
               <FileWarning size={15} />
               <span>确定删除该课程？</span>
               <button
                 className="button primary danger small"
-                onClick={(e) => { e.preventDefault(); onDelete(course.id); setConfirmId(null); }}
+                onClick={(e) => {
+                  e.preventDefault();
+                  onDelete(course.id);
+                  setConfirmId(null);
+                }}
                 type="button"
               >
                 删除
@@ -245,68 +273,55 @@ function CourseList({ courses, onDelete }: { courses: CourseSessionListItem[]; o
 
 export function CoursesPage() {
   const location = useLocation();
+  const queryClient = useQueryClient();
   const urlParamEmpty = new URLSearchParams(location.search).get("state") === "empty";
-  const [sessions, setSessions] = useState<CourseSessionListItem[]>([]);
-  const [loading, setLoading] = useState(!urlParamEmpty);
-  const [error, setError] = useState("");
-
-  const fetchSessions = useCallback(async () => {
-    setLoading(true);
-    setError("");
-    try {
-      const data = await listCourseSessions();
-      setSessions(data);
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "获取课程列表失败");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    fetchSessions();
-  }, [fetchSessions]);
+  const { data: sessions = [], isLoading, error, refetch } = useCourseSessions(!urlParamEmpty);
 
   // 建课完成后跳回列表页时主动刷新
   useEffect(() => {
     const started = sessionStorage.getItem("mentora-course-started");
-    if (started) {
-      sessionStorage.removeItem("mentora-course-started");
-      fetchSessions();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    if (!started) return;
+    sessionStorage.removeItem("mentora-course-started");
+    queryClient.invalidateQueries({ queryKey: ["courses", "sessions"] });
+  }, [queryClient]);
 
   const displayCourses = sessions.filter((s) => s.status === "started" || s.status === "completed");
   const hasCourses = displayCourses.length > 0;
+  const showLoading = isLoading && sessions.length === 0;
+  const errorMessage = error instanceof Error ? error.message : error ? "获取课程列表失败" : "";
 
   const handleDelete = useCallback(async (id: string) => {
     try {
       await deleteCourseSession(id);
-      setSessions((prev) => prev.filter((s) => s.id !== id));
+      queryClient.invalidateQueries({ queryKey: ["courses", "sessions"] });
     } catch {
       // 静默失败
     }
-  }, []);
+  }, [queryClient]);
 
   return (
     <AppShell>
       <CourseHeader hasCourses={hasCourses} />
-      {loading && (
+      {showLoading && (
         <div className="empty-state">
           <p style={{ color: "var(--quiet)" }}>加载中…</p>
         </div>
       )}
-      {error && (
+      {errorMessage && (
         <div className="empty-state">
-          <p className="error-text">{error}</p>
-          <button className="button secondary" onClick={fetchSessions} type="button">
+          <p className="error-text">{errorMessage}</p>
+          <button className="button secondary" onClick={() => refetch()} type="button">
             重试
           </button>
         </div>
       )}
-      {!loading && !error && !hasCourses && <EmptyCourses />}
-      {hasCourses && <CourseList courses={displayCourses} onDelete={handleDelete} />}
+      {!showLoading && !errorMessage && !hasCourses && <EmptyCourses />}
+      {hasCourses && (
+        <CourseList
+          courses={displayCourses}
+          onDelete={handleDelete}
+        />
+      )}
     </AppShell>
   );
 }

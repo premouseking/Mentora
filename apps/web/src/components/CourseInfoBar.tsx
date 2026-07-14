@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { ChevronUp, X } from "lucide-react";
 import { useCourseCreation } from "./CourseCreationContext";
+import { ProfileQaList, courseInfoToQaItems } from "./ProfileQaDisplay";
 
 interface CourseInfoBarProps {
   mode: "collapsed" | "expanded";
@@ -8,7 +9,7 @@ interface CourseInfoBarProps {
 }
 
 /**
- * 创建课程常驻底栏 — 展示学习档案
+ * 创建课程常驻底栏 — 展示学习档案（Q&A 卡片）
  *
  * 约束：
  * - collapsed：底部约 1/5 视口高度，横向不占满，显示信息列表
@@ -20,6 +21,7 @@ export function CourseInfoBar({ mode, onToggle }: CourseInfoBarProps) {
   const barRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const isExpanded = mode === "expanded";
+  const qaItems = courseInfoToQaItems(items);
 
   // 点击外部区域收起
   useEffect(() => {
@@ -54,19 +56,7 @@ export function CourseInfoBar({ mode, onToggle }: CourseInfoBarProps) {
 
       <div ref={contentRef} className="info-bar-scroll">
         {isExpanded && <h3 className="info-bar-heading">学习档案</h3>}
-        <dl className="info-bar-list">
-          {items.map((item) => {
-            const isInquiry = item.key === "inquiry";
-            return (
-              <div className="info-bar-row" key={item.key}>
-                <dt data-tooltip={item.title}><span className="info-bar-label">{item.title}</span></dt>
-                <dd data-tooltip={isInquiry ? item.value.replace(/\n/g, " ") : item.value}>
-                  <span className={`info-bar-value${isInquiry ? " inquiry-value" : ""}`}>{item.value}</span>
-                </dd>
-              </div>
-            );
-          })}
-        </dl>
+        <ProfileQaList compact items={qaItems} />
       </div>
     </div>
   );
@@ -83,6 +73,7 @@ export function CourseInfoBar({ mode, onToggle }: CourseInfoBarProps) {
 export function CourseInfoPanel({ onConfirm }: { onConfirm: () => void }) {
   const { items } = useCourseCreation();
   const [visible, setVisible] = useState(false);
+  const qaItems = courseInfoToQaItems(items);
 
   useEffect(() => {
     const timer = setTimeout(() => setVisible(true), 50);
@@ -94,19 +85,7 @@ export function CourseInfoPanel({ onConfirm }: { onConfirm: () => void }) {
       <div className="course-info-panel">
         <h2>确认课程信息</h2>
         <div className="info-panel-content">
-          <dl className="info-bar-list">
-            {items.map((item) => {
-              const isInquiry = item.key === "inquiry";
-              return (
-                <div className="info-bar-row" key={item.key}>
-                  <dt data-tooltip={item.title}><span className="info-bar-label">{item.title}</span></dt>
-                  <dd data-tooltip={isInquiry ? item.value.replace(/\n/g, " ") : item.value}>
-                    <span className={`info-bar-value${isInquiry ? " inquiry-value" : ""}`}>{item.value}</span>
-                  </dd>
-                </div>
-              );
-            })}
-          </dl>
+          <ProfileQaList items={qaItems} />
         </div>
         <div className="info-panel-footer">
           <button className="button primary" onClick={onConfirm} type="button">

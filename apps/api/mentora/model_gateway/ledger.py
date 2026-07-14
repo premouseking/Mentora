@@ -9,9 +9,8 @@
 
 from datetime import datetime, timedelta, timezone
 
-from django.db.models import Avg, Count, Q, Sum
 
-from mentora.model_gateway.models import ModelAttempt, ModelRequest
+from mentora.model_gateway.models import ModelAttempt
 
 # $/1M tokens (2026-06 参考价)
 MODEL_PRICING: dict[str, dict[str, float]] = {

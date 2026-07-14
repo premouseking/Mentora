@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { AlertTriangle, BookOpen, Check, FileText, RotateCcw, X } from "lucide-react";
+import { AlertTriangle, Archive, BookOpen, Check, FileText, RotateCcw, X } from "lucide-react";
 
 import type { MistakeItem } from "../services/learningApi";
 
@@ -56,10 +56,12 @@ export function MistakeReviewPanel({
   mistake,
   canOpenSource,
   onOpenSource,
+  onArchive,
 }: {
   mistake: MistakeItem;
   canOpenSource: (link: MistakeSourceLink) => boolean;
   onOpenSource: (link: MistakeSourceLink) => void;
+  onArchive?: () => void;
 }) {
   const [selected, setSelected] = useState<number | null>(null);
   const [submitted, setSubmitted] = useState(false);
@@ -160,6 +162,12 @@ export function MistakeReviewPanel({
               <RotateCcw size={14} />
               重新作答
             </button>
+            {onArchive && (
+              <button className="button compact secondary" onClick={onArchive} type="button">
+                <Archive size={14} />
+                归档此题
+              </button>
+            )}
           </div>
         </section>
       )}

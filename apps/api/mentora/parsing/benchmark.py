@@ -21,7 +21,6 @@ from dataclasses import dataclass, field
 from mentora.parsing.adapters import parse
 from mentora.parsing.adapters.exceptions import ParsingError
 from mentora.parsing.evidence import split_evidence
-from mentora.parsing.schemas import ParsedBundle, EvidenceUnit
 
 
 @dataclass

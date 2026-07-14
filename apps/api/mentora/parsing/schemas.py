@@ -21,7 +21,7 @@ from datetime import datetime, timezone
 from enum import Enum
 from uuid import UUID, uuid4
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, computed_field, model_validator
 
 
 class ElementType(str, Enum):
@@ -80,6 +80,10 @@ class Page(BaseModel):
 
     page_number: int = Field(ge=1, description="物理页码，从 1 开始")
     original_label: str | None = Field(default=None, description="原文件页码标注")
+    page_size: tuple[float, float] | None = Field(
+        default=None,
+        description="页面尺寸 [width, height]，单位 pt；旧 artifact 可能缺失",
+    )
     elements: list[ParsedElement] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
 
@@ -131,10 +135,12 @@ class ParsedBundle(BaseModel):
     artifact_ref: str = Field(default="", description="对象存储键，持久化后回填")
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
+    @computed_field
     @property
     def element_count(self) -> int:
         return sum(len(page.elements) for page in self.pages)
 
+    @computed_field
     @property
     def page_count(self) -> int:
         return len(self.pages)

@@ -31,9 +31,25 @@ class SessionCreateSerializer(serializers.ModelSerializer):
 class SessionUpdateSerializer(serializers.ModelSerializer):
     """更新会话基础信息。"""
 
+    inquiry_history = serializers.ListField(
+        child=serializers.DictField(),
+        required=False,
+    )
+
     class Meta:
         model = CourseCreationSession
-        fields = ["level", "pace", "time_budget", "school", "deadline", "last_studied_at", "status"]
+        fields = [
+            "goal",
+            "level",
+            "pace",
+            "time_budget",
+            "school",
+            "deadline",
+            "last_studied_at",
+            "profile_supplement",
+            "inquiry_history",
+            "status",
+        ]
 
 
 class SessionDetailSerializer(serializers.ModelSerializer):
@@ -51,6 +67,7 @@ class SessionDetailSerializer(serializers.ModelSerializer):
             "school",
             "deadline",
             "last_studied_at",
+            "profile_supplement",
             "inquiry_history",
             "status",
             "created_at",

@@ -9,20 +9,18 @@
 @module mentora/learning/services/mistakes
 """
 
-from collections import defaultdict
 
-from django.db.models import Count, Max, Q
+from django.db.models import Count, Max
 
 from mentora.assessment.models import (
     AssessmentAttempt,
     AssessmentItem,
     AssessmentItemRevision,
-    AssessmentSession,
 )
 from mentora.courses.models import Course
 
 
-def get_mistake_items(course_id: str) -> list[dict]:
+def get_mistake_items(course_id: str, *, include_archived: bool = False) -> list[dict]:
     """统计指定课程中的错题，返回聚合后的错题列表。
 
     返回字段对齐前端 MistakeItem：
@@ -37,6 +35,15 @@ def get_mistake_items(course_id: str) -> list[dict]:
         return []
 
     session_id = str(course.session_id)
+
+    archived_item_ids: set[str] = set()
+    if not include_archived:
+        from mentora.learning.models import MistakeArchive
+
+        archived_item_ids = {
+            str(row.item_id)
+            for row in MistakeArchive.objects.filter(course_id=course_id).only("item_id")
+        }
 
     # 该课程下所有错误的作答记录，按 item 分组
     wrong_attempts = (
@@ -83,6 +90,8 @@ def get_mistake_items(course_id: str) -> list[dict]:
 
     result = []
     for item_id, agg in attempt_map.items():
+        if str(item_id) in archived_item_ids:
+            continue
         item = items.get(item_id)
         if not item:
             continue
@@ -128,6 +137,33 @@ def get_mistake_items(course_id: str) -> list[dict]:
         })
 
     return result
+
+
+def archive_mistake(course_id: str, item_id: str, *, owner) -> dict:
+    """归档单道错题，后续默认列表不再展示。"""
+    from mentora.learning.models import MistakeArchive
+
+    record, _ = MistakeArchive.objects.get_or_create(
+        course_id=course_id,
+        item_id=item_id,
+        owner=owner,
+    )
+    return {
+        "course_id": course_id,
+        "item_id": str(item_id),
+        "archived_at": record.archived_at.isoformat(),
+    }
+
+
+def unarchive_mistake(course_id: str, item_id: str, *, owner) -> dict:
+    from mentora.learning.models import MistakeArchive
+
+    deleted, _ = MistakeArchive.objects.filter(
+        course_id=course_id, item_id=item_id, owner=owner,
+    ).delete()
+    if not deleted:
+        return {"course_id": course_id, "item_id": str(item_id), "status": "not_archived"}
+    return {"course_id": course_id, "item_id": str(item_id), "status": "active"}
 
 
 def get_explanations(course_id: str) -> list[dict]:

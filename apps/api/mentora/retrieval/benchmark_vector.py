@@ -13,6 +13,7 @@ import os
 import time
 from dataclasses import dataclass, field
 
+from asgiref.sync import async_to_sync
 from django.db import connection
 
 from mentora.retrieval.benchmark_runner import (
@@ -23,7 +24,7 @@ from mentora.retrieval.benchmark_runner import (
 )
 from mentora.retrieval.chunk_builder import build_chunks
 from mentora.retrieval.models import ChunkProjection, EvidenceUnit
-from mentora.retrieval.search import search
+from mentora.retrieval.search import async_search
 
 
 @dataclass
@@ -159,7 +160,7 @@ def run() -> VectorBenchmarkReport:
 
         # ── 两路 ──
         t0 = time.perf_counter()
-        rs_two = search(
+        rs_two = async_to_sync(async_search)(
             gq["query"],
             top_k=10,
             fts_weight=0.7,
@@ -180,7 +181,7 @@ def run() -> VectorBenchmarkReport:
 
         # ── 三路 ──
         t0 = time.perf_counter()
-        rs_three = search(
+        rs_three = async_to_sync(async_search)(
             gq["query"],
             top_k=10,
             fts_weight=0.5,

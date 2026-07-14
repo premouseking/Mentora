@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
   BookOpen,
@@ -13,7 +13,8 @@ import {
   X,
   XCircle,
 } from "lucide-react";
-import { useParams } from "react-router-dom";
+import { useParams, useSearchParams } from "react-router-dom";
+import { useQueryClient } from "@tanstack/react-query";
 import { AppShell } from "../components/AppShell";
 import {
   FileExplorer,
@@ -22,35 +23,48 @@ import {
   type SectionKey,
 } from "../components/FileExplorer";
 import { MistakeReviewPanel } from "../components/MistakeReviewPanel";
-import { PhaseSummary, type ProfileItem } from "../components/PhaseSummary";
-import { QuizPracticeView } from "../components/QuizPracticeView";
+import { PageSkeleton, WorkspaceSkeleton } from "../components/PageSkeleton";
 import type { FileNode } from "../data/files";
 interface MistakeSourceLink {
   title: string;
   location: string;
   excerpt: string;
 }
+import { useCourseWorkspaceCore } from "../hooks/useCourseWorkspaceCore";
 import {
-  fetchSources,
-  fetchSourceDetail,
-  sourcesToFileNodes,
-  fetchSessionPhases,
-  type BundleRaw,
-  type TreeNode,
-  type CoursePhasesResponse,
-} from "../services/documentApi";
-import { getActivePlan, getCourseSession, buildProfileItems, updateCourseSession, type ActivePlan } from "../services/courseApi";
+  useCourseExplanations,
+  useCourseMistakes,
+  useCoursePhases,
+} from "../hooks/useDeferredCourseSections";
+import { archiveCourseSource } from "../services/documentApi";
 import {
-  fetchExplanations,
-  fetchMistakes,
+  archiveMistake,
   type ExplanationItem,
   type MistakeItem,
 } from "../services/learningApi";
+import { queryKeys } from "../lib/queryKeys";
+import { removeReaderBlocksCache } from "../hooks/useResourceReaderQuery";
+import { fetchEvidenceLocation } from "../services/retrievalApi";
+import type { EvidenceHighlight } from "../components/document-reader/types";
+
+const PhaseSummary = lazy(() =>
+  import("../components/PhaseSummary").then((m) => ({ default: m.PhaseSummary })),
+);
+const QuizPracticeView = lazy(() =>
+  import("../components/QuizPracticeView").then((m) => ({ default: m.QuizPracticeView })),
+);
+const SourceReader = lazy(() =>
+  import("../components/document-reader/SourceReader").then((m) => ({ default: m.SourceReader })),
+);
+const AiExplanationView = lazy(() =>
+  import("../components/AiExplanationView").then((m) => ({ default: m.AiExplanationView })),
+);
 
 const MIN_EXPLORER = 170;
 const MAX_EXPLORER = 360;
 const MIN_SIDE_PANEL = 160;
 const MAX_SIDE_PANEL = 400;
+const MAX_OPEN_TABS = 8;
 const ICON_SIZE = 14;
 
 const SECTION_LABELS: Record<SectionKey, string> = {
@@ -72,13 +86,6 @@ interface WorkspaceTab {
   kind: WorkspaceTabKind;
   itemId: string;
   title: string;
-}
-
-interface FileBundleState {
-  bundle: BundleRaw | null;
-  title: string;
-  loading: boolean;
-  error: string;
 }
 
 interface ContextMenuState {
@@ -130,39 +137,6 @@ function getTabIcon(kind: WorkspaceTabKind) {
   if (kind === "file") return <FileText size={14} />;
   if (kind === "ai") return <BrainCircuit size={14} />;
   return <AlertTriangle size={14} />;
-}
-
-function DocumentRenderer({ bundle }: { bundle: BundleRaw }) {
-  return (
-    <div className="document-reader">
-      {bundle.pages.map((page) => (
-        <div key={page.page_number} className="doc-page">
-          <div className="doc-page-number">第 {page.page_number} 页</div>
-          {page.elements.map((el, index) => {
-            if (el.type === "heading") {
-              const level = Math.min(el.heading_level ?? 1, 3);
-              const sizes = [22, 18, 16];
-              return (
-                <div key={index} className="doc-heading" style={{ fontSize: sizes[level - 1], fontWeight: 700 }}>
-                  {el.text}
-                </div>
-              );
-            }
-            if (el.type === "paragraph") {
-              return <p key={index} className="doc-paragraph">{el.text}</p>;
-            }
-            if (el.type === "list_item") {
-              return <div key={index} className="doc-list-item">• {el.text}</div>;
-            }
-            if (el.type === "image") {
-              return <div key={index} className="doc-image-placeholder">[图片]</div>;
-            }
-            return <p key={index} className="doc-paragraph">{el.text || `[${el.type}]`}</p>;
-          })}
-        </div>
-      ))}
-    </div>
-  );
 }
 
 function DetachedSidePanel({
@@ -429,49 +403,63 @@ function TabBar({
 
 function ContentBody({
   tab,
-  fileState,
-  files,
-  onOpenSourceFile,
   onStartQuiz,
+  onArchiveMistake,
   aiItems,
   mistakeItems,
+  evidenceHighlight,
+  onClearEvidenceHighlight,
+  layoutRefreshKey,
+  courseId,
+  onExplanationDeleted,
+  onExplanationUpdated,
 }: {
   tab: WorkspaceTab;
-  fileState?: FileBundleState;
-  files: FileNode[];
-  onOpenSourceFile: (id: string, newTab?: boolean) => void;
   onStartQuiz: (sourceId: string | null) => void;
+  onArchiveMistake?: (itemId: string) => void;
   aiItems: ExplanationItem[];
   mistakeItems: MistakeItem[];
+  evidenceHighlight?: EvidenceHighlight | null;
+  onClearEvidenceHighlight?: () => void;
+  layoutRefreshKey?: number;
+  courseId: string;
+  onExplanationDeleted: () => void;
+  onExplanationUpdated: () => void;
 }) {
   const selectedAi = tab.kind === "ai" ? aiItems.find((item) => item.id === tab.itemId) : null;
   const selectedMistake = tab.kind === "mistake" ? mistakeItems.find((item) => item.item_id === tab.itemId) ?? null : null;
 
-  function canOpenSource(link: MistakeSourceLink) {
+  function canOpenSource(_link: MistakeSourceLink) {
     // source_links 来自后端，可能无对应本地 fileId
     return false;
   }
 
-  function handleOpenSource(link: MistakeSourceLink) {
+  function handleOpenSource(_link: MistakeSourceLink) {
     // 预留：后续通过 evidence_id 定位原文
   }
 
   if (tab.kind === "file") {
+    const activeEvidence = evidenceHighlight && tab.itemId === evidenceHighlight.sourceVersionId
+      ? evidenceHighlight
+      : null;
+
     return (
-      <>
+      <div className="cw-tab-reader-root">
         <div className="cw-content-toolbar">
           <button className="cw-panel-quiz" onClick={() => onStartQuiz(tab.itemId)} type="button">
             <ListChecks size={14} />
             <span>刷题</span>
           </button>
         </div>
-        {fileState?.loading && <p className="cw-preview-text">加载中...</p>}
-        {!fileState?.loading && fileState?.bundle && <DocumentRenderer bundle={fileState.bundle} />}
-        {!fileState?.loading && fileState?.error && <p className="cw-preview-text">{fileState.error}</p>}
-        {!fileState?.loading && !fileState?.bundle && !fileState?.error && (
-          <p className="cw-preview-text">无法加载文档内容。</p>
-        )}
-      </>
+        <Suspense fallback={<PageSkeleton />}>
+          <SourceReader
+            sourceVersionId={tab.itemId}
+            evidenceHighlight={activeEvidence}
+            onClearEvidenceHighlight={onClearEvidenceHighlight}
+            layoutRefreshKey={layoutRefreshKey}
+          />
+        </Suspense>
+      </div>
     );
   }
 
@@ -481,22 +469,22 @@ function ContentBody({
       <MistakeReviewPanel
         canOpenSource={canOpenSource}
         mistake={selectedMistake}
+        onArchive={onArchiveMistake ? () => onArchiveMistake(selectedMistake.item_id) : undefined}
         onOpenSource={handleOpenSource}
       />
     );
   }
 
+  if (!selectedAi) return <p className="cw-preview-text">这份 AI 讲解暂时不可用。</p>;
   return (
-    <div className="cw-ai-preview">
-      <div className="cw-ai-preview-icon">
-        <BrainCircuit size={22} />
-      </div>
-      <div>
-        <p className="cw-ai-preview-kicker">{selectedAi?.type ?? "AI 讲解"}</p>
-        <h2>{selectedAi?.title ?? tab.title}</h2>
-        <p>{selectedAi?.topic ? `关联知识点：${selectedAi.topic}` : "AI 讲解内容将在这里显示。"}</p>
-      </div>
-    </div>
+    <Suspense fallback={<PageSkeleton />}>
+      <AiExplanationView
+        courseId={courseId}
+        docId={selectedAi.id}
+        onDeleted={onExplanationDeleted}
+        onUpdated={onExplanationUpdated}
+      />
+    </Suspense>
   );
 }
 
@@ -505,11 +493,13 @@ function ContextMenu({
   onOpen,
   onOpenNewTab,
   onStartQuiz,
+  onArchiveFile,
 }: {
   state: ContextMenuState;
   onOpen: (target: ExplorerContextMenuTarget) => void;
   onOpenNewTab: (target: ExplorerContextMenuTarget) => void;
   onStartQuiz: (target: ExplorerContextMenuTarget) => void;
+  onArchiveFile?: (target: ExplorerContextMenuTarget) => void;
 }) {
   return (
     <div
@@ -521,6 +511,9 @@ function ContextMenu({
       <button onClick={() => onOpen(state.target)} role="menuitem" type="button">打开</button>
       <button onClick={() => onOpenNewTab(state.target)} role="menuitem" type="button">在新标签页中打开</button>
       <button onClick={() => onStartQuiz(state.target)} role="menuitem" type="button">刷题</button>
+      {state.target.kind === "file" && onArchiveFile && (
+        <button onClick={() => onArchiveFile(state.target)} role="menuitem" type="button">从课程归档</button>
+      )}
     </div>
   );
 }
@@ -537,54 +530,56 @@ export function CourseWorkspacePage() {
   const [sidePanelWidth, setSidePanelWidth] = useState(240);
   const [openTabs, setOpenTabs] = useState<WorkspaceTab[]>([]);
   const [activeTabId, setActiveTabId] = useState<string | null>(null);
-  const [fileCache, setFileCache] = useState<Record<string, FileBundleState>>({});
+  const [readerLayoutRefreshKey, setReaderLayoutRefreshKey] = useState(0);
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
-  const [fileNodes, setFileNodes] = useState<FileNode[]>([]);
-  const [activePlan, setActivePlan] = useState<ActivePlan | null>(null);
-  const [planLoading, setPlanLoading] = useState(false);
-  const [aiItems, setAiItems] = useState<ExplanationItem[]>([]);
-  const [mistakeItems, setMistakeItems] = useState<MistakeItem[]>([]);
-  const [phases, setPhases] = useState<CoursePhasesResponse | null>(null);
-  const [profileItems, setProfileItems] = useState<ProfileItem[]>([]);
+  const [evidenceHighlight, setEvidenceHighlight] = useState<EvidenceHighlight | null>(null);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [loadAiSection, setLoadAiSection] = useState(false);
+  const [loadMistakeSection, setLoadMistakeSection] = useState(false);
 
   const { courseId } = useParams<{ courseId: string }>();
+  const queryClient = useQueryClient();
+  const {
+    course,
+    activePlan,
+    fileNodes,
+    isInitialLoading,
+  } = useCourseWorkspaceCore(courseId);
+
+  const aiEnabled = loadAiSection || openTabs.some((tab) => tab.kind === "ai");
+  const mistakesEnabled = loadMistakeSection || openTabs.some((tab) => tab.kind === "mistake");
+  const { data: aiItems = [] } = useCourseExplanations(courseId, aiEnabled);
+  const { data: mistakeItems = [] } = useCourseMistakes(courseId, mistakesEnabled);
+  const { data: phases = null } = useCoursePhases(courseId, phaseSummaryOpen);
   const activeTab = useMemo(
     () => openTabs.find((tab) => tab.id === activeTabId) ?? null,
     [activeTabId, openTabs],
   );
 
+  const assistantCourseBinding = useMemo(() => {
+    if (!courseId || !course) return undefined;
+    return {
+      courseId,
+      courseSessionId: course.session_id,
+      courseTitle: course.goal?.slice(0, 64) || undefined,
+      courseGoal: course.goal || undefined,
+      currentSourceVersionId: selectedFile,
+    };
+  }, [courseId, course, selectedFile]);
+
+  const assistantContext = useMemo(
+    () => ({
+      files: fileNodes,
+      aiItems,
+      mistakeItems: mistakeItems as unknown as import("../data/mistakes").MistakeItem[],
+      selectedFileId: selectedFile,
+      selectedAiId: selectedAi,
+      selectedMistakeId: selectedMistake,
+    }),
+    [fileNodes, aiItems, mistakeItems, selectedFile, selectedAi, selectedMistake],
+  );
 
 
-  /* ── Fetch plan + update last_studied_at on mount ── */
-  useEffect(() => {
-    if (!courseId) return;
-    setPlanLoading(true);
-    getActivePlan(courseId)
-      .then((plan) => setActivePlan(plan))
-      .catch(() => setActivePlan(null))
-      .finally(() => setPlanLoading(false));
-    getCourseSession(courseId)
-      .then((session) => setProfileItems(buildProfileItems(session)))
-      .catch(() => setProfileItems([]));
-    // 更新最近学习时间
-    updateCourseSession(courseId, {
-      last_studied_at: new Date().toISOString(),
-    }).catch(() => {});
-
-    // 加载讲解、错题、阶段数据
-    Promise.all([
-      fetchExplanations(courseId).then((d) => setAiItems(d.items)).catch(() => {}),
-      fetchMistakes(courseId).then((d) => setMistakeItems(d.items)).catch(() => {}),
-      fetchSessionPhases(courseId).then(setPhases).catch(() => {}),
-    ]);
-  }, [courseId]);
-
-  /* ── Fetch sources on mount (filtered by course) ── */
-  useEffect(() => {
-    fetchSources(courseId)
-      .then((items) => setFileNodes(sourcesToFileNodes(items)))
-      .catch(() => setFileNodes([]));
-  }, [courseId]);
 
   useEffect(() => {
     if (!activeTab) {
@@ -596,42 +591,10 @@ export function CourseWorkspacePage() {
     setSelectedFile(activeTab.kind === "file" ? activeTab.itemId : null);
     setSelectedAi(activeTab.kind === "ai" ? activeTab.itemId : null);
     setSelectedMistake(activeTab.kind === "mistake" ? activeTab.itemId : null);
+    if (activeTab.kind === "file") {
+      setReaderLayoutRefreshKey((key) => key + 1);
+    }
   }, [activeTab]);
-
-  useEffect(() => {
-    if (!activeTab || activeTab.kind !== "file") return;
-    const fileId = activeTab.itemId;
-    const cached = fileCache[fileId];
-    if (cached?.bundle || cached?.loading || cached?.error) return;
-
-    setFileCache((prev) => ({
-      ...prev,
-      [fileId]: { bundle: null, title: activeTab.title, loading: true, error: "" },
-    }));
-    fetchSourceDetail(fileId)
-      .then((data) => {
-        setFileCache((prev) => ({
-          ...prev,
-          [fileId]: {
-            bundle: data.bundle,
-            title: data.source.displayTitle || data.version.originalFilename || activeTab.title,
-            loading: false,
-            error: data.bundle ? "" : "无法加载文档内容。",
-          },
-        }));
-      })
-      .catch((error) => {
-        setFileCache((prev) => ({
-          ...prev,
-          [fileId]: {
-            bundle: null,
-            title: activeTab.title,
-            loading: false,
-            error: error instanceof Error ? error.message : "加载文档失败。",
-          },
-        }));
-      });
-  }, [activeTab, fileCache]);
 
   useEffect(() => {
     if (!contextMenu) return;
@@ -649,6 +612,25 @@ export function CourseWorkspacePage() {
     };
   }, [contextMenu]);
 
+  /* ESC 全局返回（bubble 阶段兜底）：刷题 / 学习方案上划栏（调整方案内的 ESC 由 PhaseSummary capture 截断） */
+  useEffect(() => {
+    if (!quizPracticeOpen && !phaseSummaryOpen) return;
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key !== "Escape") return;
+      if (quizPracticeOpen) {
+        e.preventDefault();
+        setQuizPracticeOpen(false);
+        return;
+      }
+      if (phaseSummaryOpen) {
+        e.preventDefault();
+        setPhaseSummaryOpen(false);
+      }
+    }
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [quizPracticeOpen, phaseSummaryOpen]);
+
   const openItem = useCallback((kind: WorkspaceTabKind, itemId: string, mode: "replace" | "new") => {
     const nextTab = {
       id: getTabId(kind, itemId),
@@ -662,21 +644,82 @@ export function CourseWorkspacePage() {
         setActiveTabId(existing.id);
         return prev;
       }
-      if (mode === "new" || prev.length === 0 || !activeTabId) {
+
+      let base = prev;
+      if (mode === "new" && prev.length >= MAX_OPEN_TABS) {
+        const evictIndex = prev.findIndex((tab) => tab.kind === "file");
+        const evictTab = evictIndex >= 0 ? prev[evictIndex] : prev[0];
+        if (evictTab?.kind === "file") {
+          removeReaderBlocksCache(queryClient, evictTab.itemId);
+        }
+        base = prev.filter((tab) => tab.id !== evictTab.id);
+      }
+
+      if (mode === "new" || base.length === 0 || !activeTabId) {
         setActiveTabId(nextTab.id);
-        return [...prev, nextTab];
+        return [...base, nextTab];
       }
       setActiveTabId(nextTab.id);
-      return prev.map((tab) => (tab.id === activeTabId ? nextTab : tab));
+      return base.map((tab) => (tab.id === activeTabId ? nextTab : tab));
     });
-  }, [activeTabId, fileNodes]);
+  }, [activeTabId, aiItems, fileNodes, mistakeItems, queryClient]);
 
   const handleSelectFile = useCallback((id: string) => openItem("file", id, "replace"), [openItem]);
-  const handleSelectAi = useCallback((id: string) => openItem("ai", id, "replace"), [openItem]);
-  const handleSelectMistake = useCallback((id: string) => openItem("mistake", id, "replace"), [openItem]);
+  const handleSelectAi = useCallback((id: string) => {
+    setLoadAiSection(true);
+    openItem("ai", id, "replace");
+  }, [openItem]);
+  const handleSelectMistake = useCallback((id: string) => {
+    setLoadMistakeSection(true);
+    openItem("mistake", id, "replace");
+  }, [openItem]);
+
+  useEffect(() => {
+    const sourceVersionId = searchParams.get("sourceVersionId")?.trim();
+    const evidenceId = searchParams.get("evidenceId")?.trim();
+    if (!sourceVersionId) return;
+
+    openItem("file", sourceVersionId, "new");
+
+    if (evidenceId) {
+      fetchEvidenceLocation(evidenceId)
+        .then((location) => {
+          setEvidenceHighlight({
+            evidenceId,
+            sourceVersionId,
+            pageNumber: location.page_number,
+            content: location.content,
+            bbox: location.bbox
+              ? {
+                  x0: Number(location.bbox.x0),
+                  y0: Number(location.bbox.y0),
+                  x1: Number(location.bbox.x1),
+                  y1: Number(location.bbox.y1),
+                }
+              : null,
+          });
+        })
+        .catch(() => {
+          setEvidenceHighlight({
+            evidenceId,
+            sourceVersionId,
+            pageNumber: 1,
+            content: "",
+          });
+        });
+    } else {
+      setEvidenceHighlight(null);
+    }
+
+    setSearchParams({}, { replace: true });
+  }, [openItem, searchParams, setSearchParams]);
 
   function closeTab(tabId: string) {
     setOpenTabs((prev) => {
+      const closing = prev.find((tab) => tab.id === tabId);
+      if (closing?.kind === "file") {
+        removeReaderBlocksCache(queryClient, closing.itemId);
+      }
       const index = prev.findIndex((tab) => tab.id === tabId);
       const next = prev.filter((tab) => tab.id !== tabId);
       if (activeTabId === tabId) {
@@ -711,6 +754,32 @@ export function CourseWorkspacePage() {
   function handleContextStartQuiz(target: ExplorerContextMenuTarget) {
     setContextMenu(null);
     startQuiz(target.kind === "file" ? target.id : null);
+  }
+
+  async function handleContextArchiveFile(target: ExplorerContextMenuTarget) {
+    setContextMenu(null);
+    const sessionId = course?.session_id;
+    if (!sessionId || target.kind !== "file") return;
+    try {
+      await archiveCourseSource(sessionId, target.id);
+      if (courseId) {
+        queryClient.invalidateQueries({ queryKey: queryKeys.course.sources(courseId) });
+      }
+    } catch {
+      // 归档失败静默
+    }
+  }
+
+  async function handleArchiveMistake(itemId: string) {
+    if (!courseId) return;
+    try {
+      await archiveMistake(courseId, itemId);
+      queryClient.invalidateQueries({ queryKey: queryKeys.course.mistakes(courseId) });
+      setOpenTabs((tabs) => tabs.filter((tab) => !(tab.kind === "mistake" && tab.itemId === itemId)));
+      if (selectedMistake === itemId) setSelectedMistake(null);
+    } catch {
+      // 归档失败静默
+    }
   }
 
   const toggleDetach = useCallback((section: SectionKey) => {
@@ -779,19 +848,30 @@ export function CourseWorkspacePage() {
   const detachedList = (["file", "ai", "mistakes"] as SectionKey[]).filter((section) => detachedSections.has(section));
   const hasLeftSections = detachedSections.size < 3;
 
+  const handleSectionExpanded = useCallback((section: SectionKey) => {
+    if (section === "ai") setLoadAiSection(true);
+    if (section === "mistakes") setLoadMistakeSection(true);
+  }, []);
+
+  if (isInitialLoading) {
+    return (
+      <AppShell
+        assistantCourseBinding={assistantCourseBinding}
+        assistantContext={assistantContext}
+      >
+        <WorkspaceSkeleton />
+      </AppShell>
+    );
+  }
+
   return (
     <AppShell
-      aiChatContext={{
-        files: fileNodes,
-        aiItems,
-        mistakeItems,
-        selectedFileId: selectedFile,
-        selectedAiId: selectedAi,
-        selectedMistakeId: selectedMistake,
-      }}
+      assistantCourseBinding={assistantCourseBinding}
+      assistantContext={assistantContext}
     >
       {quizPracticeOpen ? (
-        <QuizPracticeView
+        <Suspense fallback={<PageSkeleton />}>
+          <QuizPracticeView
           files={fileNodes}
           defaultSourceId={quizDefaultSourceId}
           onBack={() => setQuizPracticeOpen(false)}
@@ -799,7 +879,8 @@ export function CourseWorkspacePage() {
             setQuizPracticeOpen(false);
             openItem("file", id, "new");
           }}
-        />
+          />
+        </Suspense>
       ) : (
         <div className="course-workspace-new">
           {hasLeftSections && (
@@ -818,6 +899,7 @@ export function CourseWorkspacePage() {
                   onContextMenu={handleExplorerContextMenu}
                   detachedSections={detachedSections}
                   onToggleDetach={toggleDetach}
+                  onSectionExpanded={handleSectionExpanded}
                 />
               </div>
               <div className="resize-handle cw-resize" onMouseDown={startExplorerResize} role="separator" aria-orientation="vertical" tabIndex={-1} />
@@ -845,12 +927,21 @@ export function CourseWorkspacePage() {
                   {activeTab && (
                     <ContentBody
                       tab={activeTab}
-                      fileState={activeTab.kind === "file" ? fileCache[activeTab.itemId] : undefined}
-                      files={fileNodes}
-                      onOpenSourceFile={(id, newTab = false) => openItem("file", id, newTab ? "new" : "replace")}
                       onStartQuiz={startQuiz}
+                      onArchiveMistake={handleArchiveMistake}
                       aiItems={aiItems}
                       mistakeItems={mistakeItems}
+                      evidenceHighlight={evidenceHighlight}
+                      onClearEvidenceHighlight={() => setEvidenceHighlight(null)}
+                      layoutRefreshKey={readerLayoutRefreshKey}
+                      courseId={courseId!}
+                      onExplanationDeleted={() => {
+                        closeTab(activeTab.id);
+                        void queryClient.invalidateQueries({ queryKey: queryKeys.course.explanations(courseId!) });
+                      }}
+                      onExplanationUpdated={() => {
+                        void queryClient.invalidateQueries({ queryKey: queryKeys.course.explanations(courseId!) });
+                      }}
                     />
                   )}
                 </main>
@@ -887,19 +978,16 @@ export function CourseWorkspacePage() {
             className={`phase-summary-overlay${phaseSummaryOpen ? " open" : ""}`}
           >
             {phaseSummaryOpen && (
-              <PhaseSummary
-                onClose={() => setPhaseSummaryOpen(false)}
-                plan={activePlan}
-                profileItems={profileItems}
-                loading={planLoading}
-                courseId={courseId ?? ""}
-              />
+              <Suspense fallback={<PageSkeleton />}>
+                <PhaseSummary onClose={() => setPhaseSummaryOpen(false)} activePlan={activePlan} phases={phases} courseId={courseId!} />
+              </Suspense>
             )}
           </div>
 
           {contextMenu && (
             <ContextMenu
               state={contextMenu}
+              onArchiveFile={handleContextArchiveFile}
               onOpen={handleContextOpen}
               onOpenNewTab={handleContextOpenNewTab}
               onStartQuiz={handleContextStartQuiz}

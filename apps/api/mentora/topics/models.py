@@ -18,9 +18,20 @@ class Topic(models.Model):
     """知识主题节点——课程的知识图谱中的节点。"""
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    course_id = models.CharField(
-        max_length=128, db_index=True,
-        help_text="关联课程 ID",
+    course = models.ForeignKey(
+        "courses.Course",
+        null=True,
+        blank=True,
+        on_delete=models.CASCADE,
+        related_name="topics",
+        help_text="正式课程 FK",
+    )
+    legacy_course_key = models.CharField(
+        max_length=128,
+        db_index=True,
+        blank=True,
+        default="",
+        help_text="兼容建课会话 ID 的遗留关联键",
     )
     name = models.CharField(max_length=256, help_text="主题名称")
     parent = models.ForeignKey(
@@ -38,10 +49,11 @@ class Topic(models.Model):
         db_table = "topics_topic"
         verbose_name = "知识主题"
         verbose_name_plural = verbose_name
-        ordering = ["course_id", "level", "position"]
+        ordering = ["course", "level", "position"]
         indexes = [
-            models.Index(fields=["course_id"]),
-            models.Index(fields=["course_id", "parent"]),
+            models.Index(fields=["course"]),
+            models.Index(fields=["course", "parent"]),
+            models.Index(fields=["legacy_course_key"]),
         ]
 
     def __str__(self) -> str:

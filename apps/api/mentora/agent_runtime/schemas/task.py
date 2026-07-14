@@ -81,3 +81,7 @@ class OrchestratorTask(BaseModel):
         default=None,
         description="累计 Token 用量（运行结束后回填）",
     )
+    tool_metadata: dict = Field(
+        default_factory=dict,
+        description="注入 ToolContext.metadata 的任务级元数据",
+    )

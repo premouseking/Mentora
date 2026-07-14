@@ -9,7 +9,14 @@
 @module mentora/learning/services
 """
 
-from django.db import transaction
+from __future__ import annotations
+
+import logging
+import uuid
+
+from functools import lru_cache
+
+from django.db import DatabaseError, connection, transaction
 
 from mentora.learning.models import (
     LearningPlan,
@@ -17,7 +24,10 @@ from mentora.learning.models import (
     LearningPlanRevision,
     LearningPlanTaskTemplate,
     LearningPlanUnit,
+    LearningTask,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def _validate_revision(revision: LearningPlanRevision, snapshot: dict) -> dict:
@@ -59,12 +69,227 @@ def _determine_feasibility(validation: dict) -> str:
     return LearningPlanRevision.Feasibility.CONSTRAINED
 
 
+def _task_defaults(task: dict, *, task_index: int, unit_id: str) -> dict:
+    task_type = task.get("task_type", "lecture")
+    title = str(task.get("title", "")).strip()
+    return {
+        "id": str(task.get("id") or uuid.uuid5(uuid.NAMESPACE_URL, f"{unit_id}:{task_index}:{title or task_type}")),
+        "position": int(task.get("position") or task_index),
+        "title": title,
+        "knowledge_point": str(task.get("knowledge_point", "")).strip(),
+        "task_type": task_type,
+        "delivery_mode": task.get("delivery_mode", "text"),
+        "estimated_minutes": int(task.get("estimated_minutes") or 0),
+        "required": bool(task.get("required", True)),
+        "materials": task.get("materials", []),
+        "source_evidence_ids": [
+            str(eid).strip()
+            for eid in (task.get("source_evidence_ids") or [])
+            if str(eid).strip()
+        ],
+    }
+
+
+@lru_cache(maxsize=8)
+def _table_columns(table_name: str) -> set[str]:
+    with connection.cursor() as cursor:
+        description = connection.introspection.get_table_description(cursor, table_name)
+    return {col.name for col in description}
+
+
+def _supports_structured_plan_tables() -> bool:
+    try:
+        unit_columns = _table_columns(LearningPlanUnit._meta.db_table)
+        task_columns = _table_columns(LearningPlanTaskTemplate._meta.db_table)
+    except DatabaseError:
+        return False
+    return {"title"}.issubset(unit_columns) and {"title", "knowledge_point", "position"}.issubset(task_columns)
+
+
+def _snapshot_counts(plan_snapshot: dict) -> tuple[int, int, int]:
+    phases = plan_snapshot.get("phases", [])
+    phase_count = len(phases)
+    unit_count = sum(len(phase.get("units", [])) for phase in phases)
+    task_count = sum(
+        len(unit.get("tasks", []))
+        for phase in phases
+        for unit in phase.get("units", [])
+    )
+    return phase_count, unit_count, task_count
+
+
+def _build_plan_from_snapshot(plan_id: str, revision: LearningPlanRevision) -> dict:
+    snapshot = revision.plan_snapshot_json or {}
+    phases: list[dict] = []
+    for phase_index, phase_data in enumerate(snapshot.get("phases", [])):
+        phase_id = str(phase_data.get("id") or uuid.uuid5(
+            uuid.NAMESPACE_URL, f"{revision.id}:phase:{phase_index}:{phase_data.get('title', '')}"
+        ))
+        units: list[dict] = []
+        for unit_index, unit_data in enumerate(phase_data.get("units", [])):
+            unit_id = str(unit_data.get("id") or uuid.uuid5(
+                uuid.NAMESPACE_URL, f"{phase_id}:unit:{unit_index}:{unit_data.get('title', '')}"
+            ))
+            raw_tasks = unit_data.get("tasks", [])
+            tasks = [_task_defaults(task, task_index=i, unit_id=unit_id) for i, task in enumerate(raw_tasks)]
+            units.append({
+                "id": unit_id,
+                "title": unit_data.get("title") or phase_data.get("title", ""),
+                "position": int(unit_data.get("position") or unit_index),
+                "topic_id": unit_data.get("topic_id"),
+                "target_depth": unit_data.get("target_depth", "basic"),
+                "estimated_minutes": int(unit_data.get("estimated_minutes") or sum(t["estimated_minutes"] for t in tasks)),
+                "prerequisite_unit_ids": unit_data.get("prerequisite_unit_ids", []),
+                "priority": int(unit_data.get("priority") or 0),
+                "tasks": tasks,
+            })
+
+        phases.append({
+            "id": phase_id,
+            "position": int(phase_data.get("position") or phase_index),
+            "title": phase_data.get("title", f"阶段 {phase_index + 1}"),
+            "objective": phase_data.get("objective", ""),
+            "estimated_minutes": int(phase_data.get("estimated_minutes") or sum(u["estimated_minutes"] for u in units)),
+            "units": units,
+        })
+
+    return {
+        "plan_id": str(plan_id),
+        "revision_id": str(revision.id),
+        "status": revision.status,
+        "feasibility_status": revision.feasibility_status,
+        "profile_revision_id": revision.profile_revision_id,
+        "phases": phases,
+    }
+
+
+def _normalize_delivery_mode(value: object) -> str:
+    mode = str(value or "text").strip().lower()
+    allowed = {choice.value for choice in LearningPlanTaskTemplate.DeliveryMode}
+    return mode if mode in allowed else LearningPlanTaskTemplate.DeliveryMode.TEXT
+
+
+def _parse_optional_topic_id(value: object) -> uuid.UUID | None:
+    if value in (None, ""):
+        return None
+    try:
+        return uuid.UUID(str(value))
+    except (TypeError, ValueError, AttributeError):
+        return None
+
+
+def ensure_structured_plan_from_snapshot(revision_id: str) -> bool:
+    """从 plan_snapshot 回填结构化 phase/unit/template（与快照 ID 对齐）。"""
+    revision = LearningPlanRevision.objects.get(id=revision_id)
+    if revision.phases.exists():
+        return False
+
+    snapshot = revision.plan_snapshot_json or {}
+    if not snapshot.get("phases"):
+        return False
+    if not _supports_structured_plan_tables():
+        return False
+
+    built = _build_plan_from_snapshot(str(revision.learning_plan_id), revision)
+    with transaction.atomic():
+        for phase_data in built["phases"]:
+            phase = LearningPlanPhase.objects.create(
+                id=phase_data["id"],
+                revision=revision,
+                position=phase_data["position"],
+                title=phase_data.get("title", ""),
+                objective=phase_data.get("objective", ""),
+                estimated_minutes=int(phase_data.get("estimated_minutes") or 0),
+            )
+            for unit_data in phase_data["units"]:
+                unit = LearningPlanUnit.objects.create(
+                    id=unit_data["id"],
+                    revision=revision,
+                    phase=phase,
+                    topic_id=_parse_optional_topic_id(unit_data.get("topic_id")),
+                    title=unit_data.get("title", ""),
+                    position=int(unit_data.get("position") or 0),
+                    target_depth=unit_data.get("target_depth", "basic"),
+                    estimated_minutes=int(unit_data.get("estimated_minutes") or 0),
+                    prerequisite_unit_ids=unit_data.get("prerequisite_unit_ids", []),
+                    priority=int(unit_data.get("priority") or 0),
+                )
+                for task_data in unit_data["tasks"]:
+                    task_type = task_data.get("task_type", "lecture")
+                    title = str(task_data.get("title", "")).strip()
+                    knowledge_point = str(task_data.get("knowledge_point", "")).strip()
+                    if not knowledge_point and task_type in ("lecture", "project"):
+                        knowledge_point = title
+                    LearningPlanTaskTemplate.objects.create(
+                        id=task_data["id"],
+                        revision=revision,
+                        unit=unit,
+                        title=title,
+                        knowledge_point=knowledge_point,
+                        task_type=task_type,
+                        delivery_mode=_normalize_delivery_mode(task_data.get("delivery_mode")),
+                        position=int(task_data.get("position") or 0),
+                        estimated_minutes=int(task_data.get("estimated_minutes") or 0),
+                        required=bool(task_data.get("required", True)),
+                    )
+    logger.info("Backfilled structured plan tables for revision %s", revision_id)
+    return True
+
+
+def find_revision_for_snapshot_task_id(task_id: str) -> LearningPlanRevision | None:
+    """在仅有快照、尚未回填结构化表的 active revision 中定位 task_id。"""
+    if LearningPlanTaskTemplate.objects.filter(id=task_id).exists():
+        return LearningPlanTaskTemplate.objects.select_related("revision").get(id=task_id).revision
+
+    for revision in LearningPlanRevision.objects.filter(
+        status=LearningPlanRevision.Status.ACTIVE,
+    ):
+        if revision.phases.exists():
+            continue
+        built = _build_plan_from_snapshot(str(revision.learning_plan_id), revision)
+        for phase in built.get("phases", []):
+            for unit in phase.get("units", []):
+                for task in unit.get("tasks", []):
+                    if task.get("id") == task_id:
+                        return revision
+    return None
+
+
+@transaction.atomic
+def ensure_learning_task_for_id(task_id: str) -> LearningTask | None:
+    """确保 snapshot/template 任务 ID 可解析为 LearningTask（必要时回填并物化）。"""
+    qs = LearningTask.objects.select_related(
+        "unit", "unit__phase", "template", "template__unit", "template__unit__phase", "revision",
+    )
+    try:
+        return qs.get(id=task_id)
+    except LearningTask.DoesNotExist:
+        task = qs.filter(template_id=task_id).order_by("-created_at").first()
+        if task is not None:
+            return task
+
+    revision = find_revision_for_snapshot_task_id(task_id)
+    if revision is None:
+        return None
+
+    ensure_structured_plan_from_snapshot(str(revision.id))
+    materialized = materialize_task_from_template(task_id)
+    if materialized is not None:
+        return qs.get(id=materialized.id)
+
+    try:
+        return qs.get(id=task_id)
+    except LearningTask.DoesNotExist:
+        return qs.filter(template_id=task_id).order_by("-created_at").first()
+
+
 @transaction.atomic
 def create_plan_revision(
     course_session_id: str,
     plan_snapshot: dict,
     profile_revision_id: str = "",
     knowledge_scope_revision_id: str = "",
+    owner=None,
 ) -> dict:
     """创建新的计划修订版本，含阶段/单元/任务模板全量写入。
 
@@ -78,9 +303,16 @@ def create_plan_revision(
         {plan_id, revision_id, phase_count, unit_count, task_count,
          feasibility_status, validation_result}
     """
+    if owner is None:
+        from mentora.courses.models import CourseCreationSession
+        owner = CourseCreationSession.objects.only("owner").get(id=course_session_id).owner
     plan, _ = LearningPlan.objects.get_or_create(
         course_session_id=course_session_id,
+        defaults={"owner": owner},
     )
+    if plan.owner_id is None:
+        plan.owner = owner
+        plan.save(update_fields=["owner"])
 
     # 旧版本 superseded
     if plan.active_revision_id:
@@ -105,6 +337,18 @@ def create_plan_revision(
     unit_count = 0
     task_count = 0
 
+    if not _supports_structured_plan_tables():
+        phase_count, unit_count, task_count = _snapshot_counts(plan_snapshot)
+        return {
+            "plan_id": str(plan.id),
+            "revision_id": str(revision.id),
+            "phase_count": phase_count,
+            "unit_count": unit_count,
+            "task_count": task_count,
+            "feasibility_status": feasibility,
+            "validation_result": validation,
+        }
+
     for pi, phase_data in enumerate(plan_snapshot.get("phases", [])):
         phase = LearningPlanPhase.objects.create(
             revision=revision,
@@ -120,6 +364,7 @@ def create_plan_revision(
                 revision=revision,
                 phase=phase,
                 topic_id=unit_data.get("topic_id"),
+                title=unit_data.get("title", ""),
                 position=ui,
                 target_depth=unit_data.get("target_depth", "basic"),
                 estimated_minutes=unit_data.get("estimated_minutes", 0),
@@ -128,12 +373,16 @@ def create_plan_revision(
             )
             unit_count += 1
 
-            for task_data in unit_data.get("tasks", []):
+            for ti, task_data in enumerate(unit_data.get("tasks", [])):
+                task_title = str(task_data.get("title", "")).strip()
                 LearningPlanTaskTemplate.objects.create(
                     revision=revision,
                     unit=unit,
+                    title=task_title,
+                    knowledge_point=task_title if task_data.get("task_type", "lecture") in ("lecture", "project") else "",
                     task_type=task_data.get("task_type", "lecture"),
                     delivery_mode=task_data.get("delivery_mode", "text"),
+                    position=ti,
                     estimated_minutes=task_data.get("estimated_minutes", 0),
                     required=task_data.get("required", True),
                 )
@@ -164,6 +413,7 @@ def activate_revision(revision_id: str) -> dict:
     if revision.status not in (
         LearningPlanRevision.Status.DRAFT,
         LearningPlanRevision.Status.READY_TO_START,
+        LearningPlanRevision.Status.ACTIVE,  # 幂等：已激活的允许重复调用
     ):
         raise ValueError(f"当前状态 {revision.status} 不可激活")
 
@@ -171,11 +421,19 @@ def activate_revision(revision_id: str) -> dict:
     plan.active_revision_id = revision.id
     plan.save(update_fields=["active_revision_id"])
 
+    was_already_active = revision.status == LearningPlanRevision.Status.ACTIVE
+
     revision.status = LearningPlanRevision.Status.ACTIVE
     revision.save(update_fields=["status"])
 
-    # 激活后自动物化近期任务
-    materialize_tasks(str(revision.id))
+    if not was_already_active:
+        if (
+            not revision.task_templates.exists()
+            and (revision.plan_snapshot_json or {}).get("phases")
+            and _supports_structured_plan_tables()
+        ):
+            ensure_structured_plan_from_snapshot(str(revision.id))
+        materialize_tasks(str(revision.id))
 
     return {
         "plan_id": str(plan.id),
@@ -186,6 +444,16 @@ def activate_revision(revision_id: str) -> dict:
 
 def get_active_plan(course_session_id: str) -> dict | None:
     """获取课程当前生效的学习计划。"""
+    from django.db.models import Prefetch
+
+    from mentora.learning.models import (
+        LearningPlan,
+        LearningPlanPhase,
+        LearningPlanRevision,
+        LearningPlanTaskTemplate,
+        LearningPlanUnit,
+    )
+
     try:
         plan = LearningPlan.objects.get(course_session_id=course_session_id)
     except LearningPlan.DoesNotExist:
@@ -195,39 +463,104 @@ def get_active_plan(course_session_id: str) -> dict | None:
         return None
 
     try:
-        revision = LearningPlanRevision.objects.get(id=plan.active_revision_id)
+        revision = LearningPlanRevision.objects.prefetch_related(
+            Prefetch(
+                "phases",
+                queryset=LearningPlanPhase.objects.order_by("position"),
+            ),
+            Prefetch(
+                "units",
+                queryset=LearningPlanUnit.objects.order_by("position"),
+            ),
+            Prefetch(
+                "task_templates",
+                queryset=LearningPlanTaskTemplate.objects.order_by("position", "id"),
+            ),
+        ).get(id=plan.active_revision_id)
     except LearningPlanRevision.DoesNotExist:
         return None
 
-    phases = list(
-        revision.phases.order_by("position").values(
-            "id", "position", "title", "objective", "estimated_minutes",
-        )
-    )
-    for phase in phases:
-        units = list(
-            revision.units.filter(phase_id=phase["id"])
-            .order_by("position")
-            .values(
-                "id", "position", "topic_id", "target_depth",
-                "estimated_minutes", "prerequisite_unit_ids", "priority",
-            )
-        )
-        for unit in units:
-            unit["tasks"] = list(
-                revision.task_templates.filter(unit_id=unit["id"])
-                .values("id", "task_type", "delivery_mode", "estimated_minutes", "required")
-            )
-        phase["units"] = units
+    if (
+        not revision.phases.exists()
+        and (revision.plan_snapshot_json or {}).get("phases")
+        and _supports_structured_plan_tables()
+    ):
+        ensure_structured_plan_from_snapshot(str(revision.id))
+        revision = LearningPlanRevision.objects.prefetch_related(
+            Prefetch(
+                "phases",
+                queryset=LearningPlanPhase.objects.order_by("position"),
+            ),
+            Prefetch(
+                "units",
+                queryset=LearningPlanUnit.objects.order_by("position"),
+            ),
+            Prefetch(
+                "task_templates",
+                queryset=LearningPlanTaskTemplate.objects.order_by("position", "id"),
+            ),
+        ).get(id=plan.active_revision_id)
 
-    return {
-        "plan_id": str(plan.id),
-        "revision_id": str(revision.id),
-        "status": revision.status,
-        "feasibility_status": revision.feasibility_status,
-        "profile_revision_id": revision.profile_revision_id,
-        "phases": phases,
-    }
+    try:
+        phases = [
+            {
+                "id": str(phase.id),
+                "position": phase.position,
+                "title": phase.title,
+                "objective": phase.objective,
+                "estimated_minutes": phase.estimated_minutes,
+            }
+            for phase in revision.phases.all()
+        ]
+        if not phases:
+            return _build_plan_from_snapshot(str(plan.id), revision)
+
+        units_by_phase: dict[str, list[LearningPlanUnit]] = {}
+        for unit in revision.units.all():
+            units_by_phase.setdefault(str(unit.phase_id), []).append(unit)
+
+        tasks_by_unit: dict[str, list[dict]] = {}
+        for task in revision.task_templates.all():
+            task_payload = {
+                "id": str(task.id),
+                "position": task.position,
+                "title": task.title,
+                "knowledge_point": task.knowledge_point,
+                "task_type": task.task_type,
+                "delivery_mode": task.delivery_mode,
+                "estimated_minutes": task.estimated_minutes,
+                "required": task.required,
+                "materials": [],
+            }
+            tasks_by_unit.setdefault(str(task.unit_id), []).append(task_payload)
+
+        for phase in phases:
+            units = []
+            for unit in units_by_phase.get(phase["id"], []):
+                units.append({
+                    "id": str(unit.id),
+                    "title": unit.title or phase.get("title", ""),
+                    "position": unit.position,
+                    "topic_id": str(unit.topic_id) if unit.topic_id else None,
+                    "target_depth": unit.target_depth,
+                    "estimated_minutes": unit.estimated_minutes,
+                    "prerequisite_unit_ids": unit.prerequisite_unit_ids or [],
+                    "priority": unit.priority,
+                    "tasks": tasks_by_unit.get(str(unit.id), []),
+                })
+            phase["units"] = units
+
+        return {
+            "plan_id": str(plan.id),
+            "revision_id": str(revision.id),
+            "status": revision.status,
+            "feasibility_status": revision.feasibility_status,
+            "profile_revision_id": revision.profile_revision_id,
+            "phases": phases,
+        }
+    except DatabaseError:
+        # 兼容数据库尚未执行新 migration 的情况，回退到快照读取，避免学习计划页直接 500。
+        return _build_plan_from_snapshot(str(plan.id), revision)
 
 
 def get_progress(course_session_id: str) -> dict | None:
@@ -293,7 +626,60 @@ def get_progress(course_session_id: str) -> dict | None:
     }
 
 
-def materialize_tasks(revision_id: str, *, weeks: int = 2) -> dict:
+def _create_learning_task_from_template(
+    revision: LearningPlanRevision,
+    tmpl: LearningPlanTaskTemplate,
+    *,
+    due_date=None,
+) -> LearningTask:
+    from mentora.learning.services.task_sources import get_task_evidence_ids_from_snapshot
+
+    unit_title = tmpl.unit.title if tmpl.unit and tmpl.unit.title else (
+        tmpl.unit.phase.title if tmpl.unit and tmpl.unit.phase else "未知"
+    )
+    task_title = tmpl.title or f"{tmpl.get_task_type_display()}: {unit_title}"
+    evidence_ids = get_task_evidence_ids_from_snapshot(revision, tmpl)
+    content_json = (
+        {"source_evidence_ids": evidence_ids}
+        if evidence_ids
+        else {}
+    )
+    return LearningTask.objects.create(
+        revision=revision,
+        unit=tmpl.unit,
+        template=tmpl,
+        title=task_title,
+        task_type=tmpl.task_type,
+        estimated_minutes=tmpl.estimated_minutes,
+        required=tmpl.required,
+        position=tmpl.position,
+        due_date=due_date,
+        content_json=content_json,
+    )
+
+
+def materialize_task_from_template(template_id: str) -> LearningTask | None:
+    """按需物化单个模板任务，避免为整门课批量触发内容生成。"""
+    template = (
+        LearningPlanTaskTemplate.objects.select_related("unit", "unit__phase", "revision")
+        .filter(id=template_id)
+        .first()
+    )
+    if template is None:
+        return None
+
+    existing = (
+        LearningTask.objects.filter(template_id=template_id)
+        .order_by("-created_at")
+        .first()
+    )
+    if existing is not None:
+        return existing
+
+    return _create_learning_task_from_template(template.revision, template)
+
+
+def materialize_tasks(revision_id: str, *, weeks: int = 2, dispatch_content: bool = True) -> dict:
     """
     从 TaskTemplate 物化未来 N 周的可执行 LearningTask。
 
@@ -309,10 +695,13 @@ def materialize_tasks(revision_id: str, *, weeks: int = 2) -> dict:
     )
 
     revision = LearningPlanRevision.objects.get(id=revision_id)
+    if not _supports_structured_plan_tables():
+        return {"task_count": 0, "message": "legacy schema without structured plan tables"}
+
     templates = list(
         LearningPlanTaskTemplate.objects.filter(revision=revision)
         .select_related("unit", "unit__phase")
-        .order_by("unit__phase__position", "unit__position", "id")
+        .order_by("unit__phase__position", "unit__position", "position", "id")
     )
 
     if not templates:
@@ -339,21 +728,52 @@ def materialize_tasks(revision_id: str, *, weeks: int = 2) -> dict:
 
         cutoff = now + timedelta(weeks=weeks * 7)
 
-        LearningTask.objects.create(
-            revision=revision,
-            unit=tmpl.unit,
-            template=tmpl,
-            title=f"{tmpl.get_task_type_display()}: {tmpl.unit.title if hasattr(tmpl, 'unit') else '未知'}",
-            task_type=tmpl.task_type,
-            estimated_minutes=tmpl.estimated_minutes,
-            required=tmpl.required,
-            position=tmpl.unit.position,
+        _create_learning_task_from_template(
+            revision,
+            tmpl,
             due_date=current_date if current_date <= cutoff else None,
         )
         daily_minutes += tmpl.estimated_minutes
         task_count += 1
 
+    if dispatch_content:
+        _dispatch_content_generation(revision_id)
+
     return {"task_count": task_count}
+
+
+def _dispatch_content_generation(revision_id: str) -> None:
+    """为 revision 下的 lecture 任务异步触发内容生成。"""
+    import logging
+    logger = logging.getLogger(__name__)
+
+    try:
+        from mentora.learning.models import LearningTask
+        lecture_tasks = LearningTask.objects.filter(
+            revision_id=revision_id,
+            task_type="lecture",
+            content_json__content_blocks=None,
+        ) | LearningTask.objects.filter(
+            revision_id=revision_id,
+            task_type="lecture",
+            content_json={},
+        )
+        count = lecture_tasks.count()
+        if count == 0:
+            return
+
+        from mentora.learning.services.content import generate_task_content
+        generated = 0
+        for task in lecture_tasks:
+            try:
+                if generate_task_content(str(task.id)):
+                    generated += 1
+            except Exception:
+                pass
+        logger.info("Content generation dispatched: %d/%d tasks for revision %s",
+                    generated, count, revision_id[:12])
+    except Exception:
+        logger.exception("Content generation dispatch failed for revision %s", revision_id[:12])
 
 
 def get_upcoming_tasks(course_id: str, *, limit: int = 20) -> list[dict]:
@@ -392,10 +812,14 @@ def complete_task(task_id: str) -> dict:
     task.save(update_fields=["status", "completed_at"])
 
     # 写入学习记录
+    course_session_id = ""
     try:
-        course_id = str(task.unit.revision.learning_plan.course_session_id) if task.unit.revision.learning_plan.course_session_id else ""
+        plan = task.unit.revision.learning_plan
+        if plan and plan.course_session_id:
+            course_session_id = str(plan.course_session_id)
     except Exception:
-        course_id = ""
+        course_session_id = ""
+    course_id = resolve_course_id_for_history(course_session_id=course_session_id)
     write_history_event(
         course_id=course_id,
         event_type="task_completed",
@@ -412,6 +836,76 @@ def complete_task(task_id: str) -> dict:
     }
 
 
+def resolve_course_id_for_history(
+    *,
+    course_id: str = "",
+    course_session_id: str = "",
+) -> str:
+    """将 Course.id 或建课 session_id 规范化为 Course.id（无课程实体时回退 session_id）。"""
+    from mentora.courses.models import Course
+
+    raw = (course_id or course_session_id or "").strip()
+    if not raw:
+        return ""
+
+    course = Course.objects.filter(id=raw).first()
+    if course is not None:
+        return str(course.id)
+
+    course = Course.objects.filter(session_id=raw).first()
+    if course is not None:
+        return str(course.id)
+
+    return raw
+
+
+def _history_course_titles(course_ids: set[str]) -> dict[str, str]:
+    """批量解析 course_id → 展示标题。"""
+    if not course_ids:
+        return {}
+
+    from mentora.courses.models import Course, CourseCreationSession, CourseProfileRevision
+
+    titles: dict[str, str] = {}
+    courses = Course.objects.filter(id__in=course_ids).select_related("session")
+    for course in courses:
+        title = ""
+        if course.active_profile_revision_id:
+            profile = CourseProfileRevision.objects.filter(id=course.active_profile_revision_id).first()
+            if profile and profile.goal:
+                title = profile.goal[:80]
+        if not title and course.session:
+            title = course.session.title or course.session.goal or ""
+        titles[str(course.id)] = title
+
+    # 兼容旧数据：course_id 存的是 session_id
+    session_ids = course_ids - set(titles.keys())
+    if session_ids:
+        sessions = CourseCreationSession.objects.filter(id__in=session_ids)
+        for session in sessions:
+            titles[str(session.id)] = session.title or session.goal or ""
+    return titles
+
+
+def _history_course_filter_ids(course_id: str) -> list[str]:
+    """查询时同时匹配 Course.id 与关联 session_id（兼容历史写入）。"""
+    course_id = course_id.strip()
+    if not course_id:
+        return []
+
+    from mentora.courses.models import Course
+
+    ids = {course_id}
+    course = Course.objects.filter(id=course_id).first()
+    if course is not None:
+        ids.add(str(course.session_id))
+    else:
+        linked = Course.objects.filter(session_id=course_id).first()
+        if linked is not None:
+            ids.add(str(linked.id))
+    return sorted(ids)
+
+
 def write_history_event(
     course_id: str,
     event_type: str,
@@ -421,12 +915,19 @@ def write_history_event(
     result: str = "",
     task_id: str = "",
     phase_id: str = "",
+    course_title: str = "",
+    owner=None,
 ) -> dict:
     """写入一条学习记录事件。"""
     from mentora.learning.models import LearningHistoryEvent
 
+    normalized_course_id = resolve_course_id_for_history(course_id=course_id)
+    if owner is None and normalized_course_id:
+        from mentora.courses.models import Course
+        owner = Course.objects.filter(id=normalized_course_id).values_list("owner", flat=True).first()
     event = LearningHistoryEvent.objects.create(
-        course_id=course_id,
+        owner_id=owner.id if hasattr(owner, "id") else owner,
+        course_id=normalized_course_id,
         event_type=event_type,
         title=title,
         detail=detail,
@@ -438,42 +939,94 @@ def write_history_event(
         "id": str(event.id),
         "event_type": event.event_type,
         "title": event.title,
+        "course_id": event.course_id,
+        "course_title": course_title,
         "created_at": event.created_at.isoformat(),
     }
 
 
-def get_history(course_id: str = "", *, limit: int = 50) -> list[dict]:
-    """获取学习记录，按时间倒序。
-
-    course_id 为空时返回跨课程的全部记录（供历史页在前端按课程筛选）。
-    """
-    from mentora.courses.models import CourseCreationSession
+def get_history(course_id: str = "", *, limit: int = 50, owner=None) -> dict:
+    """获取学习记录，按时间倒序；返回前端 HistoryEvent 契约。"""
     from mentora.learning.models import LearningHistoryEvent
 
-    events = LearningHistoryEvent.objects.all()
+    qs = LearningHistoryEvent.objects.filter(**({"owner": owner} if owner is not None else {}))
     if course_id:
-        events = events.filter(course_id=course_id)
-    events = list(events.order_by("-created_at")[:limit])
+        filter_ids = _history_course_filter_ids(course_id)
+        qs = qs.filter(course_id__in=filter_ids)
 
-    session_ids = {e.course_id for e in events if e.course_id}
-    sessions = CourseCreationSession.objects.filter(id__in=session_ids)
-    title_by_id = {
-        str(s.id): s.title or (s.goal[:20] + "…" if len(s.goal) > 20 else s.goal)
-        for s in sessions
-    }
+    events = qs.order_by("-created_at")[:limit]
+    title_map = _history_course_titles({e.course_id for e in events if e.course_id})
 
-    return [
+    items = [
         {
             "id": str(e.id),
             "event_type": e.event_type,
-            "course_id": e.course_id,
-            "course_title": title_by_id.get(e.course_id, ""),
-            "title": e.title,
-            "detail": e.detail,
-            "result": e.result,
-            "task_id": e.task_id,
-            "phase_id": e.phase_id,
+            "task_id": e.task_id or None,
+            "task_title": e.title,
+            "course_id": e.course_id or None,
+            "course_title": title_map.get(e.course_id, ""),
+            "description": e.detail,
+            "metadata": {
+                "result": e.result,
+                "phase_id": e.phase_id,
+            },
             "created_at": e.created_at.isoformat(),
         }
         for e in events
     ]
+    return {"items": items, "total": len(items)}
+
+
+def get_task_detail(task_id: str) -> dict | None:
+    """获取学习任务详情，包含内容块和来源资料。
+
+    返回前端 LearningTaskDetail 结构，可直接被 LearningTaskPage 消费。
+    task_id 可为 LearningTask.id 或 LearningPlanTaskTemplate.id。
+    """
+    from mentora.learning.services.task_sources import (
+        build_task_sources,
+        get_learning_task_source_evidence_ids,
+        resolve_learning_task,
+    )
+
+    task = resolve_learning_task(task_id)
+    if task is None:
+        return None
+
+    content = task.content_json or {}
+
+    # 懒生成：非练习任务内容为空时调 ContentAgent（失败时不阻断详情返回）
+    if task.task_type != "exercise" and not content.get("content_blocks"):
+        from mentora.learning.services.content import generate_task_content
+        try:
+            generate_task_content(str(task.id))
+            task.refresh_from_db()
+            content = task.content_json or {}
+        except Exception:
+            logger.exception("Lazy content generation failed for task %s", task.id)
+
+    content_blocks = content.get("content_blocks", [])
+    source_eids = get_learning_task_source_evidence_ids(task)
+    sources = build_task_sources(source_eids)
+
+    unit_title = ""
+    phase_title = ""
+    if task.unit:
+        unit_title = task.unit.title or ""
+        if task.unit.phase:
+            phase_title = task.unit.phase.title or ""
+            if not unit_title:
+                unit_title = phase_title
+
+    return {
+        "task_id": str(task.id),
+        "template_id": str(task.template_id) if task.template_id else "",
+        "title": task.title,
+        "task_type": task.task_type,
+        "unit_title": unit_title,
+        "phase_title": phase_title,
+        "position": task.position,
+        "estimated_minutes": task.estimated_minutes,
+        "content_blocks": content_blocks,
+        "sources": sources,
+    }

@@ -36,17 +36,7 @@ class ObjectStorageService:
     @property
     def client(self):
         if self._client is None:
-            import boto3
-            from botocore.config import Config
-
-            self._client = boto3.client(
-                "s3",
-                endpoint_url=settings.OBJECT_STORAGE_ENDPOINT,
-                aws_access_key_id=settings.OBJECT_STORAGE_ACCESS_KEY,
-                aws_secret_access_key=settings.OBJECT_STORAGE_SECRET_KEY,
-                region_name=settings.OBJECT_STORAGE_REGION,
-                config=Config(signature_version="s3v4"),
-            )
+            self._client = self._client_for_endpoint(settings.OBJECT_STORAGE_ENDPOINT)
         return self._client
 
     def _client_for_endpoint(self, endpoint_url: str):
@@ -96,8 +86,34 @@ class ObjectStorageService:
                 raise ObjectStorageError(f"对象不存在: {key}")
             return path.read_bytes()
 
-        response = self.client.get_object(Bucket=self.bucket, Key=key)
-        return response["Body"].read()
+        try:
+            response = self.client.get_object(Bucket=self.bucket, Key=key)
+            return response["Body"].read()
+        except Exception as exc:
+            raise ObjectStorageError(f"读取对象失败 ({key}): {exc}") from exc
+
+    def get_object_bytes_range(self, key: str, start: int, end: int) -> bytes:
+        """读取对象字节区间（含 end）。"""
+        if start < 0 or end < start:
+            raise ObjectStorageError(f"无效的字节区间: {start}-{end}")
+
+        if self.backend == "filesystem":
+            path = self._fs_path(key)
+            if not path.exists():
+                raise ObjectStorageError(f"对象不存在: {key}")
+            with path.open("rb") as handle:
+                handle.seek(start)
+                return handle.read(end - start + 1)
+
+        try:
+            response = self.client.get_object(
+                Bucket=self.bucket,
+                Key=key,
+                Range=f"bytes={start}-{end}",
+            )
+            return response["Body"].read()
+        except Exception as exc:
+            raise ObjectStorageError(f"读取对象区间失败 ({key}): {exc}") from exc
 
     def head_object(self, key: str) -> dict:
         if self.backend == "filesystem":
@@ -113,6 +129,7 @@ class ObjectStorageService:
             # 文件系统后端无 HTTP PUT；开发 smoke 直接 put_object
             return f"filesystem://{self.bucket}/{key}"
 
+        # 浏览器直传须用公网可达 endpoint；服务端读写仍走 OBJECT_STORAGE_ENDPOINT
         client = (
             self.client
             if settings.OBJECT_STORAGE_PUBLIC_ENDPOINT == settings.OBJECT_STORAGE_ENDPOINT

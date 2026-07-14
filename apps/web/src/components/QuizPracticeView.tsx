@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
   ArrowLeft,
@@ -13,14 +13,27 @@ import {
 import type { FileNode } from "../data/files";
 import {
   completeQuizSession,
+  findReusableQuizSession,
   generateQuizSession,
+  isQuizGenerationJob,
+  pollQuizGenerationJob,
   submitQuizAnswer,
+  TASK_QUIZ_DEFAULT_COUNT,
   type QuizItem,
   type QuizSession,
 } from "../services/assessmentApi";
 
-const DEFAULT_COUNT = 10;
+const DEFAULT_COUNT = TASK_QUIZ_DEFAULT_COUNT;
 const OPTION_LABELS = ["A", "B", "C", "D"];
+
+export interface TaskQuizConfig {
+  taskId: string;
+  taskTitle?: string;
+  sourceEvidenceIds: string[];
+  sourceVersionIds: string[];
+  courseSessionId?: string;
+  onCompleted?: () => void;
+}
 
 function flattenFiles(files: FileNode[]): FileNode[] {
   return files.flatMap((file) => [file, ...(file.children ? flattenFiles(file.children) : [])]);
@@ -31,15 +44,24 @@ export function QuizPracticeView({
   defaultSourceId,
   onBack,
   onOpenSource,
+  taskMode,
 }: {
   files: FileNode[];
   defaultSourceId: string | null;
   onBack: () => void;
   onOpenSource: (id: string) => void;
+  taskMode?: TaskQuizConfig;
 }) {
+  const isTaskMode = Boolean(taskMode);
   const sourceFiles = useMemo(() => flattenFiles(files), [files]);
   const [selectedSourceIds, setSelectedSourceIds] = useState<Set<string>>(
-    () => new Set(defaultSourceId ? [defaultSourceId] : []),
+    () => new Set(
+      taskMode?.sourceVersionIds.length
+        ? taskMode.sourceVersionIds
+        : defaultSourceId
+          ? [defaultSourceId]
+          : [],
+    ),
   );
   const [count, setCount] = useState(DEFAULT_COUNT);
   const [difficulty, setDifficulty] = useState("综合");
@@ -48,11 +70,14 @@ export function QuizPracticeView({
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [submittingItems, setSubmittingItems] = useState<Set<string>>(new Set());
   const [generating, setGenerating] = useState(false);
+  const [generationStage, setGenerationStage] = useState("准备生成");
   const [finishing, setFinishing] = useState(false);
   const [error, setError] = useState("");
   const [confirmSubmitOpen, setConfirmSubmitOpen] = useState(false);
+  const autoStartedRef = useRef(false);
 
   const currentItem = session?.items[currentIndex] ?? null;
+  const isLastQuestion = session ? currentIndex === session.items.length - 1 : false;
   const answeredCount = session
     ? session.items.filter((item) => answers[item.item_id] || item.user_answer).length
     : 0;
@@ -68,30 +93,56 @@ export function QuizPracticeView({
     });
   }
 
-  async function handleGenerate() {
-    if (selectedSourceIds.size === 0) return;
+  function applySession(nextSession: QuizSession) {
+    setSession(nextSession);
+    setCurrentIndex(0);
+    setAnswers(
+      Object.fromEntries(
+        nextSession.items
+          .filter((item) => item.user_answer)
+          .map((item) => [item.item_id, item.user_answer]),
+      ),
+    );
+  }
+
+  async function handleGenerate(forceRegenerate = false) {
+    const sourceVersionIds = isTaskMode
+      ? (taskMode?.sourceVersionIds ?? [])
+      : Array.from(selectedSourceIds);
+    const sourceEvidenceIds = taskMode?.sourceEvidenceIds ?? [];
+    if (!isTaskMode && sourceVersionIds.length === 0) return;
+    if (isTaskMode && sourceEvidenceIds.length === 0 && sourceVersionIds.length === 0) return;
+
     setGenerating(true);
     setError("");
+    setGenerationStage(forceRegenerate ? "重新生成题目" : "正在读取参考资料");
     try {
-      const sourceVersionIds = Array.from(selectedSourceIds);
-      const nextSession = await generateQuizSession({
+      const useAsync = count >= 10;
+      setGenerationStage(useAsync ? "已提交后台生成任务" : "正在调用模型生成");
+      const result = await generateQuizSession({
         sourceVersionIds,
+        sourceEvidenceIds: sourceEvidenceIds.length > 0 ? sourceEvidenceIds : undefined,
+        taskId: taskMode?.taskId,
         count,
         difficulty,
+        courseSessionId: taskMode?.courseSessionId,
+        forceRegenerate,
+        async: useAsync,
       });
-      setSession(nextSession);
-      setCurrentIndex(0);
-      setAnswers(
-        Object.fromEntries(
-          nextSession.items
-            .filter((item) => item.user_answer)
-            .map((item) => [item.item_id, item.user_answer]),
-        ),
-      );
+      if (isQuizGenerationJob(result)) {
+        setGenerationStage(result.progress || "后台生成中");
+        const nextSession = await pollQuizGenerationJob(result.job_id, {
+          intervalMs: 2_000,
+        });
+        applySession(nextSession);
+        return;
+      }
+      applySession(result);
     } catch (err) {
       setError(err instanceof Error ? err.message : "生成题目失败");
     } finally {
       setGenerating(false);
+      setGenerationStage("准备生成");
     }
   }
 
@@ -130,6 +181,7 @@ export function QuizPracticeView({
             .map((item) => [item.item_id, item.user_answer]),
         ),
       );
+      taskMode?.onCompleted?.();
     } catch (err) {
       setError(err instanceof Error ? err.message : "提交试卷失败");
     } finally {
@@ -146,7 +198,64 @@ export function QuizPracticeView({
     await finishQuiz();
   }
 
+  useEffect(() => {
+    if (!taskMode || autoStartedRef.current || session) return;
+    autoStartedRef.current = true;
+
+    async function bootstrapTaskQuiz() {
+      if (taskMode?.courseSessionId) {
+        setGenerating(true);
+        setGenerationStage("正在查找已有题目");
+        try {
+          const reused = await findReusableQuizSession({
+            courseSessionId: taskMode.courseSessionId,
+            taskId: taskMode.taskId,
+            sourceVersionIds: taskMode.sourceVersionIds,
+            sourceEvidenceIds: taskMode.sourceEvidenceIds,
+            count,
+            difficulty,
+          });
+          if (reused) {
+            applySession(reused);
+            return;
+          }
+        } catch {
+          // 复用失败时继续走新生成
+        } finally {
+          setGenerating(false);
+          setGenerationStage("准备生成");
+        }
+      }
+      await handleGenerate(false);
+    }
+
+    void bootstrapTaskQuiz();
+  }, [taskMode, session]);
+
   if (!session) {
+    if (isTaskMode && generating) {
+      return (
+        <div className="quiz-practice-view">
+          <header className="quiz-practice-topbar">
+            <button className="quiz-topbar-action" onClick={onBack} type="button">
+              <ArrowLeft size={16} />
+              返回
+            </button>
+            <div className="quiz-topbar-title">
+              <ListChecks size={16} />
+              <span>{taskMode?.taskTitle ?? "任务练习"}</span>
+            </div>
+          </header>
+          <main className="quiz-setup">
+            <div className="quiz-empty-note">
+              <Loader2 size={18} className="spin" />
+              {generationStage}…（fast 路径通常 30–90 秒，请勿关闭页面）
+            </div>
+          </main>
+        </div>
+      );
+    }
+
     return (
       <div className="quiz-practice-view">
         <header className="quiz-practice-topbar">
@@ -161,6 +270,18 @@ export function QuizPracticeView({
         </header>
 
         <main className="quiz-setup">
+          {isTaskMode && (
+            <section className="quiz-setup-main">
+              <div className="quiz-setup-heading">
+                <span className="quiz-setup-kicker">任务练习</span>
+                <h2>{taskMode?.taskTitle ?? "基于任务证据生成题目"}</h2>
+              </div>
+              <p className="quiz-task-scope-note">
+                将仅使用本任务关联的 {taskMode?.sourceEvidenceIds.length ?? 0} 条证据出题。
+              </p>
+            </section>
+          )}
+          {!isTaskMode && (
           <section className="quiz-setup-main">
             <div className="quiz-setup-heading">
               <span className="quiz-setup-kicker">选择出题资料</span>
@@ -186,7 +307,7 @@ export function QuizPracticeView({
               )}
             </div>
           </section>
-
+          )}
           <aside className="quiz-setup-side">
             <label className="quiz-field">
               <span>题目数量</span>
@@ -215,11 +336,12 @@ export function QuizPracticeView({
             )}
             <button
               className="quiz-generate-button"
-              disabled={selectedSourceIds.size === 0 || generating}
-              onClick={handleGenerate}
+              disabled={(isTaskMode ? (taskMode?.sourceEvidenceIds.length ?? 0) === 0 : selectedSourceIds.size === 0) || generating}
+              onClick={() => void handleGenerate(false)}
+              type="button"
             >
               {generating ? <Loader2 size={16} className="spin" /> : <ListChecks size={16} />}
-              生成题目
+              {generating ? `${generationStage}…` : "生成题目"}
             </button>
           </aside>
         </main>
@@ -237,17 +359,21 @@ export function QuizPracticeView({
         <div className="quiz-topbar-title">
           <ListChecks size={16} />
           <span>
-            第 {currentIndex + 1} 题 / 共 {session.items.length} 题
+            {submitted
+              ? `已完成 · 得分 ${session.score_pct}%`
+              : `第 ${currentIndex + 1} 题 / 共 ${session.items.length} 题`}
           </span>
         </div>
-        <button
-          className="quiz-submit-paper"
-          disabled={finishing || submitted}
-          onClick={handleComplete}
-        >
-          {finishing ? <Loader2 size={16} className="spin" /> : <Check size={16} />}
-          {submitted ? `得分 ${session.score_pct}` : "提交试卷"}
-        </button>
+        {!submitted && (
+          <button
+            className="quiz-submit-paper"
+            disabled={finishing || generating}
+            onClick={() => void handleGenerate(true)}
+            type="button"
+          >
+            重新生成
+          </button>
+        )}
       </header>
 
       <main className="quiz-practice-layout">
@@ -354,11 +480,30 @@ export function QuizPracticeView({
         </button>
         <button
           className="quiz-nav-button primary"
-          disabled={currentIndex === session.items.length - 1}
-          onClick={() => setCurrentIndex((index) => Math.min(session.items.length - 1, index + 1))}
+          disabled={submitted ? isLastQuestion : finishing}
+          onClick={() => {
+            if (!submitted && isLastQuestion) {
+              void handleComplete();
+              return;
+            }
+            setCurrentIndex((index) => Math.min(session.items.length - 1, index + 1));
+          }}
+          type="button"
         >
-          下一题
-          <ChevronRight size={18} />
+          {finishing && isLastQuestion && !submitted ? (
+            <Loader2 size={18} className="spin" />
+          ) : null}
+          {!submitted && isLastQuestion ? (
+            <>
+              <Check size={18} />
+              提交
+            </>
+          ) : (
+            <>
+              下一题
+              <ChevronRight size={18} />
+            </>
+          )}
         </button>
       </footer>
 

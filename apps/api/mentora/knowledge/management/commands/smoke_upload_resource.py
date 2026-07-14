@@ -10,7 +10,7 @@ import os
 
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
-from django.test import Client
+from rest_framework.test import APIClient
 
 from mentora.knowledge.models import ProcessingStatus, SourceVersion
 from mentora.knowledge.services.upload import upload_file_direct
@@ -49,11 +49,12 @@ class Command(BaseCommand):
         if options["via_http"]:
             result = self._smoke_via_http(fixture_name, sha256, size, file_bytes)
         else:
+            from config.authentication import get_development_user
             result = upload_file_direct(
                 file_bytes=file_bytes,
                 filename=fixture_name,
                 content_sha256=sha256,
-                owner_id=settings.DEV_OWNER_ID,
+                owner=get_development_user(),
                 sync_processing=True,
             )
 
@@ -94,7 +95,10 @@ class Command(BaseCommand):
         size: int,
         file_bytes: bytes,
     ) -> dict:
-        client = Client()
+        from config.authentication import get_development_user
+
+        client = APIClient()
+        client.force_authenticate(user=get_development_user())
         from mentora.common.storage import ObjectStorageService
 
         create_resp = client.post(
@@ -119,7 +123,6 @@ class Command(BaseCommand):
                     "uploadId": upload_id,
                     "sha256": sha256,
                     "size": size,
-                    "ownerId": settings.DEV_OWNER_ID,
                 }
             ),
             content_type="application/json",

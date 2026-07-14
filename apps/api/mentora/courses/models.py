@@ -31,6 +31,9 @@ class CourseCreationSession(models.Model):
     """建课临时会话，存储步骤 1-4 收集的全部信息。"""
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    owner = models.ForeignKey(
+        "users.User", null=True, on_delete=models.PROTECT, related_name="course_creation_sessions",
+    )
     status = models.CharField(
         max_length=32,
         choices=SessionStatus.choices,
@@ -61,6 +64,12 @@ class CourseCreationSession(models.Model):
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    archived_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        db_index=True,
+        help_text="归档时间；非空表示会话已从课程列表隐藏",
+    )
 
     class Meta:
         db_table = "courses_session"
@@ -79,6 +88,9 @@ class Course(models.Model):
     """课程实体——建课流程完成后创建。"""
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    owner = models.ForeignKey(
+        "users.User", null=True, on_delete=models.PROTECT, related_name="courses",
+    )
     session = models.ForeignKey(
         CourseCreationSession,
         on_delete=models.PROTECT,

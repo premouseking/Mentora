@@ -2,15 +2,17 @@
 将解析产出的 Pydantic EvidenceUnit 持久化到 retrieval ORM。
 
 约定：
-- source_version_id 使用 SourceVersion UUID 字符串，与 retrieval CharField 占位兼容
-- 重复处理同一版本时先删除旧证据再写入
-- 通过 retrieval.repository 间接访问 ORM，不跨模块直写
+- 写入时同步生成 jieba segmented_content 与 PG search_vector
+- 替换版本时一并清理 Chunk / Sentence 投影
 
 @module mentora/knowledge/services/persist_evidence
 """
 
+import jieba
+from django.contrib.postgres.search import SearchVector
+
 from mentora.parsing.schemas import EvidenceUnit as PydanticEvidenceUnit
-from mentora.retrieval.repository import replace_evidence_for_version
+from mentora.retrieval.models import ChunkProjection, EvidenceUnit as OrmEvidenceUnit, SentenceProjection
 
 
 def persist_evidence_units(
@@ -18,7 +20,9 @@ def persist_evidence_units(
     source_version_id: str,
 ) -> int:
     """持久化证据单元，返回写入条数。"""
-    rows = []
+    _clear_retrieval_projections(source_version_id)
+
+    rows: list[OrmEvidenceUnit] = []
     for unit in units:
         bbox_json = None
         if unit.bbox is not None:
@@ -28,13 +32,14 @@ def persist_evidence_units(
                 "x1": unit.bbox.x1,
                 "y1": unit.bbox.y1,
             }
-        from mentora.retrieval.models import EvidenceUnit as OrmEvidenceUnit
+        segmented = " ".join(jieba.cut(unit.content or ""))
         rows.append(
             OrmEvidenceUnit(
                 id=unit.id,
                 source_version_id=source_version_id,
                 bundle_id=unit.bundle_id,
                 content=unit.content,
+                segmented_content=segmented,
                 page_number=unit.page_number,
                 bbox_json=bbox_json,
                 element_indices=unit.element_indices,
@@ -44,4 +49,24 @@ def persist_evidence_units(
             )
         )
 
-    return replace_evidence_for_version(source_version_id, rows)
+    if not rows:
+        return 0
+
+    OrmEvidenceUnit.objects.bulk_create(rows)
+    OrmEvidenceUnit.objects.filter(source_version_id=source_version_id).update(
+        search_vector=SearchVector("segmented_content", config="simple"),
+    )
+    return len(rows)
+
+
+def _clear_retrieval_projections(source_version_id: str) -> None:
+    """删除指定版本下的证据与派生投影。"""
+    evidence_ids = list(
+        OrmEvidenceUnit.objects.filter(source_version_id=source_version_id).values_list(
+            "id", flat=True
+        )
+    )
+    if evidence_ids:
+        SentenceProjection.objects.filter(evidence_unit_id__in=evidence_ids).delete()
+    OrmEvidenceUnit.objects.filter(source_version_id=source_version_id).delete()
+    ChunkProjection.objects.filter(source_version_id=source_version_id).delete()

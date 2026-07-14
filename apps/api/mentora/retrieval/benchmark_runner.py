@@ -17,11 +17,12 @@ import os
 import time
 from dataclasses import dataclass, field
 
+from asgiref.sync import async_to_sync
 from django.db import connection
 
 from mentora.parsing.adapters import parse
 from mentora.parsing.evidence import split_evidence
-from mentora.retrieval.search import _search_pg, load_corpus
+from mentora.retrieval.search import async_search
 
 
 @dataclass
@@ -233,7 +234,9 @@ def run() -> BenchmarkReport:
 
         # 执行检索
         t0 = time.perf_counter()
-        rs = _search_pg(gq["query"], top_k=10, fts_weight=0.7, trgm_weight=0.3)
+        rs = async_to_sync(async_search)(
+            gq["query"], top_k=10, fts_weight=0.7, trgm_weight=0.3
+        )
         elapsed = (time.perf_counter() - t0) * 1000
 
         returned_ids = [str(r.evidence.id) for r in rs.results]

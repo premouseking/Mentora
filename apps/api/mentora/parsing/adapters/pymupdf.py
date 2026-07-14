@@ -81,6 +81,7 @@ class PyMuPDFAdapter:
                     Page(
                         page_number=page_idx + 1,
                         original_label=None,
+                        page_size=(page_width, page_height),
                         elements=elements,
                         warnings=page_warnings,
                     )
@@ -192,23 +193,50 @@ class PyMuPDFAdapter:
         return elements, table_warnings + reorder_warnings
 
     @staticmethod
+    def _xref_by_image_number(page) -> dict[int, int]:
+        """将 get_image_info() 的 number 索引映射到 PDF 对象 xref。"""
+        xrefs = [img[0] for img in page.get_images(full=True)]
+        return {index: xrefs[index] for index in range(len(xrefs))}
+
+    @staticmethod
     def _find_image_xref(page, block: dict) -> int | None:
         """根据图片 block 匹配 PDF 内嵌图片的 xref 编号。"""
         block_bbox = block.get("bbox")
         if not block_bbox:
             return None
         bx0, by0, bx1, by1 = block_bbox
+        block_area = max(0.0, bx1 - bx0) * max(0.0, by1 - by0)
+        if block_area <= 0:
+            return None
+
+        xref_by_number = PyMuPDFAdapter._xref_by_image_number(page)
+        best_xref: int | None = None
+        best_overlap = 0.0
+
         for img in page.get_image_info():
             i_bbox = img.get("bbox")
             if not i_bbox:
                 continue
             ix0, iy0, ix1, iy1 = i_bbox
-            # bbox 重叠度 > 50%
-            overlap_x = max(0, min(bx1, ix1) - max(bx0, ix0))
-            overlap_y = max(0, min(by1, iy1) - max(by0, iy0))
-            if overlap_x * overlap_y > 0:
-                return img.get("xref")
-        return None
+            overlap_x = max(0.0, min(bx1, ix1) - max(bx0, ix0))
+            overlap_y = max(0.0, min(by1, iy1) - max(by0, iy0))
+            overlap_area = overlap_x * overlap_y
+            if overlap_area <= 0:
+                continue
+
+            img_area = max(0.0, ix1 - ix0) * max(0.0, iy1 - iy0)
+            overlap_ratio = overlap_area / min(block_area, img_area)
+            if overlap_ratio <= best_overlap:
+                continue
+
+            number = img.get("number")
+            if number is None or number not in xref_by_number:
+                continue
+
+            best_overlap = overlap_ratio
+            best_xref = xref_by_number[number]
+
+        return best_xref
 
     def _merge_tables(
         self,

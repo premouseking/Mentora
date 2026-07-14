@@ -24,6 +24,9 @@ class AssessmentItem(models.Model):
         SHORT_ANSWER = "short_answer", "简答题"
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    owner = models.ForeignKey(
+        "users.User", null=True, on_delete=models.PROTECT, related_name="assessment_items",
+    )
     course_session_id = models.UUIDField(db_index=True, help_text="关联课程会话 ID")
     topic_id = models.UUIDField(null=True, blank=True, help_text="关联 knowledge topic ID")
     question_type = models.CharField(max_length=16, choices=QuestionType.choices)
@@ -83,6 +86,9 @@ class AssessmentSession(models.Model):
         COMPLETED = "completed", "已完成"
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    owner = models.ForeignKey(
+        "users.User", null=True, on_delete=models.PROTECT, related_name="assessment_sessions",
+    )
     course_session_id = models.UUIDField(db_index=True)
     unit_id = models.UUIDField(null=True, blank=True, help_text="关联 learning_plan_unit ID")
     status = models.CharField(max_length=16, choices=Status.choices, default=Status.CREATED)
@@ -167,3 +173,41 @@ class ItemProvenance(models.Model):
     import_batch = models.CharField(max_length=64, blank=True, default="", help_text="批量导入批次")
     note = models.CharField(max_length=256, blank=True, default="")
     created_at = models.DateTimeField(auto_now_add=True)
+
+
+class QuizGenerationJob(models.Model):
+    """后台出题任务——大题量或 Agent 模式异步生成。"""
+
+    class Status(models.TextChoices):
+        PENDING = "pending", "等待中"
+        RUNNING = "running", "生成中"
+        SUCCEEDED = "succeeded", "已完成"
+        FAILED = "failed", "失败"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    owner = models.ForeignKey(
+        "users.User", null=True, on_delete=models.PROTECT, related_name="quiz_generation_jobs",
+    )
+    status = models.CharField(
+        max_length=16,
+        choices=Status.choices,
+        default=Status.PENDING,
+        db_index=True,
+    )
+    progress = models.CharField(max_length=128, blank=True, default="")
+    progress_pct = models.IntegerField(default=0)
+    error_message = models.TextField(blank=True, default="")
+    error_code = models.CharField(max_length=64, blank=True, default="")
+    generation_cache_key = models.CharField(max_length=64, blank=True, default="", db_index=True)
+    request_payload = models.JSONField(default=dict)
+    result_session_id = models.UUIDField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "assessment_generation_job"
+        verbose_name = "出题任务"
+        verbose_name_plural = verbose_name
+        indexes = [
+            models.Index(fields=["generation_cache_key", "-updated_at"]),
+        ]

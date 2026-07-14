@@ -42,10 +42,14 @@ async def test_async_search_materializes_orm_evidence_from_recall_ids(monkeypatc
         assert evidence_ids == [str(first.id), str(second.id)]
         return [first, second]
 
+    async def fake_semantic_blocks(results):
+        return results
+
     monkeypatch.setattr(search_module, "_recall_fts", fake_fts)
     monkeypatch.setattr(search_module, "_recall_trgm", fake_trgm)
     monkeypatch.setattr(search_module, "_recall_vector", fake_vector)
     monkeypatch.setattr(search_module, "_fetch_evidence_by_ids", fake_fetch)
+    monkeypatch.setattr(search_module, "_apply_semantic_blocks_async", fake_semantic_blocks)
 
     result = await search_module.async_search("photosynthesis energy", top_k=2)
 

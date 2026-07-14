@@ -7,33 +7,62 @@ from drf_spectacular.views import (
 
 from mentora.assessment.views import (
     complete_quiz_session,
+    find_quiz_session,
     generate_quiz_session,
+    quiz_generation_job_detail,
     quiz_session_detail,
     submit_quiz_attempt,
 )
 from django.urls import include
 from mentora.users.views import change_password, login, logout, profile, refresh, register, update_profile
-from mentora.learning.views import explanation_list, history_list, mistake_list
+from mentora.learning.views import (
+    explanation_commit,
+    explanation_doc,
+    explanation_list,
+    explanation_preview,
+    history_list,
+    mistake_archive,
+    mistake_list,
+    mistake_unarchive,
+    task_complete,
+    task_detail,
+)
 from mentora.courses.views import (
     course_activate,
+    course_activity,
     course_confirm,
     course_detail,
     course_files,
     course_list,
     course_phases,
+    course_plan,
     course_profile_revise,
     course_scope_extend,
     course_scope_suggest,
+    course_source_archive,
+    course_source_unarchive,
+    course_sources_manage,
     inquiry_next,
     plan_handler,
+    session_archive,
     session_delete,
     session_detail,
-    session_phases,
     session_list_or_create,
     session_start,
+    session_unarchive,
     session_update,
+    session_source_coverage_preview,
 )
-from mentora.knowledge.views import course_sources, folder_create, folder_delete, folder_list, folder_rename, list_sources, list_tags, source_archive, source_delete, source_detail, source_move, source_reparse, source_unarchive, source_update_tags, upload_complete, upload_create
+from mentora.knowledge.views import folder_create, folder_delete, folder_list, folder_rename, list_sources, list_tags, source_archive, source_asset, source_delete, source_detail, source_move, source_reparse, source_unarchive, source_update_tags, upload_complete, upload_create
+from mentora.knowledge.reader_views import (
+    list_resources,
+    resource_info,
+    resource_page_thumbnails,
+    resource_pdf,
+    resource_reader,
+    resource_reader_blocks,
+    resource_reader_meta,
+)
 from mentora.parsing.views import get_benchmark, preview_parse
 from mentora.topics.views import (
     topic_add_edge,
@@ -65,13 +94,23 @@ urlpatterns = [
     path("api/health/", health, name="health"),
     path("api/history/", history_list, name="history-list"),
     path("api/learning/mistakes/", mistake_list, name="learning-mistakes"),
+    path("api/learning/mistakes/<uuid:item_id>/archive/", mistake_archive, name="learning-mistake-archive"),
+    path("api/learning/mistakes/<uuid:item_id>/unarchive/", mistake_unarchive, name="learning-mistake-unarchive"),
     path("api/learning/explanations/", explanation_list, name="learning-explanations"),
+    path("api/learning/explanations/preview/", explanation_preview, name="learning-explanations-preview"),
+    path("api/learning/explanations/commit/", explanation_commit, name="learning-explanations-commit"),
+    path("api/learning/explanations/<uuid:doc_id>/", explanation_doc, name="learning-explanation-doc"),
+    path("api/learning/tasks/<uuid:task_id>/", task_detail, name="learning-task-detail"),
+    path("api/learning/tasks/<uuid:task_id>/complete/", task_complete, name="learning-task-complete"),
     # Agent 聊天
     path("api/", include("mentora.agent_runtime.urls")),
+    # 模型调用审计
     path("api/", include("mentora.model_gateway.urls")),
     # Workflow 异步任务
     path("api/", include("mentora.workflow_runtime.urls")),
     path("api/assessment/sessions/generate/", generate_quiz_session, name="assessment-generate"),
+    path("api/assessment/generation-jobs/<uuid:job_id>/", quiz_generation_job_detail, name="assessment-generation-job"),
+    path("api/assessment/sessions/reuse/", find_quiz_session, name="assessment-session-reuse"),
     path("api/assessment/sessions/<uuid:session_id>/", quiz_session_detail, name="assessment-session-detail"),
     path("api/assessment/sessions/<uuid:session_id>/attempts/", submit_quiz_attempt, name="assessment-submit-attempt"),
     path("api/assessment/sessions/<uuid:session_id>/complete/", complete_quiz_session, name="assessment-complete"),
@@ -80,14 +119,17 @@ urlpatterns = [
     path("api/courses/sessions/<uuid:session_id>/", session_detail, name="session-detail"),
     path("api/courses/sessions/<uuid:session_id>/update/", session_update, name="session-update"),
     path("api/courses/sessions/<uuid:session_id>/delete/", session_delete, name="session-delete"),
+    path("api/courses/sessions/<uuid:session_id>/archive/", session_archive, name="session-archive"),
+    path("api/courses/sessions/<uuid:session_id>/unarchive/", session_unarchive, name="session-unarchive"),
     path("api/courses/sessions/<uuid:session_id>/start/", session_start, name="session-start"),
     path("api/courses/sessions/<uuid:session_id>/inquiry/", inquiry_next, name="inquiry-next"),
     path("api/courses/sessions/<uuid:session_id>/plan/", plan_handler, name="plan-handler"),
-    path("api/courses/sessions/<uuid:session_id>/phases/", session_phases, name="session-phases"),
     # 课程管理
     path("api/courses/", course_list, name="course-list"),
     path("api/courses/confirm/", course_confirm, name="course-confirm"),
     path("api/courses/<uuid:course_id>/", course_detail, name="course-detail"),
+    path("api/courses/<uuid:course_id>/plan/", course_plan, name="course-plan"),
+    path("api/courses/<uuid:course_id>/activity/", course_activity, name="course-activity"),
     path("api/courses/<uuid:course_id>/profile/", course_profile_revise, name="course-profile-revise"),
     path("api/courses/<uuid:course_id>/scope/", course_scope_extend, name="course-scope-extend"),
     path("api/courses/<uuid:course_id>/scope-suggest/", course_scope_suggest, name="course-scope-suggest"),
@@ -95,11 +137,34 @@ urlpatterns = [
     path("api/courses/<uuid:course_id>/files/", course_files, name="course-files"),
     path("api/courses/<uuid:course_id>/activate/", course_activate, name="course-activate"),
     # 课程资料关联
-    path("api/courses/sessions/<uuid:session_id>/sources/", course_sources, name="course-sources"),
+    path(
+        "api/courses/sessions/<uuid:session_id>/sources/coverage-preview/",
+        session_source_coverage_preview,
+        name="course-sources-coverage-preview",
+    ),
+    path("api/courses/sessions/<uuid:session_id>/sources/", course_sources_manage, name="course-sources"),
+    path(
+        "api/courses/sessions/<uuid:session_id>/sources/<uuid:source_version_id>/archive/",
+        course_source_archive,
+        name="course-source-archive",
+    ),
+    path(
+        "api/courses/sessions/<uuid:session_id>/sources/<uuid:source_version_id>/unarchive/",
+        course_source_unarchive,
+        name="course-source-unarchive",
+    ),
     # 上传
     path("api/uploads/", upload_create, name="upload-create"),
     path("api/uploads/complete/", upload_complete, name="upload-complete"),
+    path("api/resources/", list_resources, name="resource-list"),
+    path("api/resources/<uuid:resource_id>/info/", resource_info, name="resource-info"),
+    path("api/resources/<uuid:resource_id>/reader/meta/", resource_reader_meta, name="resource-reader-meta"),
+    path("api/resources/<uuid:resource_id>/reader/blocks/", resource_reader_blocks, name="resource-reader-blocks"),
+    path("api/resources/<uuid:resource_id>/reader/", resource_reader, name="resource-reader"),
+    path("api/resources/<uuid:resource_id>/pdf/", resource_pdf, name="resource-pdf"),
+    path("api/resources/<uuid:resource_id>/pages/thumbnail/", resource_page_thumbnails, name="resource-thumbnails"),
     path("api/library/sources/", list_sources, name="library-sources"),
+    path("api/library/sources/<uuid:source_version_id>/assets/", source_asset, name="library-source-asset"),
     path("api/library/sources/<uuid:source_version_id>/", source_detail, name="library-source-detail"),
     path("api/library/sources/<uuid:source_id>/delete/", source_delete, name="library-source-delete"),
     path("api/library/sources/<uuid:source_id>/reparse/", source_reparse, name="library-source-reparse"),

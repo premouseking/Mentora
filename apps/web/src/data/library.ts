@@ -28,6 +28,8 @@ export interface LibraryItem {
   version: number;
   sourcePath?: string;
   folderId: string | null;
+  /** 资料库生命周期：active | archived */
+  lifecycleStatus?: "active" | "archived";
 }
 
 /* LibraryFolder 已由 services/documentApi.ts 的 FolderItem 替代。
@@ -211,9 +213,9 @@ export const typeLabels: Record<LibraryItemType, string> = {
 export const parseStateLabels: Record<ParseState, string> = {
   pending: "等待处理",
   uploading: "正在上传",
-  reading: "正在读取内容",
+  reading: "解析中，完成后可预览",
   ready: "已可使用",
-  analyzing: "仍在深度分析",
+  analyzing: "解析中，完成后可预览",
   needs_confirm: "需要确认",
   failed: "处理失败",
 };

@@ -3,17 +3,13 @@
 import json
 import uuid
 
-from django.conf import settings
 from rest_framework.response import Response
 from rest_framework.decorators import api_view
-from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiExample
+from drf_spectacular.utils import extend_schema, OpenApiParameter
 
 from mentora.knowledge.models import CourseSource, LibraryFolder, Source, SourceStatus
-from mentora.knowledge.services.upload import (
-    DEV_OWNER_ID,
-    complete_upload,
-    create_upload_session,
-)
+from mentora.knowledge.services.upload import complete_upload, create_upload_session
+from mentora.parsing.contract import serialize_parsed_bundle
 
 
 def _parse_json_body(request) -> dict:
@@ -31,13 +27,16 @@ def _parse_optional_uuid(value: object, field_name: str) -> tuple[str | None, Re
         return None, Response({"error": f"{field_name} 格式无效"}, status=400)
 
 
-def _resolve_owner_id(value: object | None) -> tuple[str | None, Response | None]:
-    owner_id = str(value or "").strip()
-    if owner_id:
-        return owner_id, None
-    if settings.DEBUG or getattr(settings, "DEV_OWNER_FALLBACK_ENABLED", False):
-        return DEV_OWNER_ID, None
-    return None, Response({"error": "缺少 ownerId"}, status=400)
+def _parse_pagination(request) -> tuple[int, int]:
+    try:
+        limit = int(request.GET.get("limit", 100))
+    except (TypeError, ValueError):
+        limit = 100
+    try:
+        offset = int(request.GET.get("offset", 0))
+    except (TypeError, ValueError):
+        offset = 0
+    return min(max(limit, 1), 500), max(offset, 0)
 
 
 @extend_schema(
@@ -50,7 +49,6 @@ def _resolve_owner_id(value: object | None) -> tuple[str | None, Response | None
                 "filename": {"type": "string", "description": "原始文件名"},
                 "size": {"type": "integer", "description": "文件字节大小"},
                 "mediaType": {"type": "string", "description": "MIME 类型，默认 application/pdf"},
-                "ownerId": {"type": "string", "description": "所有者 ID"},
                 "uploadId": {"type": "string", "description": "客户端生成的 UUID，用于幂等关联"},
             },
             "required": ["filename", "size"],
@@ -75,12 +73,8 @@ def upload_create(request):
         except ValueError:
             return Response({"error": "uploadId 格式无效"}, status=400)
 
-    owner_id, error_response = _resolve_owner_id(body.get("ownerId"))
-    if error_response is not None:
-        return error_response
-
     result = create_upload_session(
-        owner_id=owner_id,
+        owner=request.user,
         upload_id=str(upload_id) if upload_id else None,
         byte_size=body.get("size"),
         filename=body.get("filename", "original.pdf"),
@@ -99,7 +93,6 @@ def upload_create(request):
                 "uploadId": {"type": "string", "description": "上传会话 UUID"},
                 "sha256": {"type": "string", "description": "文件 SHA-256 哈希（十六进制）"},
                 "size": {"type": "integer", "description": "实际文件字节大小"},
-                "ownerId": {"type": "string", "description": "所有者 ID"},
                 "sync": {"type": "boolean", "description": "是否同步等待解析完成，默认 true"},
             },
             "required": ["uploadId", "sha256", "size"],
@@ -121,19 +114,18 @@ def upload_complete(request):
     sha256 = body.get("sha256")
     size = body.get("size")
 
-    if not upload_id or not sha256 or size is None:
-        return Response({"error": "缺少 uploadId、sha256 或 size"}, status=400)
+    if not upload_id or size is None:
+        return Response({"error": "缺少 uploadId 或 size"}, status=400)
 
-    owner_id, error_response = _resolve_owner_id(body.get("ownerId"))
-    if error_response is not None:
-        return error_response
+    sha256 = body.get("sha256")
+    sha256_value = str(sha256).strip() if sha256 not in (None, "") else None
 
     try:
         result = complete_upload(
             upload_id=str(upload_id),
-            content_sha256=str(sha256),
+            content_sha256=sha256_value,
             byte_size=int(size),
-            owner_id=owner_id,
+            owner=request.user,
             sync_processing=body.get("sync", True),
         )
     except ValueError as exc:
@@ -156,7 +148,6 @@ def upload_complete(request):
     summary="列出资料库",
     description="按所有者列出全部资料，可选按课程或标签过滤。tags 参数逗号分隔，取交集。",
     parameters=[
-        OpenApiParameter(name="ownerId", type=str, description="所有者 ID", required=False),
         OpenApiParameter(name="courseId", type=str, description="课程会话 ID，传入时仅返回已关联资料", required=False),
         OpenApiParameter(name="tags", type=str, description="逗号分隔的标签，取交集过滤", required=False),
         OpenApiParameter(name="status", type=str, description="过滤状态: active/archived", required=False),
@@ -167,9 +158,6 @@ def upload_complete(request):
 )
 @api_view(["GET"])
 def list_sources(request):
-    owner_id, error_response = _resolve_owner_id(request.GET.get("ownerId"))
-    if error_response is not None:
-        return error_response
     course_id = request.GET.get("courseId", "").strip()
     tags_filter = [t.strip() for t in request.GET.get("tags", "").split(",") if t.strip()]
     status_filter = request.GET.get("status", "").strip()
@@ -178,7 +166,7 @@ def list_sources(request):
     if error_response is not None:
         return error_response
 
-    qs = Source.objects.filter(owner_id=owner_id).select_related("latest_version")
+    qs = Source.objects.filter(owner=request.user).select_related("latest_version")
 
     if folder_id:
         qs = qs.filter(folder_id=folder_id)
@@ -188,51 +176,85 @@ def list_sources(request):
 
     if status_filter in ("active", "archived"):
         qs = qs.filter(status=status_filter)
-
-    if course_id:
-        # 优先读正式课程作用域，没有则回退到临时关联记录
+    elif course_id:
+        # 课程 scope 仍默认只看可用资料
+        qs = qs.filter(status=SourceStatus.ACTIVE)
+        # 支持 Course.id 与 session_id 两种传参；找不到 scope 时返回空集而非全库
         from mentora.courses.services import get_course_scope
         from mentora.courses.models import Course
 
         linked_version_ids = None
+        session_id_for_links = course_id
+        course_obj = None
         try:
-            course = Course.objects.get(session_id=course_id)
-            linked_version_ids = get_course_scope(str(course.id))
-        except Course.DoesNotExist:
-            pass
+            course_obj = Course.objects.get(id=course_id)
+            linked_version_ids = get_course_scope(str(course_obj.id))
+            session_id_for_links = str(course_obj.session_id)
+        except (Course.DoesNotExist, ValueError):
+            try:
+                course_obj = Course.objects.get(session_id=course_id)
+                linked_version_ids = get_course_scope(str(course_obj.id))
+                session_id_for_links = str(course_obj.session_id)
+            except Course.DoesNotExist:
+                pass
 
         if not linked_version_ids:
             linked_version_ids = list(
                 CourseSource.objects.filter(
-                    course_session_id=course_id,
+                    course_session_id=session_id_for_links,
                 ).values_list("source_version_id", flat=True)
             )
 
         if linked_version_ids:
             qs = qs.filter(latest_version__id__in=linked_version_ids)
+            # 课程资料视图默认排除已从课程内归档的关联
+            if request.GET.get("includeArchived", "").lower() not in ("1", "true", "yes"):
+                archived_ids = CourseSource.objects.filter(
+                    course_session_id=session_id_for_links,
+                    archived_at__isnull=False,
+                ).values_list("source_version_id", flat=True)
+                if archived_ids:
+                    qs = qs.exclude(latest_version__id__in=list(archived_ids))
+        else:
+            qs = qs.none()
+
+    limit, offset = _parse_pagination(request)
+    qs = qs.order_by("-created_at")
+
+    for tag in tags_filter:
+        qs = qs.filter(tags__contains=[tag])
+
+    total = qs.count()
+    page_sources = list(qs[offset: offset + limit])
 
     items = []
-    for source in qs.order_by("-created_at"):
+    for source in page_sources:
         latest = source.latest_version
-        # 标签过滤：交集匹配
-        if tags_filter and not set(tags_filter).issubset(set(source.tags or [])):
-            continue
         items.append(
             {
                 "id": str(source.id),
                 "displayTitle": source.display_title,
                 "status": source.status,
-                "tags": source.tags,
+                "tags": source.tags or [],
+                "folderId": str(source.folder_id) if source.folder_id else None,
+                "updatedAt": latest.created_at.isoformat() if latest and latest.created_at else None,
                 "latestVersion": None if latest is None else {
                     "id": str(latest.id),
                     "versionNumber": latest.version_number,
                     "processingStatus": latest.processing_status,
                     "byteSize": latest.byte_size,
                     "originalFilename": latest.original_filename,
+                    "mediaType": latest.media_type,
                 },
             }
         )
-    return Response({"items": items, "count": len(items)})
+
+    return Response({
+        "items": items,
+        "count": total,
+        "limit": limit,
+        "offset": offset,
+    })
 
 
 @extend_schema(
@@ -249,7 +271,9 @@ def source_detail(request, source_version_id):
     from mentora.knowledge.models import SourceVersion
 
     try:
-        version = SourceVersion.objects.select_related("source").get(id=source_version_id)
+        version = SourceVersion.objects.select_related("source").get(
+            id=source_version_id, source__owner=request.user,
+        )
     except SourceVersion.DoesNotExist:
         return Response({"error": "资料版本不存在"}, status=404)
 
@@ -259,7 +283,7 @@ def source_detail(request, source_version_id):
             storage = ObjectStorageService()
             raw = storage.get_object_bytes(version.artifact_ref)
             bundle_data = json.loads(raw.decode("utf-8"))
-        except (ObjectStorageError, json.JSONDecodeError):
+        except (ObjectStorageError, json.JSONDecodeError, OSError):
             pass
 
     return Response({
@@ -275,13 +299,48 @@ def source_detail(request, source_version_id):
             "byteSize": version.byte_size,
             "originalFilename": version.original_filename,
             "mediaType": version.media_type,
+            "objectKey": version.object_key,
             "parserName": version.parser_name,
             "parserVersion": version.parser_version,
             "errorCode": version.error_code,
             "errorMessage": version.error_message,
         },
-        "bundle": bundle_data,
+        "bundle": serialize_parsed_bundle(bundle_data),
     })
+
+
+@extend_schema(
+    summary="获取资料版本对象资源",
+    description="按对象存储键流式返回解析图片；kind=original 时返回原始上传文件。",
+    parameters=[
+        OpenApiParameter(name="key", type=str, description="对象存储键（解析图片）"),
+        OpenApiParameter(name="kind", type=str, description="original 表示原始文件"),
+    ],
+    responses={
+        200: {"description": "二进制流"},
+        400: {"description": "参数无效"},
+        404: {"description": "资料版本或对象不存在"},
+    },
+)
+@api_view(["GET"])
+def source_asset(request, source_version_id):
+    from mentora.knowledge.asset_streaming import stream_source_version_asset
+    from mentora.knowledge.models import SourceVersion
+
+    try:
+        version = SourceVersion.objects.get(id=source_version_id, source__owner=request.user)
+    except SourceVersion.DoesNotExist:
+        return Response({"error": "资料版本不存在"}, status=404)
+
+    kind = (request.GET.get("kind") or "").strip().lower()
+    key = (request.GET.get("key") or "").strip()
+    return stream_source_version_asset(
+        version,
+        str(source_version_id),
+        kind=kind,
+        key=key,
+        request=request,
+    )
 
 
 @extend_schema(
@@ -295,7 +354,7 @@ def source_detail(request, source_version_id):
 @api_view(["DELETE"])
 def source_delete(request, source_id):
     try:
-        source = Source.objects.get(id=source_id)
+        source = Source.objects.get(id=source_id, owner=request.user)
     except Source.DoesNotExist:
         return Response({"error": "资料不存在"}, status=404)
 
@@ -314,11 +373,11 @@ def source_delete(request, source_id):
 )
 @api_view(["POST"])
 def source_reparse(request, source_id):
-    from mentora.knowledge.models import ProcessingRun, ProcessingRunStatus, ProcessingStatus
+    from mentora.knowledge.models import ProcessingRun, ProcessingStatus
     from mentora.knowledge.services.processing import run_processing_for_version
 
     try:
-        source = Source.objects.get(id=source_id)
+        source = Source.objects.get(id=source_id, owner=request.user)
     except Source.DoesNotExist:
         return Response({"error": "资料不存在"}, status=404)
 
@@ -328,7 +387,13 @@ def source_reparse(request, source_id):
 
     # 清理旧解析数据
     ProcessingRun.objects.filter(source_version=version).delete()
-    from mentora.retrieval.models import ChunkProjection, EvidenceUnit
+    from mentora.retrieval.models import ChunkProjection, EvidenceUnit, SentenceProjection
+
+    evidence_ids = list(
+        EvidenceUnit.objects.filter(source_version_id=str(version.id)).values_list("id", flat=True)
+    )
+    if evidence_ids:
+        SentenceProjection.objects.filter(evidence_unit_id__in=evidence_ids).delete()
     EvidenceUnit.objects.filter(source_version_id=str(version.id)).delete()
     ChunkProjection.objects.filter(source_version_id=str(version.id)).delete()
 
@@ -363,7 +428,7 @@ def source_reparse(request, source_id):
 @api_view(["PATCH"])
 def source_update_tags(request, source_id):
     try:
-        source = Source.objects.get(id=source_id)
+        source = Source.objects.get(id=source_id, owner=request.user)
     except Source.DoesNotExist:
         return Response({"error": "资料不存在"}, status=404)
 
@@ -385,16 +450,12 @@ def source_update_tags(request, source_id):
     summary="列出所有标签",
     description="返回当前用户所有资料中已使用的标签合集。",
     parameters=[
-        OpenApiParameter(name="ownerId", type=str, description="所有者 ID", required=False),
     ],
     responses={200: {"description": "标签列表"}},
 )
 @api_view(["GET"])
 def list_tags(request):
-    owner_id, error_response = _resolve_owner_id(request.GET.get("ownerId"))
-    if error_response is not None:
-        return error_response
-    sources = Source.objects.filter(owner_id=owner_id).values_list("tags", flat=True)
+    sources = Source.objects.filter(owner=request.user).values_list("tags", flat=True)
     all_tags: set[str] = set()
     for tags in sources:
         if isinstance(tags, list):
@@ -410,7 +471,7 @@ def list_tags(request):
 @api_view(["PATCH"])
 def source_archive(request, source_id):
     try:
-        source = Source.objects.get(id=source_id)
+        source = Source.objects.get(id=source_id, owner=request.user)
     except Source.DoesNotExist:
         return Response({"error": "资料不存在"}, status=404)
     source.status = SourceStatus.ARCHIVED
@@ -426,7 +487,7 @@ def source_archive(request, source_id):
 @api_view(["PATCH"])
 def source_unarchive(request, source_id):
     try:
-        source = Source.objects.get(id=source_id)
+        source = Source.objects.get(id=source_id, owner=request.user)
     except Source.DoesNotExist:
         return Response({"error": "资料不存在"}, status=404)
     source.status = SourceStatus.ACTIVE
@@ -445,7 +506,6 @@ def source_unarchive(request, source_id):
             "properties": {
                 "name": {"type": "string", "description": "文件夹名称"},
                 "parentId": {"type": "string", "description": "父文件夹 ID（可选）"},
-                "ownerId": {"type": "string", "description": "所有者 ID"},
             },
             "required": ["name"],
         },
@@ -461,16 +521,13 @@ def folder_create(request):
     name = (body.get("name") or "").strip()
     if not name:
         return Response({"error": "缺少 name"}, status=400)
-    owner_id, error_response = _resolve_owner_id(body.get("ownerId"))
-    if error_response is not None:
-        return error_response
     parent_id, error_response = _parse_optional_uuid(body.get("parentId"), "parentId")
     if error_response is not None:
         return error_response
-    if parent_id and not LibraryFolder.objects.filter(id=parent_id, owner_id=owner_id).exists():
+    if parent_id and not LibraryFolder.objects.filter(id=parent_id, owner=request.user).exists():
         return Response({"error": "父文件夹不存在"}, status=404)
     folder = LibraryFolder.objects.create(
-        owner_id=owner_id,
+        owner=request.user,
         name=name,
         parent_id=parent_id,
     )
@@ -481,24 +538,28 @@ def folder_create(request):
     summary="列出文件夹",
     description="返回当前用户的文件夹列表，含子文件夹数和资料数。",
     parameters=[
-        OpenApiParameter(name="ownerId", type=str, description="所有者 ID", required=False),
     ],
     responses={200: {"description": "文件夹列表"}},
 )
 @api_view(["GET"])
 def folder_list(request):
-    owner_id, error_response = _resolve_owner_id(request.GET.get("ownerId"))
-    if error_response is not None:
-        return error_response
-    folders = LibraryFolder.objects.filter(owner_id=owner_id)
+    from django.db.models import Count
+
+    folders = (
+        LibraryFolder.objects.filter(owner=request.user)
+        .annotate(
+            childCount=Count("children", distinct=True),
+            sourceCount=Count("sources", distinct=True),
+        )
+    )
     items = []
     for f in folders:
         items.append({
             "id": str(f.id),
             "name": f.name,
             "parentId": str(f.parent_id) if f.parent_id else None,
-            "childCount": f.children.count(),
-            "sourceCount": f.sources.count(),
+            "childCount": f.childCount,
+            "sourceCount": f.sourceCount,
             "position": f.position,
         })
     return Response({"items": items, "count": len(items)})
@@ -518,7 +579,7 @@ def folder_list(request):
 @api_view(["PATCH"])
 def folder_rename(request, folder_id):
     try:
-        folder = LibraryFolder.objects.get(id=folder_id)
+        folder = LibraryFolder.objects.get(id=folder_id, owner=request.user)
     except LibraryFolder.DoesNotExist:
         return Response({"error": "文件夹不存在"}, status=404)
     try:
@@ -541,7 +602,7 @@ def folder_rename(request, folder_id):
 @api_view(["DELETE"])
 def folder_delete(request, folder_id):
     try:
-        folder = LibraryFolder.objects.get(id=folder_id)
+        folder = LibraryFolder.objects.get(id=folder_id, owner=request.user)
     except LibraryFolder.DoesNotExist:
         return Response({"error": "文件夹不存在"}, status=404)
     if folder.children.exists() or folder.sources.exists():
@@ -565,7 +626,7 @@ def folder_delete(request, folder_id):
 @api_view(["PATCH"])
 def source_move(request, source_id):
     try:
-        source = Source.objects.get(id=source_id)
+        source = Source.objects.get(id=source_id, owner=request.user)
     except Source.DoesNotExist:
         return Response({"error": "资料不存在"}, status=404)
     try:
@@ -577,7 +638,7 @@ def source_move(request, source_id):
         return error_response
     if folder_id and not LibraryFolder.objects.filter(
         id=folder_id,
-        owner_id=source.owner_id,
+        owner=request.user,
     ).exists():
         return Response({"error": "文件夹不存在"}, status=404)
     source.folder_id = folder_id if folder_id else None

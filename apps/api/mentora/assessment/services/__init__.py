@@ -8,6 +8,8 @@
 @module mentora/assessment/services
 """
 
+from asgiref.sync import sync_to_async
+
 from django.db import transaction
 from django.utils import timezone
 
@@ -35,9 +37,14 @@ def create_item(
     source_type: str = "user",
     created_by: str = "",
     model_request_id: str = "",
+    owner=None,
 ) -> dict:
     """创建题目 + 首版修订 + 溯源记录。"""
+    if owner is None:
+        from mentora.courses.models import CourseCreationSession
+        owner = CourseCreationSession.objects.only("owner").get(id=course_session_id).owner
     item = AssessmentItem.objects.create(
+        owner=owner,
         course_session_id=course_session_id,
         topic_id=topic_id or None,
         question_type=question_type,
@@ -110,13 +117,18 @@ def create_session(
     item_ids: list[str],
     *,
     unit_id: str = "",
+    owner=None,
 ) -> dict:
     """创建测验会话并关联题目。"""
-    items = list(AssessmentItem.objects.filter(id__in=item_ids))
+    if owner is None:
+        from mentora.courses.models import CourseCreationSession
+        owner = CourseCreationSession.objects.only("owner").get(id=course_session_id).owner
+    items = list(AssessmentItem.objects.filter(id__in=item_ids, owner=owner))
     if not items:
         raise ValueError("题目列表不能为空")
 
     session = AssessmentSession.objects.create(
+        owner=owner,
         course_session_id=course_session_id,
         unit_id=unit_id or None,
         status=AssessmentSession.Status.CREATED,
@@ -177,10 +189,10 @@ def submit_attempt(
     }
 
     # 写入学习记录
-    from mentora.learning.services import write_history_event
-    revision = AssessmentItemRevision.objects.get(id=attempt.item.current_revision_id)
+    from mentora.learning.services import resolve_course_id_for_history, write_history_event
+
     write_history_event(
-        course_id=str(session.course_session_id),
+        course_id=resolve_course_id_for_history(course_session_id=str(session.course_session_id)),
         event_type="quiz_attempted",
         title=f"作答题目：{revision.question_text[:40]}...",
         detail=f"选自测验 {session_id}",
@@ -270,7 +282,7 @@ def flag_item(item_id: str, issue: str, *, student_note: str = "") -> dict:
     if unresolved >= 2:
         from mentora.assessment.models import AssessmentItem
         item = AssessmentItem.objects.get(id=item_id)
-        old_rev = AssessmentItemRevision.objects.get(id=item.current_revision_id)
+        AssessmentItemRevision.objects.get(id=item.current_revision_id)
 
         new_rev_result = revise_item(item_id)
         new_rev = AssessmentItemRevision.objects.get(id=new_rev_result["revision_id"])
@@ -311,32 +323,34 @@ def get_latest_session_for_unit(unit_id: str) -> dict | None:
 
 def validate_item(revision_id: str) -> dict:
     """
-    AI 自检：三要素校验。
-
-    1. 选项互斥（无语义重叠）
-    2. 答案唯一（单选题只有 1 个正确选项）
-    3. 资料依据（答案能在 source_evidence_ids 中找到原文支撑）
+    AI 自检：三要素校验（同步入口，供 HTTP/管理命令调用）。
 
     通过 → status=published；不通过 → 写入 validation_issues。
     """
+    import asyncio
+
+    return asyncio.run(validate_item_async(revision_id))
+
+
+def _load_revision_for_validation(revision_id: str) -> tuple[AssessmentItemRevision, list[str], str]:
     revision = AssessmentItemRevision.objects.select_related("item").get(id=revision_id)
     item = revision.item
 
-    # 收集资料原文
     evidence_texts: list[str] = []
     if revision.source_evidence_ids:
         from mentora.retrieval.models import EvidenceUnit
+
         units = EvidenceUnit.objects.filter(
             id__in=revision.source_evidence_ids,
         )
         evidence_texts = [u.content for u in units]
 
-    # 构建 LLM 校验请求
     options_str = ""
     if revision.options_json:
         options_str = "\n".join(
             f"{o.get('label', '')}: {o.get('text', '')}"
             for o in revision.options_json
+            if isinstance(o, dict)
         )
 
     prompt_parts = [
@@ -350,43 +364,25 @@ def validate_item(revision_id: str) -> dict:
         prompt_parts.append(f"资料原文：\n{' '.join(evidence_texts[:3])}")
 
     check_rules = (
-        "请逐项检查：\n"
+        "请逐项检查并返回 JSON：\n"
         "1. 选项互斥——选择题选项中不存在语义重叠\n"
         "2. 答案唯一——单选题有且仅有一个正确选项\n"
         "3. 资料依据——正确答案能从资料原文中找到支撑\n\n"
         "如果资料原文为空，只检查第 1、2 项。"
     )
+    return revision, prompt_parts, check_rules
 
-    try:
-        from mentora.model_gateway.gateway import ModelGateway
-        from mentora.agent_runtime.views import get_gateway
-        from mentora.model_gateway.schemas import Message
 
-        gateway = get_gateway()
-        messages = [
-            Message(role="system", content="你是题目质量审核员。" + check_rules),
-            Message(role="user", content="\n\n".join(prompt_parts)),
-        ]
-        resp = gateway.chat_sync(
-            task_type="assessor",
-            messages=messages,
-            structured_output_schema=None,
-        )
-        content = (resp.content or "").lower()
-        valid = "通过" in content or "valid" in content or "yes" in content
-    except Exception:
-        # LLM 不可用时跳过校验，标记为手动确认
-        return {
-            "revision_id": revision_id,
-            "valid": False,
-            "issues": ["AI 自检不可用，需手动确认"],
-        }
-
-    issues = []
+def _persist_validation_result(
+    revision_id: str,
+    *,
+    valid: bool,
+    issues: list[str],
+) -> dict:
+    revision = AssessmentItemRevision.objects.get(id=revision_id)
     if not valid:
-        issues.append("AI 自检未通过，请人工审核题目内容")
         revision.status = AssessmentItemRevision.Status.DRAFT
-        revision.validation_issues = issues
+        revision.validation_issues = issues or ["AI 自检未通过，请人工审核题目内容"]
         revision.save(update_fields=["status", "validation_issues"])
     else:
         revision.status = AssessmentItemRevision.Status.PUBLISHED
@@ -399,6 +395,72 @@ def validate_item(revision_id: str) -> dict:
         "issues": issues,
         "status": revision.status,
     }
+
+
+async def validate_item_async(revision_id: str) -> dict:
+    """
+    AI 自检异步入口。
+
+    约束：Agent 工具链内必须 await 本函数，禁止 sync_to_async(validate_item)，
+    否则会与 asyncio.run 争抢单线程 executor 导致死锁。
+    """
+    _, prompt_parts, check_rules = await sync_to_async(_load_revision_for_validation)(revision_id)
+
+    try:
+        from mentora.agent_runtime.views import get_gateway
+        from mentora.assessment.schemas import ItemValidationResult
+        from mentora.model_gateway.exceptions import StructuredOutputError
+        from mentora.model_gateway.schemas import Message
+
+        gateway = get_gateway()
+        messages = [
+            Message(role="system", content="你是题目质量审核员。" + check_rules),
+            Message(role="user", content="\n\n".join(prompt_parts)),
+        ]
+        try:
+            resp = await gateway.chat(
+                task_type="assessor",
+                messages=messages,
+                structured_output_schema=ItemValidationResult,
+            )
+            if resp.parsed_output is not None:
+                parsed = ItemValidationResult.model_validate(resp.parsed_output)
+                valid = parsed.valid
+                issues = list(parsed.issues)
+            else:
+                content = (resp.content or "").lower()
+                valid = "通过" in content or "valid" in content or "yes" in content
+                issues = [] if valid else ["AI 自检未通过，请人工审核题目内容"]
+        except StructuredOutputError:
+            # 模型偶发漏字段时降级为非结构化复检，避免 Agent 出题整批失败
+            resp = await gateway.chat(task_type="assessor", messages=messages)
+            content = (resp.content or "").strip()
+            valid = False
+            issues = ["AI 自检未通过，请人工审核题目内容"]
+            if content:
+                import json
+
+                try:
+                    data = json.loads(content)
+                    if isinstance(data, dict) and "valid" in data:
+                        valid = bool(data["valid"])
+                        issues = [str(i) for i in (data.get("issues") or [])]
+                except json.JSONDecodeError:
+                    lowered = content.lower()
+                    valid = '"valid": true' in lowered or '"valid":true' in lowered
+                    issues = [] if valid else issues
+    except Exception:
+        return {
+            "revision_id": revision_id,
+            "valid": False,
+            "issues": ["AI 自检不可用，需手动确认"],
+        }
+
+    return await sync_to_async(_persist_validation_result)(
+        revision_id,
+        valid=valid,
+        issues=issues,
+    )
 
 
 @transaction.atomic

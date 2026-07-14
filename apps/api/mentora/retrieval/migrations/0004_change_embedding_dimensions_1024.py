@@ -9,7 +9,7 @@ MRL 降维 1024d 平衡性能与存储。
 """
 
 import pgvector.django.vector
-from django.db import migrations, models
+from django.db import migrations
 
 
 class Migration(migrations.Migration):

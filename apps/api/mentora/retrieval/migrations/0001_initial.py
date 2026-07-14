@@ -9,7 +9,6 @@
 
 import uuid
 
-import django.db.models.deletion
 import pgvector.django.vector
 from django.contrib.postgres.operations import TrigramExtension
 from django.contrib.postgres.indexes import GinIndex

@@ -3,13 +3,29 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 import { SetupShell } from "../components/AppShell";
+import { ProfileQaList, type QaDisplayItem } from "../components/ProfileQaDisplay";
 import {
+  ApiError,
+  generatePlan,
   getActivePlan,
   getCourseSession,
   startCourse,
+  updateCourseSession,
   type ActivePlan,
+  type CoverageGap,
   type SessionDetail,
 } from "../services/courseApi";
+import {
+  buildAdjustmentSupplement,
+  buildTaskDetailSummary,
+  describePlanPhaseChanges,
+  getTaskCardLabelForUnit,
+  getTaskDeliveryLabel,
+  getTaskDetailTitle,
+  getTaskTypeDetailLabel,
+  profileItemsToSessionUpdate,
+  summarizeUnitTasks,
+} from "./courseFlowHelpers";
 
 /* ── 类型 ── */
 
@@ -25,24 +41,62 @@ const PHASE_POOL_TEMPLATES: PoolPhase[] = [
   { id: "pool-k6", title: "实战模拟", objective: "全真模拟考试，训练应试能力" },
 ];
 
-interface ProfileItem { key: string; title: string; value: string; }
+interface ProfileItem extends QaDisplayItem {}
 
-/* 从 SessionDetail 构建档案项 */
+const PROFILE_FIELD_LABELS: Record<string, string> = {
+  goal: "你想学习什么？",
+  level: "你目前的基础如何？",
+  pace: "你希望的推进方式？",
+  timeBudget: "每天可投入多少时间？",
+  deadline: "你的目标日期是？",
+  school: "你就读/所在学校或地区？",
+};
+
+/* 从 SessionDetail 构建档案项（Q&A 结构） */
 function buildProfileItems(session: SessionDetail): ProfileItem[] {
-  return [
-    { key: "goal", title: "学习目标", value: session.goal || "" },
-    { key: "level", title: "当前基础", value: session.level || "" },
-    { key: "pace", title: "推进方式", value: session.pace || "" },
-    { key: "timeBudget", title: "每日时长", value: session.time_budget || "" },
-    { key: "deadline", title: "目标日期", value: session.deadline || "" },
-    { key: "school", title: "学校/地区", value: session.school || "" },
+  const fields: Array<{ key: keyof typeof PROFILE_FIELD_LABELS; value: string }> = [
+    { key: "goal", value: session.goal || "" },
+    { key: "level", value: session.level || "" },
+    { key: "pace", value: session.pace || "" },
+    { key: "timeBudget", value: session.time_budget || "" },
+    { key: "deadline", value: session.deadline || "" },
+    { key: "school", value: session.school || "" },
   ];
+
+  const items: ProfileItem[] = fields.map((f) => ({
+    key: f.key,
+    title: PROFILE_FIELD_LABELS[f.key],
+    value: f.value,
+    source: "你的输入",
+    editable: true,
+  }));
+
+  session.inquiry_history?.forEach((entry, i) => {
+    if (entry.question.trim() && entry.answer.trim()) {
+      items.push({
+        key: `inquiry_${i}`,
+        title: entry.question,
+        value: entry.answer,
+        source: "你的回答",
+        editable: true,
+      });
+    }
+  });
+
+  return items;
 }
 
 /* ── 常量 ── */
 
-const TASK_TYPE_LABEL: Record<string, string> = { lecture: "讲解", exercise: "练习", project: "项目", review: "复习" };
-const DEPTH_LABEL: Record<string, string> = { understand: "理解", apply: "应用", analyze: "分析" };
+const DEPTH_LABEL: Record<string, string> = {
+  basic: "基础",
+  reinforce: "强化",
+  review: "复习",
+  skip: "跳过",
+  understand: "理解",
+  apply: "应用",
+  analyze: "分析",
+};
 
 function formatMinutes(m: number): string {
   if (m >= 60) return `${Math.round(m / 60 * 10) / 10} 小时`;
@@ -122,40 +176,95 @@ function PlanOverviewCanvas({
 
 export function ConfirmPlanPage() {
   const navigate = useNavigate();
-  const sessionId = sessionStorage.getItem("mentora-session-id");
+  const sid = sessionStorage.getItem("mentora-session-id");
 
   /* 加载状态 */
   const [plan, setPlan] = useState<ActivePlan | null>(null);
+  const [sessionDetail, setSessionDetail] = useState<SessionDetail | null>(null);
   const [profileItems, setProfileItems] = useState<ProfileItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [generating, setGenerating] = useState(false);
+  const [awaitingTrialGenerate, setAwaitingTrialGenerate] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [scopePrompt, setScopePrompt] = useState<{ message: string; gaps: CoverageGap[] } | null>(null);
+  const [planCoverageGaps, setPlanCoverageGaps] = useState<CoverageGap[]>([]);
+
+  async function runPlanGeneration(allowPartial = false) {
+    if (!sid) return false;
+    setGenerating(true);
+    setAwaitingTrialGenerate(false);
+    setError(null);
+    try {
+      const generated = await generatePlan(sid, { allow_partial_plan: allowPartial });
+      const planData = await getActivePlan(sid);
+      setPlan(planData);
+      setPlanCoverageGaps(generated.coverage_gaps ?? []);
+      setScopePrompt(null);
+      return true;
+    } catch (genErr) {
+      if (
+        genErr instanceof ApiError
+        && genErr.status === 409
+        && genErr.code === "insufficient_scope"
+      ) {
+        setScopePrompt({
+          message: genErr.message,
+          gaps: genErr.coverageGaps ?? [],
+        });
+        return false;
+      }
+      if (
+        genErr instanceof ApiError
+        && genErr.code === "invalid_scope_evidence"
+        && !allowPartial
+      ) {
+        // LLM 偶发引用无效 evidence ID，自动重试一次
+        return runPlanGeneration(true);
+      }
+      setError(genErr instanceof Error ? genErr.message : "方案生成失败");
+      return false;
+    } finally {
+      setGenerating(false);
+      setLoading(false);
+    }
+  }
 
   useEffect(() => {
-    if (!sessionId) {
+    if (!sid) {
       navigate("/courses/new");
       return;
     }
 
     let cancelled = false;
-    Promise.all([
-      getActivePlan(sessionId),
-      getCourseSession(sessionId),
-    ])
-      .then(([planData, sessionData]) => {
+    const safeSid = sid!;
+
+    async function loadPlan() {
+      try {
+        const sessionData = await getCourseSession(safeSid);
+        if (cancelled) return;
+        setSessionDetail(sessionData);
+        setProfileItems(buildProfileItems(sessionData));
+      } catch {
+        // 会话信息失败不阻塞
+      }
+
+      try {
+        const planData = await getActivePlan(safeSid);
         if (cancelled) return;
         setPlan(planData);
-        setProfileItems(buildProfileItems(sessionData));
-      })
-      .catch((err) => {
-        if (cancelled) return;
-        setError(err instanceof Error ? err.message : "加载方案失败");
-      })
-      .finally(() => {
+        setAwaitingTrialGenerate(false);
         if (!cancelled) setLoading(false);
-      });
+      } catch {
+        if (cancelled) return;
+        setAwaitingTrialGenerate(true);
+        setLoading(false);
+      }
+    }
+
+    loadPlan();
 
     return () => { cancelled = true; };
-  }, [sessionId, navigate]);
+  }, [sid, navigate]);
 
   /* phase-track 状态 */
   const [trackPhaseIndex, setTrackPhaseIndex] = useState(0);
@@ -193,8 +302,9 @@ export function ConfirmPlanPage() {
     scrollTrackTo(next);
   }
 
-  /* 计划概览章节选中 */
+  /* 计划概览章节 / 任务选中 */
   const [overviewSelectedUnitId, setOverviewSelectedUnitId] = useState<string | null>(null);
+  const [overviewSelectedTaskId, setOverviewSelectedTaskId] = useState<string | null>(null);
 
   /* ── 档案编辑 ── */
   const [profileEditing, setProfileEditing] = useState(false);
@@ -306,26 +416,127 @@ export function ConfirmPlanPage() {
   }, []);
 
   const isDirty = profileChanged || planChanged;
+  const [adjusting, setAdjusting] = useState(false);
+
+  const handleAdjustPlan = useCallback(async () => {
+    if (!sid) return;
+    if (!isDirty) {
+      navigate("/courses/new?adjust=true");
+      return;
+    }
+
+    setAdjusting(true);
+    setError(null);
+    try {
+      const originalPhases = plan?.phases.map((p) => ({ id: p.id, title: p.title, objective: p.objective })) ?? [];
+      const planSummary = planChanged ? describePlanPhaseChanges(originalPhases, editPhases) : "";
+      const supplement = buildAdjustmentSupplement("", planSummary);
+      await updateCourseSession(sid, {
+        ...(profileChanged ? profileItemsToSessionUpdate(profileValues) : {}),
+        ...(Object.keys(supplement).length > 0
+          ? { profile_supplement: { ...(sessionDetail?.profile_supplement ?? {}), ...supplement } }
+          : {}),
+      });
+
+      await generatePlan(sid);
+      const [sessionData, planData] = await Promise.all([
+        getCourseSession(sid),
+        getActivePlan(sid),
+      ]);
+      setSessionDetail(sessionData);
+      setProfileItems(buildProfileItems(sessionData));
+      setPlan(planData);
+      setProfileChanged(false);
+      setPlanEditing(false);
+      setPlanChanged(false);
+      setShowAddPhase(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "调整方案失败");
+    } finally {
+      setAdjusting(false);
+    }
+  }, [
+    editPhases,
+    isDirty,
+    navigate,
+    plan,
+    planChanged,
+    profileChanged,
+    profileValues,
+    sessionDetail,
+    sid,
+  ]);
 
   /* ── 开始学习：调用后端激活课程 ── */
   const [starting, setStarting] = useState(false);
 
   const handleStartLearning = useCallback(async () => {
-    if (!sessionId) return;
+    if (!sid) return;
     setStarting(true);
     try {
-      await startCourse(sessionId);
+      const result = await startCourse(sid);
       sessionStorage.setItem("mentora-course-started", "true");
-      navigate("/courses");
+      // 优先用后端返回的 course_id（路径 A 统一后的 Course ID）
+      const courseId = result.course_id || sid;
+      navigate(`/courses/${courseId}`);
     } catch (err) {
       setStarting(false);
       setError(err instanceof Error ? err.message : "启动课程失败");
     }
-  }, [sessionId, navigate]);
+  }, [sid, navigate]);
 
   /* ── 加载中 / 错误 / 空 plan ── */
 
   if (loading) {
+    return (
+      <SetupShell current={2} hideInfoBar footer={null}>
+        <div className="setup-heading compact-heading">
+          <h1 className="course-title-main">正在加载…</h1>
+        </div>
+      </SetupShell>
+    );
+  }
+
+  if (awaitingTrialGenerate && !plan) {
+    const coverageItems: ProfileItem[] = sessionDetail?.sources?.map((source) => ({
+      key: `source_${source.sourceVersionId}`,
+      title: "已选资料",
+      value: source.displayTitle,
+      source: "课程作用域",
+      editable: false,
+    })) ?? [];
+
+    return (
+      <SetupShell
+        current={2}
+        hideInfoBar
+        footer={
+          <div className="setup-footer">
+            <button className="ps-btn ps-btn-secondary" type="button" onClick={() => navigate("/courses/new")}>
+              返回修改
+            </button>
+            <button
+              className="ps-btn ps-btn-primary"
+              disabled={generating}
+              type="button"
+              onClick={() => void runPlanGeneration(false)}
+            >
+              {generating ? "试生成中…" : "开始试生成学习方案"}
+            </button>
+          </div>
+        }
+      >
+        <div className="setup-heading compact-heading">
+          <h1 className="course-title-main">确认试生成上下文</h1>
+          <p>请确认以下信息。试生成将基于学习目标、资料作用域与追问补充信息制定方案。</p>
+        </div>
+        <ProfileQaList items={[...profileItems, ...coverageItems]} />
+        {error && <p className="cw-preview-text">{error}</p>}
+      </SetupShell>
+    );
+  }
+
+  if (generating) {
     return (
       <SetupShell current={2} hideInfoBar footer={null}>
         <div className="setup-heading compact-heading">
@@ -335,6 +546,43 @@ export function ConfirmPlanPage() {
         <div className="ps-adjust-loading">
           <div className="ps-spinner" />
           <p>PlanGenerator 正在分析资料并构建方案</p>
+        </div>
+      </SetupShell>
+    );
+  }
+
+  if (scopePrompt) {
+    return (
+      <SetupShell current={2} hideInfoBar footer={null}>
+        <div className="setup-heading compact-heading">
+          <h1 className="course-title-main">所选资料覆盖不足</h1>
+          <p>{scopePrompt.message}</p>
+        </div>
+        <div className="ps-scope-gap-panel">
+          <ul className="ps-scope-gap-list">
+            {scopePrompt.gaps.map((gap) => (
+              <li className="ps-scope-gap-item" key={`${gap.topic}-${gap.reason}`}>
+                <strong>{gap.topic}</strong>
+                <span>{gap.reason}</span>
+                {gap.suggested_action && <em>{gap.suggested_action}</em>}
+              </li>
+            ))}
+          </ul>
+        </div>
+        <div className="setup-footer">
+          <button className="ps-btn ps-btn-secondary" type="button" onClick={() => navigate("/courses/new")}>
+            补充资料
+          </button>
+          <button
+            className="ps-btn ps-btn-primary"
+            type="button"
+            onClick={() => {
+              setLoading(true);
+              void runPlanGeneration(true);
+            }}
+          >
+            仍按现有资料生成
+          </button>
         </div>
       </SetupShell>
     );
@@ -381,15 +629,16 @@ export function ConfirmPlanPage() {
           <button
             className={`ps-btn ${isDirty ? "ps-btn-primary" : "ps-btn-secondary"}`}
             type="button"
-            onClick={() => navigate("/courses/new?adjust=true")}
+            onClick={handleAdjustPlan}
+            disabled={adjusting || starting}
           >
-            调整方案
+            {adjusting ? "正在调整…" : "调整方案"}
           </button>
           <button
             className={`ps-btn ${!isDirty ? "ps-btn-primary" : "ps-btn-secondary"}`}
             type="button"
             onClick={handleStartLearning}
-            disabled={starting}
+            disabled={starting || adjusting}
           >
             {starting ? "正在启动…" : "开始学习"}
           </button>
@@ -402,6 +651,20 @@ export function ConfirmPlanPage() {
           <h1 className="course-title-main">确认学习方案</h1>
           <p>请确认学习档案和学习计划概览，确认后即可开始学习。</p>
         </div>
+
+        {planCoverageGaps.length > 0 && (
+          <div className="ps-scope-gap-banner">
+            <strong>以下学习目标未完全被当前资料覆盖，未纳入本次计划：</strong>
+            <ul className="ps-scope-gap-list">
+              {planCoverageGaps.map((gap) => (
+                <li className="ps-scope-gap-item" key={`${gap.topic}-${gap.reason}`}>
+                  <span>{gap.topic}</span>
+                  <span>{gap.reason}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
 
         {/* 1. 学习档案 */}
         <div className="ps-adjust-section ps-adjust-profile">
@@ -439,32 +702,11 @@ export function ConfirmPlanPage() {
               </button>
             </div>
           </div>
-          <table className="ps-adjust-profile-table">
-            <thead>
-              <tr>
-                <th>项目</th>
-                <th>内容</th>
-              </tr>
-            </thead>
-            <tbody>
-              {profileValues.map((item) => (
-                <tr key={item.key}>
-                  <td>{item.title}</td>
-                  <td>
-                    {profileEditing ? (
-                      <input
-                        className="ps-adjust-profile-input"
-                        value={item.value}
-                        onChange={(e) => handleProfileValueChange(item.key, e.target.value)}
-                      />
-                    ) : (
-                      item.value
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <ProfileQaList
+            editing={profileEditing}
+            items={profileValues}
+            onValueChange={handleProfileValueChange}
+          />
         </div>
 
         {/* 2. 学习计划概览 */}
@@ -584,7 +826,10 @@ export function ConfirmPlanPage() {
                 <PlanOverviewCanvas
                   units={phases[trackPhaseIndex].units}
                   selectedUnitId={overviewSelectedUnitId}
-                  onSelectUnit={(id) => setOverviewSelectedUnitId(id)}
+                  onSelectUnit={(id) => {
+                    setOverviewSelectedUnitId(id);
+                    setOverviewSelectedTaskId(null);
+                  }}
                 />
               )}
 
@@ -599,9 +844,65 @@ export function ConfirmPlanPage() {
                     : null;
 
                   if (selUnit) {
+                    const selectedTask = overviewSelectedTaskId
+                      ? selUnit.tasks.find((t) => t.id === overviewSelectedTaskId) ?? null
+                      : null;
+
+                    if (selectedTask) {
+                      const taskIdx = selUnit.tasks.findIndex((t) => t.id === selectedTask.id);
+                      return (
+                        <>
+                          <div className="ps-adjust-plan-detail-head">
+                            <span className="ps-adjust-plan-detail-badge">任务</span>
+                            <span className="ps-adjust-plan-detail-title">
+                              {getTaskDetailTitle(selectedTask, taskIdx)}
+                            </span>
+                          </div>
+                          <div className="ps-detail-section">
+                            <div className="ps-detail-section-head">基础信息</div>
+                            <dl className="ps-detail-basics">
+                              <div className="ps-detail-basic-row">
+                                <dt>任务类型</dt>
+                                <dd>{getTaskTypeDetailLabel(selectedTask.task_type)}</dd>
+                              </div>
+                              <div className="ps-detail-basic-row">
+                                <dt>交付方式</dt>
+                                <dd>{getTaskDeliveryLabel(selectedTask.task_type, selectedTask.delivery_mode)}</dd>
+                              </div>
+                              <div className="ps-detail-basic-row">
+                                <dt>预估时长</dt>
+                                <dd>{formatMinutes(selectedTask.estimated_minutes)}</dd>
+                              </div>
+                              <div className="ps-detail-basic-row">
+                                <dt>是否必修</dt>
+                                <dd>{selectedTask.required ? "必修" : "选修"}</dd>
+                              </div>
+                            </dl>
+                          </div>
+                          <div className="ps-detail-section">
+                            <div className="ps-detail-section-head">概述</div>
+                            <p className="ps-detail-summary">
+                              {buildTaskDetailSummary(
+                                selectedTask,
+                                selUnit.title || `第 ${selUnit.position + 1} 章`,
+                                taskIdx,
+                                selectedTask.estimated_minutes,
+                              )}
+                            </p>
+                          </div>
+                          <button
+                            className="ps-task-card-back"
+                            type="button"
+                            onClick={() => setOverviewSelectedTaskId(null)}
+                          >
+                            返回章节任务列表
+                          </button>
+                        </>
+                      );
+                    }
+
                     const taskCount = selUnit.tasks.length;
-                    const typeSet = new Set(selUnit.tasks.map((t) => TASK_TYPE_LABEL[t.task_type] ?? t.task_type));
-                    const summary = `本章节包含 ${taskCount} 个学习任务，涵盖${[...typeSet].join("、")}等类型，预计用时 ${formatMinutes(selUnit.estimated_minutes)}。`;
+                    const summary = summarizeUnitTasks(selUnit.tasks, selUnit.estimated_minutes);
 
                     return (
                       <>
@@ -621,6 +922,21 @@ export function ConfirmPlanPage() {
                         <div className="ps-detail-section">
                           <div className="ps-detail-section-head">概述</div>
                           <p className="ps-detail-summary">{summary}</p>
+                        </div>
+                        <div className="ps-detail-section">
+                          <div className="ps-detail-section-head">学习任务</div>
+                          <div className="ps-task-type-card-list">
+                            {selUnit.tasks.map((task, taskIdx) => (
+                              <button
+                                className="ps-task-type-card"
+                                key={task.id}
+                                type="button"
+                                onClick={() => setOverviewSelectedTaskId(task.id)}
+                              >
+                                {getTaskCardLabelForUnit(selUnit.tasks, task, taskIdx)}
+                              </button>
+                            ))}
+                          </div>
                         </div>
                       </>
                     );

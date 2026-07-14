@@ -28,7 +28,12 @@ class WorkflowState(models.Model):
     input_json = models.JSONField(default=dict, help_text="输入快照")
     output_json = models.JSONField(null=True, blank=True, help_text="输出快照")
     checkpoint_data = models.JSONField(null=True, blank=True, help_text="检查点数据（崩溃恢复用）")
-    owner_id = models.CharField(max_length=64, blank=True, default="", help_text="发起用户 ID")
+    legacy_owner_id = models.CharField(
+        max_length=64, blank=True, default="", help_text="发起用户 ID",
+    )
+    owner = models.ForeignKey(
+        "users.User", null=True, on_delete=models.PROTECT, related_name="workflow_states",
+    )
     error_code = models.CharField(max_length=64, blank=True, default="")
     error_message = models.TextField(blank=True, default="")
     started_at = models.DateTimeField(null=True, blank=True)
@@ -39,7 +44,7 @@ class WorkflowState(models.Model):
     class Meta:
         db_table = "workflow_runtime_state"
         indexes = [
-            models.Index(fields=["owner_id", "status"], name="wrs_owner_status_idx"),
+            models.Index(fields=["owner", "status"], name="wrs_owner_status_idx"),
             models.Index(fields=["status", "created_at"], name="wrs_status_created_idx"),
             models.Index(fields=["workflow_type", "created_at"], name="wrs_type_created_idx"),
         ]
