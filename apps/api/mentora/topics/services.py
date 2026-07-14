@@ -16,8 +16,8 @@ from mentora.courses.services import resolve_course
 from mentora.topics.models import Topic, TopicEvidence
 
 
-def _topics_qs(resource_id: str):
-    resolved = resolve_course(resource_id)
+def _topics_qs(resource_id: str, *, owner=None):
+    resolved = resolve_course(resource_id, owner=owner)
     if resolved.course_id:
         return Topic.objects.filter(
             Q(course_id=resolved.course_id)
@@ -27,12 +27,12 @@ def _topics_qs(resource_id: str):
 
 
 @transaction.atomic
-def build_topic_tree(resource_id: str, topics_data: list[dict]) -> dict:
+def build_topic_tree(resource_id: str, topics_data: list[dict], *, owner=None) -> dict:
     """从结构化数据创建主题树。"""
-    resolved = resolve_course(resource_id)
+    resolved = resolve_course(resource_id, owner=owner)
     legacy_key = resolved.course_id or resolved.session_id
 
-    _topics_qs(resource_id).delete()
+    _topics_qs(resource_id, owner=owner).delete()
 
     created: list[Topic] = []
     for data in topics_data:
@@ -68,9 +68,9 @@ def rebind_topics_to_course(session_id: str, course_id: str) -> int:
     return updated
 
 
-def get_topic_tree(resource_id: str) -> list[dict]:
+def get_topic_tree(resource_id: str, *, owner=None) -> list[dict]:
     """获取课程的主题树（嵌套结构）。"""
-    topics = _topics_qs(resource_id).order_by("level", "position")
+    topics = _topics_qs(resource_id, owner=owner).order_by("level", "position")
 
     node_map: dict[str, dict] = {}
     for t in topics:
@@ -99,9 +99,9 @@ def get_topic_tree(resource_id: str) -> list[dict]:
 
 
 @transaction.atomic
-def link_evidence(topic_id: str, evidence_unit_ids: list[str]) -> dict:
+def link_evidence(topic_id: str, evidence_unit_ids: list[str], *, topic=None) -> dict:
     """批量关联证据到主题。已存在的关联跳过（幂等）。"""
-    topic = Topic.objects.get(id=topic_id)
+    topic = topic or Topic.objects.get(id=topic_id)
     linked = 0
 
     for eid in evidence_unit_ids:

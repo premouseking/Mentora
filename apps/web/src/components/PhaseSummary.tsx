@@ -4,6 +4,8 @@ import { useNavigate } from "react-router-dom";
 import { MentoraLoader } from "./MentoraLoader";
 import type { ActivePlan, PlanPhase, PlanUnit } from "../services/courseApi";
 import type { CoursePhasesResponse } from "../services/documentApi";
+import { completeLearningTask } from "../services/learningApi";
+import { COURSE_SESSION_ID_KEY } from "../lib/courseCreationStorage";
 import {
   buildTaskDetailSummary,
   getTaskCardLabelForUnit,
@@ -545,6 +547,8 @@ function PhaseDetail({
   onRequestComplete,
   onCancelConfirm,
   onConfirmComplete,
+  completingTaskId,
+  completionError,
   courseId,
 }: {
   phase: PlanPhase;
@@ -556,6 +560,8 @@ function PhaseDetail({
   onRequestComplete: (taskId: string) => void;
   onCancelConfirm: () => void;
   onConfirmComplete: () => void;
+  completingTaskId: string | null;
+  completionError: string | null;
   courseId: string;
 }) {
   const navigate = useNavigate();
@@ -714,13 +720,15 @@ function PhaseDetail({
         <div className="ps-confirm-overlay" onPointerDown={(e) => e.stopPropagation()}>
           <div className="ps-confirm-dialog">
             <p className="ps-confirm-text">确认已完成此学习任务？</p>
-            <p className="ps-confirm-hint">完成后将更新学习进度</p>
+            <p className="ps-confirm-hint">
+              {completionError ?? "完成后将更新学习进度"}
+            </p>
             <div className="ps-confirm-actions">
               <button className="ps-confirm-cancel" type="button" onClick={(e) => { e.stopPropagation(); onCancelConfirm(); }}>
                 取消
               </button>
-              <button className="ps-confirm-ok" type="button" onClick={(e) => { e.stopPropagation(); onConfirmComplete(); }}>
-                确认完成
+              <button className="ps-confirm-ok" type="button" disabled={completingTaskId === confirmTaskId} onClick={(e) => { e.stopPropagation(); onConfirmComplete(); }}>
+                {completingTaskId === confirmTaskId ? "提交中…" : "确认完成"}
               </button>
             </div>
           </div>
@@ -742,20 +750,25 @@ function phaseTrackOffsetOf(index: number, blockBasis: number) {
 export function PhaseSummary({
   onClose,
   activePlan,
-  phases: _phases,
+  phases,
   courseId,
+  sessionId,
 }: {
   onClose: () => void;
   activePlan: ActivePlan | null;
   phases: CoursePhasesResponse | null;
   courseId: string;
+  sessionId: string;
 }) {
+  const navigate = useNavigate();
   const plan = activePlan?.phases?.length ? activePlan : { phases: [] };
   const firstPhaseId = plan.phases[0]?.id ?? "";
   const [activePhase, setActivePhase] = useState(0);
   const [selected, setSelected] = useState<Selection>({ kind: "phase", id: firstPhaseId });
   const [completedTasks, setCompletedTasks] = useState<Set<string>>(new Set());
   const [confirmTaskId, setConfirmTaskId] = useState<string | null>(null);
+  const [completingTaskId, setCompletingTaskId] = useState<string | null>(null);
+  const [completionError, setCompletionError] = useState<string | null>(null);
   const [adjustMode, setAdjustMode] = useState(false);
   // 调整面板状态
   const [chatStage, setChatStage] = useState<ChatStage>("input");
@@ -782,12 +795,16 @@ export function PhaseSummary({
   const completedPhaseIndices = useMemo(() => {
     const result = new Set<number>();
     plan.phases.forEach((p, pi) => {
-      if (p.units.length > 0 && p.units.every((u) => u.tasks.every((t) => completedTasks.has(t.id)))) {
+      const persistedState = phases?.phases.find((item) => item.id === p.id)?.state;
+      if (
+        persistedState === "completed"
+        || (p.units.length > 0 && p.units.every((u) => u.tasks.every((t) => completedTasks.has(t.id))))
+      ) {
         result.add(pi);
       }
     });
     return result;
-  }, [plan.phases, completedTasks]);
+  }, [plan.phases, phases, completedTasks]);
 
   // 点击左栏阶段块：未选中→切换阶段并显示阶段信息；已选中→仅把右栏切回阶段信息
   const handleSelectPhase = useCallback((i: number) => {
@@ -795,13 +812,15 @@ export function PhaseSummary({
     setSelected({ kind: "phase", id: plan.phases[i].id });
   }, [plan.phases]);
 
-  // 点击资料按钮：关闭上划栏（mock 阶段不实际跳转资料页）
-  const handleOpenMaterial = useCallback(() => {
+  const handleOpenMaterial = useCallback((material: Material) => {
     onClose();
-  }, [onClose]);
+    const params = new URLSearchParams({ sourceVersionId: material.id });
+    navigate(`/courses/${encodeURIComponent(courseId)}?${params.toString()}`);
+  }, [courseId, navigate, onClose]);
 
   // 完成确认相关
   const handleRequestComplete = useCallback((taskId: string) => {
+    setCompletionError(null);
     setConfirmTaskId(taskId);
   }, []);
 
@@ -809,16 +828,32 @@ export function PhaseSummary({
     setConfirmTaskId(null);
   }, []);
 
-  const handleConfirmComplete = useCallback(() => {
-    if (confirmTaskId) {
-      setCompletedTasks((prev) => {
-        const next = new Set(prev);
-        next.add(confirmTaskId);
-        return next;
-      });
-      setConfirmTaskId(null);
+  const handleConfirmComplete = useCallback(async () => {
+    if (confirmTaskId && completingTaskId === null) {
+      setCompletingTaskId(confirmTaskId);
+      setCompletionError(null);
+      try {
+        await completeLearningTask(confirmTaskId);
+        setCompletedTasks((prev) => {
+          const next = new Set(prev);
+          next.add(confirmTaskId);
+          return next;
+        });
+        setConfirmTaskId(null);
+      } catch (error) {
+        setCompletionError(error instanceof Error ? error.message : "更新学习进度失败");
+      } finally {
+        setCompletingTaskId(null);
+      }
     }
-  }, [confirmTaskId]);
+  }, [completingTaskId, confirmTaskId]);
+
+  const handleOpenRealAdjustment = useCallback(() => {
+    if (!sessionId) return;
+    sessionStorage.setItem(COURSE_SESSION_ID_KEY, sessionId);
+    onClose();
+    navigate("/courses/new/plan");
+  }, [navigate, onClose, sessionId]);
 
   // ── 调整面板事件处理 ──
 
@@ -1511,6 +1546,8 @@ export function PhaseSummary({
                 onRequestComplete={handleRequestComplete}
                 onCancelConfirm={handleCancelConfirm}
                 onConfirmComplete={handleConfirmComplete}
+                completingTaskId={completingTaskId}
+                completionError={completionError}
                 courseId={courseId}
               />
             </div>
@@ -1524,7 +1561,7 @@ export function PhaseSummary({
 
           {/* 底部按钮 */}
           <div className="ps-layout-actions">
-            <button className="ps-btn ps-btn-secondary" type="button" onClick={() => setAdjustMode(true)}>
+            <button className="ps-btn ps-btn-secondary" type="button" disabled={!sessionId} onClick={handleOpenRealAdjustment}>
               调整方案
             </button>
           </div>

@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { apiClient } from "./client";
-import { commitExplanationSave, previewExplanationSave } from "./learningApi";
+import { commitExplanationSave, completeLearningTask, previewExplanationSave } from "./learningApi";
 
 describe("learningApi explanation save flow", () => {
   afterEach(() => vi.restoreAllMocks());
@@ -44,5 +44,16 @@ describe("learningApi explanation save flow", () => {
       course_id: "course-1",
       preview_id: "preview-1",
     });
+  });
+
+  it("completes a materialized or template task through the learning API", async () => {
+    const post = vi.spyOn(apiClient, "post").mockResolvedValue({
+      task_id: "task-1",
+      status: "completed",
+    });
+
+    await completeLearningTask("task-1");
+
+    expect(post).toHaveBeenCalledWith("/api/learning/tasks/task-1/complete/", {});
   });
 });

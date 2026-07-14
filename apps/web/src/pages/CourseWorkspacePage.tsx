@@ -979,7 +979,13 @@ export function CourseWorkspacePage() {
           >
             {phaseSummaryOpen && (
               <Suspense fallback={<PageSkeleton />}>
-                <PhaseSummary onClose={() => setPhaseSummaryOpen(false)} activePlan={activePlan} phases={phases} courseId={courseId!} />
+                <PhaseSummary
+                  onClose={() => setPhaseSummaryOpen(false)}
+                  activePlan={activePlan}
+                  phases={phases}
+                  courseId={courseId!}
+                  sessionId={course?.session_id ?? ""}
+                />
               </Suspense>
             )}
           </div>

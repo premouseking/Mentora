@@ -6,12 +6,39 @@
 
 import json
 
+from django.core.exceptions import ValidationError
+from django.db.models import Q
 from rest_framework.response import Response
 from rest_framework.decorators import api_view
 from drf_spectacular.utils import extend_schema
 
+from mentora.courses.models import Course, CourseCreationSession
+from mentora.knowledge.models import SourceVersion
+from mentora.retrieval.models import EvidenceUnit
 from mentora.topics.models import Topic, TopicEdge
 from mentora.topics.services import build_topic_tree, get_topic_tree, link_evidence
+
+
+def _owned_topics(user):
+    course_keys = [str(value) for value in Course.objects.filter(owner=user).values_list("id", flat=True)]
+    session_keys = [
+        str(value)
+        for value in CourseCreationSession.objects.filter(owner=user).values_list("id", flat=True)
+    ]
+    return Topic.objects.filter(
+        Q(course__owner=user)
+        | Q(course__isnull=True, legacy_course_key__in=[*course_keys, *session_keys])
+    )
+
+
+def _get_owned_topic(user, topic_id):
+    return _owned_topics(user).get(id=topic_id)
+
+
+def _same_topic_scope(left: Topic, right: Topic) -> bool:
+    if left.course_id or right.course_id:
+        return left.course_id is not None and left.course_id == right.course_id
+    return left.legacy_course_key == right.legacy_course_key
 
 
 def _parse_json(request) -> dict:
@@ -57,7 +84,10 @@ def topic_create_tree(request, course_id):
     if not topics_data:
         return Response({"error": "缺少 topics 参数"}, status=400)
 
-    result = build_topic_tree(course_id, topics_data)
+    try:
+        result = build_topic_tree(course_id, topics_data, owner=request.user)
+    except CourseCreationSession.DoesNotExist:
+        return Response({"error": "课程不存在"}, status=404)
     return Response(result, status=201)
 
 
@@ -68,7 +98,10 @@ def topic_create_tree(request, course_id):
 )
 @api_view(["GET"])
 def topic_get_tree(request, course_id):
-    return Response(get_topic_tree(course_id))
+    try:
+        return Response(get_topic_tree(course_id, owner=request.user))
+    except CourseCreationSession.DoesNotExist:
+        return Response({"error": "课程不存在"}, status=404)
 
 
 @extend_schema(
@@ -88,7 +121,7 @@ def topic_get_tree(request, course_id):
 @api_view(["PATCH"])
 def topic_update(request, topic_id):
     try:
-        topic = Topic.objects.get(id=topic_id)
+        topic = _get_owned_topic(request.user, topic_id)
     except Topic.DoesNotExist:
         return Response({"error": "主题不存在"}, status=404)
 
@@ -112,7 +145,7 @@ def topic_update(request, topic_id):
 @api_view(["DELETE"])
 def topic_delete(request, topic_id):
     try:
-        topic = Topic.objects.get(id=topic_id)
+        topic = _get_owned_topic(request.user, topic_id)
     except Topic.DoesNotExist:
         return Response({"error": "主题不存在"}, status=404)
     topic.delete()
@@ -136,7 +169,7 @@ def topic_delete(request, topic_id):
 @api_view(["POST"])
 def topic_add_edge(request, topic_id):
     try:
-        source = Topic.objects.get(id=topic_id)
+        source = _get_owned_topic(request.user, topic_id)
     except Topic.DoesNotExist:
         return Response({"error": "主题不存在"}, status=404)
 
@@ -150,9 +183,12 @@ def topic_add_edge(request, topic_id):
         return Response({"error": "缺少 target_id"}, status=400)
 
     try:
-        target = Topic.objects.get(id=target_id)
+        target = _get_owned_topic(request.user, target_id)
     except Topic.DoesNotExist:
         return Response({"error": "前置主题不存在"}, status=404)
+
+    if not _same_topic_scope(source, target):
+        return Response({"error": "不能关联不同课程的主题"}, status=400)
 
     relation = body.get("relation", "requires")
     edge, created = TopicEdge.objects.get_or_create(
@@ -187,7 +223,7 @@ def topic_add_edge(request, topic_id):
 @api_view(["POST"])
 def topic_link_evidence(request, topic_id):
     try:
-        Topic.objects.get(id=topic_id)
+        topic = _get_owned_topic(request.user, topic_id)
     except Topic.DoesNotExist:
         return Response({"error": "主题不存在"}, status=404)
 
@@ -200,5 +236,21 @@ def topic_link_evidence(request, topic_id):
     if not eids:
         return Response({"error": "缺少 evidence_unit_ids"}, status=400)
 
-    result = link_evidence(topic_id, eids)
+    try:
+        evidence_rows = list(
+            EvidenceUnit.objects.filter(id__in=eids).values_list("id", "source_version_id")
+        )
+    except (TypeError, ValueError, ValidationError):
+        return Response({"error": "证据不存在"}, status=404)
+    if not evidence_rows or len(evidence_rows) != len(set(eids)):
+        return Response({"error": "证据不存在"}, status=404)
+    evidence_version_ids = {source_version_id for _, source_version_id in evidence_rows}
+    owned_version_count = SourceVersion.objects.filter(
+        id__in=evidence_version_ids,
+        source__owner=request.user,
+    ).count()
+    if owned_version_count != len(evidence_version_ids):
+        return Response({"error": "证据不存在"}, status=404)
+
+    result = link_evidence(topic_id, eids, topic=topic)
     return Response(result)

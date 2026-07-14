@@ -109,8 +109,8 @@ def build_task_sources(evidence_ids: list[str]) -> list[dict]:
     return sources
 
 
-def resolve_learning_task(task_id: str) -> LearningTask | None:
+def resolve_learning_task(task_id: str, *, owner=None) -> LearningTask | None:
     """按 LearningTask.id 或 template_id 解析可执行任务。"""
     from mentora.learning.services import ensure_learning_task_for_id
 
-    return ensure_learning_task_for_id(task_id)
+    return ensure_learning_task_for_id(task_id, owner=owner)

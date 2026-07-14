@@ -50,13 +50,13 @@ def _json_error(message: str, status: int = 400, *, code: str | None = None) -> 
     return Response(payload, status=status)
 
 
-def _resolve_task_unit_id(task_id: str, course_session_id: str) -> tuple[str, Response | None]:
+def _resolve_task_unit_id(task_id: str, course_session_id: str, *, owner=None) -> tuple[str, Response | None]:
     if not task_id:
         return "", None
 
     from mentora.learning.services.task_sources import resolve_learning_task
 
-    task = resolve_learning_task(task_id)
+    task = resolve_learning_task(task_id, owner=owner)
     if task is None:
         return "", _json_error("任务不存在", 400)
 
@@ -285,7 +285,9 @@ def generate_quiz_session(request):
         return _json_error("所选资料还没有可用于出题的解析证据，请先完成文件解析", 400)
 
     source_titles = get_source_titles(source_version_ids)
-    unit_id, task_error = _resolve_task_unit_id(task_id, course_session_id)
+    unit_id, task_error = _resolve_task_unit_id(
+        task_id, course_session_id, owner=request.user,
+    )
     if task_error is not None:
         return task_error
 

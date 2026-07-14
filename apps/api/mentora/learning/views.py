@@ -212,12 +212,7 @@ def explanation_commit(request):
 @api_view(["GET"])
 def task_detail(request, task_id):
     """GET /api/learning/tasks/<task_id>/"""
-    from mentora.learning.models import LearningTask
-    if not LearningTask.objects.filter(
-        id=task_id, revision__learning_plan__owner=request.user,
-    ).exists():
-        return Response({"error": "任务不存在"}, status=404)
-    detail = get_task_detail(task_id)
+    detail = get_task_detail(str(task_id), owner=request.user)
     if detail is None:
         return Response({"error": "任务不存在"}, status=404)
     return Response(detail)
@@ -236,8 +231,8 @@ def task_complete(request, task_id):
     """POST /api/learning/tasks/<task_id>/complete/"""
     from mentora.learning.services.task_sources import resolve_learning_task
 
-    task = resolve_learning_task(str(task_id))
-    if task is None or task.revision.learning_plan.owner_id != request.user.id:
+    task = resolve_learning_task(str(task_id), owner=request.user)
+    if task is None:
         return Response({"error": "任务不存在"}, status=404)
     result = complete_task(str(task.id))
     return Response(result)

@@ -236,14 +236,21 @@ def ensure_structured_plan_from_snapshot(revision_id: str) -> bool:
     return True
 
 
-def find_revision_for_snapshot_task_id(task_id: str) -> LearningPlanRevision | None:
+def find_revision_for_snapshot_task_id(task_id: str, *, owner=None) -> LearningPlanRevision | None:
     """在仅有快照、尚未回填结构化表的 active revision 中定位 task_id。"""
-    if LearningPlanTaskTemplate.objects.filter(id=task_id).exists():
-        return LearningPlanTaskTemplate.objects.select_related("revision").get(id=task_id).revision
-
-    for revision in LearningPlanRevision.objects.filter(
+    template_qs = LearningPlanTaskTemplate.objects.select_related("revision")
+    revision_qs = LearningPlanRevision.objects.filter(
         status=LearningPlanRevision.Status.ACTIVE,
-    ):
+    )
+    if owner is not None:
+        template_qs = template_qs.filter(revision__learning_plan__owner=owner)
+        revision_qs = revision_qs.filter(learning_plan__owner=owner)
+
+    template = template_qs.filter(id=task_id).first()
+    if template is not None:
+        return template.revision
+
+    for revision in revision_qs:
         if revision.phases.exists():
             continue
         built = _build_plan_from_snapshot(str(revision.learning_plan_id), revision)
@@ -256,11 +263,13 @@ def find_revision_for_snapshot_task_id(task_id: str) -> LearningPlanRevision | N
 
 
 @transaction.atomic
-def ensure_learning_task_for_id(task_id: str) -> LearningTask | None:
+def ensure_learning_task_for_id(task_id: str, *, owner=None) -> LearningTask | None:
     """确保 snapshot/template 任务 ID 可解析为 LearningTask（必要时回填并物化）。"""
     qs = LearningTask.objects.select_related(
         "unit", "unit__phase", "template", "template__unit", "template__unit__phase", "revision",
     )
+    if owner is not None:
+        qs = qs.filter(revision__learning_plan__owner=owner)
     try:
         return qs.get(id=task_id)
     except LearningTask.DoesNotExist:
@@ -268,7 +277,7 @@ def ensure_learning_task_for_id(task_id: str) -> LearningTask | None:
         if task is not None:
             return task
 
-    revision = find_revision_for_snapshot_task_id(task_id)
+    revision = find_revision_for_snapshot_task_id(task_id, owner=owner)
     if revision is None:
         return None
 
@@ -977,7 +986,7 @@ def get_history(course_id: str = "", *, limit: int = 50, owner=None) -> dict:
     return {"items": items, "total": len(items)}
 
 
-def get_task_detail(task_id: str) -> dict | None:
+def get_task_detail(task_id: str, *, owner=None) -> dict | None:
     """获取学习任务详情，包含内容块和来源资料。
 
     返回前端 LearningTaskDetail 结构，可直接被 LearningTaskPage 消费。
@@ -989,7 +998,7 @@ def get_task_detail(task_id: str) -> dict | None:
         resolve_learning_task,
     )
 
-    task = resolve_learning_task(task_id)
+    task = resolve_learning_task(task_id, owner=owner)
     if task is None:
         return None
 
